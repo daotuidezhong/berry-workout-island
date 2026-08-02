@@ -18,6 +18,7 @@ type GameState = {
   purchased: string[];
   inventory: Record<FoodId, number>;
   energy: number;
+  sleepiness: number;
   catPosition: Point;
   catFurniture: string | null;
   furniturePositions: Record<string, Point>;
@@ -60,18 +61,21 @@ const pets = [
     walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-walk-v2-${frame}.png`), idle: "/game/cat-orange-idle.png",
     groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-groom-${frame}.png`),
     yawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-yawn-${frame}.png`),
+    actionScale: { groom: 1.36, yawn: 1.44 },
   },
   {
     id: "doubao" as PetId, name: "豆包", kind: "奶牛猫", nature: "安静的陪跑员",
     walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-walk-v2-${frame}.png`), idle: "/game/cat-cow-idle.png",
     groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-groom-${frame}.png`),
     yawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-yawn-${frame}.png`),
+    actionScale: { groom: 1.32, yawn: 1.31 },
   },
   {
     id: "xueqiu" as PetId, name: "雪球", kind: "白绒猫", nature: "爱撒娇的鼓励师",
     walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-walk-v2-${frame}.png`), idle: "/game/cat-white-idle.png",
     groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-groom-${frame}.png`),
     yawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-yawn-${frame}.png`),
+    actionScale: { groom: 1.28, yawn: 1.29 },
   },
 ];
 
@@ -93,6 +97,7 @@ const INITIAL_GAME: GameState = {
   purchased: [],
   inventory: INITIAL_INVENTORY,
   energy: 72,
+  sleepiness: 24,
   catPosition: { x: 56, y: 72 },
   catFurniture: null,
   furniturePositions: DEFAULT_FURNITURE_POSITIONS,
@@ -228,10 +233,13 @@ export default function Home() {
 
   useEffect(() => {
     if (walking || decorating || idleAction) return;
-    const timer = window.setTimeout(
-      () => setIdleAction(idleCycle.current % 2 === 0 ? "groom" : "yawn"),
-      idleCycle.current % 2 === 0 ? 3800 : 5400,
-    );
+    const nextAction = idleCycle.current % 2 === 0 ? "groom" : "yawn";
+    const timer = window.setTimeout(() => {
+      if (nextAction === "yawn") {
+        setGame((current) => ({ ...current, sleepiness: Math.min(100, current.sleepiness + 2) }));
+      }
+      setIdleAction(nextAction);
+    }, nextAction === "groom" ? 3800 : 5400);
     return () => window.clearTimeout(timer);
   }, [decorating, idleAction, walking]);
 
@@ -315,6 +323,7 @@ export default function Home() {
   const totalFood = foodItems.reduce((total, item) => total + game.inventory[item.id], 0);
   const selectedFoodItem = foodItems.find((item) => item.id === selectedFood) ?? foodItems[0];
   const actionFrame = idleAction ? actionSequences[idleAction][idleFrame] : -1;
+  const catScale = !walking && idleAction ? pet.actionScale[idleAction] : 1;
   const catAsset = walking
     ? pet.walkFrames[walkFrame]
     : idleAction && actionFrame >= 0
@@ -384,6 +393,7 @@ export default function Home() {
       lastCheckin: today,
       lastActivity: completedActivity,
       energy: Math.min(100, current.energy + 8),
+      sleepiness: Math.max(0, current.sleepiness - 8),
     }));
     setToast(bonus ? `连续 ${next} 天！获得 ${reward} 颗草莓` : `记录成功！获得 ${reward} 颗草莓`);
   }
@@ -487,7 +497,7 @@ export default function Home() {
             style={{ left: `${game.catPosition.x}%`, top: `${game.catPosition.y}%`, zIndex: game.catFurniture ? Math.round((game.furniturePositions[game.catFurniture] ?? DEFAULT_FURNITURE_POSITIONS[game.catFurniture]).y) + 2 : Math.round(game.catPosition.y) + 2, transitionDuration: `${walkDuration}ms` }}
           >
             <i />
-            <img src={catAsset} alt={`${pet.name}正在小屋里`} draggable={false} />
+            <img src={catAsset} alt={`${pet.name}正在小屋里`} draggable={false} style={{ transform: `scale(${direction === "left" ? -catScale : catScale}, ${catScale})` }} />
             <b>{pet.name}</b>
           </div>
 
@@ -505,8 +515,10 @@ export default function Home() {
 
         <aside className="pet-status">
           <img src={pet.idle} alt="" />
-          <div><small>{pet.name}的活力</small><div className="energy"><i style={{ width: `${game.energy}%` }} /></div></div>
-          <strong>{game.energy}</strong>
+          <div className="pet-meters">
+            <div><small><span>{pet.name}的活力</span><b>{game.energy}</b></small><div className="energy"><i style={{ width: `${game.energy}%` }} /></div></div>
+            <div><small><span>{pet.name}的困倦值</span><b>{game.sleepiness}</b></small><div className="sleepiness"><i style={{ width: `${game.sleepiness}%` }} /></div></div>
+          </div>
           <button onClick={() => openOverlay("bag")}>喂食</button>
         </aside>
 

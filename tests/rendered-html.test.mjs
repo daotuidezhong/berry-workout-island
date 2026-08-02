@@ -35,5 +35,6 @@ test("server-renders the full-screen game without the old movement hint", async 
   assert.match(html, /class="game-stage"/);
   assert.match(html, /class="game-room/);
   assert.match(html, /aria-label="游戏菜单"/);
+  assert.match(html, /的困倦值/);
   assert.doesNotMatch(html, /room-help|点击地面移动/);
 });
