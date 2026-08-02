@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CAT_BOUNDS, getFurnitureTarget } from "../app/furniture.ts";
+import { CAT_BOUNDS, clampCatPosition, getFurnitureTarget } from "../app/furniture.ts";
 import { getTimePeriod } from "../app/time-period.ts";
 
 async function render() {
@@ -23,7 +23,9 @@ test("maps local hours to four room lighting periods", () => {
 });
 
 test("uses furniture height to choose walking or jumping", () => {
-  assert.equal(CAT_BOUNDS.minY, 24);
+  assert.equal(CAT_BOUNDS.minY, 43);
+  assert.deepEqual(clampCatPosition({ x: 50, y: 24 }), { x: 50, y: 43 });
+  assert.deepEqual(clampCatPosition({ x: 100, y: 100 }), { x: 93, y: 88 });
   assert.deepEqual(getFurnitureTarget({ x: 48, y: 78 }, 0), { x: 48, y: 78, jumping: false, onTop: true });
   assert.deepEqual(getFurnitureTarget({ x: 61, y: 77 }, 8), { x: 61, y: 69, jumping: true, onTop: true });
   assert.deepEqual(getFurnitureTarget({ x: 86, y: 62 }, null), { x: 92, y: 62, jumping: false, onTop: false });

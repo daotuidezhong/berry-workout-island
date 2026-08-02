@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CAT_BOUNDS, getFurnitureTarget, type Point } from "./furniture";
+import { clampCatPosition, getFurnitureTarget, type Point } from "./furniture";
 import { getTimePeriod, type TimePeriod } from "./time-period";
 
 type PetId = "mitao" | "doubao" | "xueqiu";
@@ -62,20 +62,20 @@ const pets = [
     groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-groom-${frame}.png`),
     yawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-yawn-${frame}.png`),
     frameAdjustments: {
-      walk: [{ scale: 1.031, y: 4.9 }, { scale: 1.035, y: 5.2 }, { scale: 1.031, y: 5.1 }, { scale: 1.047, y: 5 }],
-      groom: [{ scale: 1.325, y: 1.7 }, { scale: 1.352, y: 1.8 }, { scale: 1.303, y: 1.6 }, { scale: 1.303, y: 1.6 }],
-      yawn: [{ scale: 1.206, y: 1.1 }, { scale: 1.206, y: 1.1 }, { scale: 1.191, y: 1 }, { scale: 1.159, y: .9 }],
+      walk: { scale: 1.036, y: 5.05 },
+      groom: { scale: 1.321, y: 1.68 },
+      yawn: { scale: 1.191, y: 1.03 },
     },
   },
   {
     id: "doubao" as PetId, name: "豆包", kind: "奶牛猫", nature: "安静的陪跑员",
-    walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-walk-v2-${frame}.png`), idle: "/game/cat-cow-idle.png",
+    walkFrames: [1, 3, 4, 3].map((frame) => `/game/cat-cow-walk-v2-${frame}.png`), idle: "/game/cat-cow-idle.png",
     groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-groom-${frame}.png`),
     yawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-yawn-${frame}.png`),
     frameAdjustments: {
-      walk: [{ scale: 1.05, y: 7.1 }, { scale: 1.079, y: 7.7 }, { scale: 1.063, y: 7.4 }, { scale: 1.101, y: 7.7 }],
-      groom: [{ scale: 1.229, y: -6 }, { scale: 1.146, y: -6.4 }, { scale: 1.139, y: -6.4 }, { scale: 1.146, y: -6.4 }],
-      yawn: [{ scale: 1.082, y: -6.6 }, { scale: 1.082, y: -6.6 }, { scale: 1.071, y: -6.7 }, { scale: 1.079, y: -6.7 }],
+      walk: { scale: 1.073, y: 7.48 },
+      groom: { scale: 1.165, y: -6.3 },
+      yawn: { scale: 1.079, y: -6.65 },
     },
   },
   {
@@ -84,9 +84,9 @@ const pets = [
     groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-groom-${frame}.png`),
     yawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-yawn-${frame}.png`),
     frameAdjustments: {
-      walk: [{ scale: 1.04, y: 8.5 }, { scale: 1.093, y: 9.8 }, { scale: 1.06, y: 9 }, { scale: 1.088, y: 9.7 }],
-      groom: [{ scale: 1.195, y: -12.3 }, { scale: 1.225, y: -12.2 }, { scale: 1.185, y: -12.4 }, { scale: 1.167, y: -12.5 }],
-      yawn: [{ scale: 1.134, y: -12.6 }, { scale: 1.137, y: -12.6 }, { scale: 1.096, y: -12.8 }, { scale: 1.093, y: -12.8 }],
+      walk: { scale: 1.07, y: 9.25 },
+      groom: { scale: 1.193, y: -12.35 },
+      yawn: { scale: 1.115, y: -12.7 },
     },
   },
 ];
@@ -180,7 +180,7 @@ export default function Home() {
           ...parsed,
           inventory,
           purchased: Array.isArray(parsed.purchased) ? parsed.purchased : [],
-          catPosition: parsed.catPosition ?? INITIAL_GAME.catPosition,
+          catPosition: clampCatPosition(parsed.catPosition ?? INITIAL_GAME.catPosition),
           furniturePositions: { ...DEFAULT_FURNITURE_POSITIONS, ...(parsed.furniturePositions ?? {}) },
         };
         if (merged.lastCheckin) {
@@ -276,13 +276,13 @@ export default function Home() {
       if (!move) return;
       event.preventDefault();
       if (move.x) setDirection(move.x < 0 ? "left" : "right");
-      setWalkDuration(360);
+      setWalkDuration(120);
       setGame((current) => ({
         ...current,
-        catPosition: {
-          x: clamp(current.catPosition.x + move.x, CAT_BOUNDS.minX, CAT_BOUNDS.maxX),
-          y: clamp(current.catPosition.y + move.y, CAT_BOUNDS.minY, CAT_BOUNDS.maxY),
-        },
+        catPosition: clampCatPosition({
+          x: current.catPosition.x + move.x,
+          y: current.catPosition.y + move.y,
+        }),
         catFurniture: null,
       }));
       setJumping(false);
@@ -291,7 +291,7 @@ export default function Home() {
       walkingTimer.current = window.setTimeout(() => {
         setWalking(false);
         setJumping(false);
-      }, 420);
+      }, 180);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -343,9 +343,9 @@ export default function Home() {
   const selectedFoodItem = foodItems.find((item) => item.id === selectedFood) ?? foodItems[0];
   const actionFrame = idleAction ? actionSequences[idleAction][idleFrame] : -1;
   const frameAdjustment = walking
-    ? pet.frameAdjustments.walk[walkFrame]
+    ? pet.frameAdjustments.walk
     : idleAction && actionFrame >= 0
-      ? pet.frameAdjustments[idleAction][actionFrame]
+      ? pet.frameAdjustments[idleAction]
       : { scale: 1, y: 0 };
   const catAsset = walking
     ? pet.walkFrames[walkFrame]
@@ -365,8 +365,10 @@ export default function Home() {
   function moveCat(event: React.PointerEvent<HTMLDivElement>) {
     if (decorating || overlay || (event.target as HTMLElement).closest("[data-furniture]")) return;
     const rect = event.currentTarget.getBoundingClientRect();
-    const x = clamp(((event.clientX - rect.left) / rect.width) * 100, CAT_BOUNDS.minX, CAT_BOUNDS.maxX);
-    const y = clamp(((event.clientY - rect.top) / rect.height) * 100, CAT_BOUNDS.minY, CAT_BOUNDS.maxY);
+    const { x, y } = clampCatPosition({
+      x: ((event.clientX - rect.left) / rect.width) * 100,
+      y: ((event.clientY - rect.top) / rect.height) * 100,
+    });
     const distance = Math.hypot(x - game.catPosition.x, y - game.catPosition.y);
     const duration = Math.round(clamp(distance * 14, 420, 900));
     setDirection(x < game.catPosition.x ? "left" : "right");
