@@ -5,11 +5,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 type PetId = "mitao" | "doubao" | "xueqiu";
 type PageId = "home" | "pets" | "shop";
 type Point = { x: number; y: number };
+type IdleAction = "groom" | "yawn";
 
 type GameState = {
   berries: number;
   streak: number;
   lastCheckin: string | null;
+  lastActivity: string | null;
   pet: PetId;
   purchased: string[];
   food: number;
@@ -29,6 +31,7 @@ const INITIAL_GAME: GameState = {
   berries: 48,
   streak: 0,
   lastCheckin: null,
+  lastActivity: null,
   pet: "mitao",
   purchased: [],
   food: 2,
@@ -37,16 +40,22 @@ const INITIAL_GAME: GameState = {
   furniturePositions: DEFAULT_FURNITURE_POSITIONS,
 };
 
-const activities = [
-  { id: "walk", icon: "👟", name: "快走", goal: "30 分钟" },
-  { id: "run", icon: "🏃", name: "慢跑", goal: "3 公里" },
-  { id: "stretch", icon: "🧘", name: "拉伸", goal: "20 分钟" },
-];
-
 const pets = [
-  { id: "mitao" as PetId, name: "蜜桃", kind: "橘子猫", nature: "热情的小太阳", frames: ["/game/cat-orange-1.png", "/game/cat-orange-2.png"] },
-  { id: "doubao" as PetId, name: "豆包", kind: "奶牛猫", nature: "安静的陪跑员", frames: ["/game/cat-cow-1.png", "/game/cat-cow-2.png"] },
-  { id: "xueqiu" as PetId, name: "雪球", kind: "白绒猫", nature: "爱撒娇的鼓励师", frames: ["/game/cat-white-1.png", "/game/cat-white-2.png"] },
+  {
+    id: "mitao" as PetId, name: "蜜桃", kind: "橘子猫", nature: "热情的小太阳",
+    walkFrames: ["/game/cat-orange-1.png", "/game/cat-orange-2.png"],
+    idleFrames: { sit: "/game/cat-orange-idle.png", groom: "/game/cat-orange-groom.png", yawn: "/game/cat-orange-yawn.png" },
+  },
+  {
+    id: "doubao" as PetId, name: "豆包", kind: "奶牛猫", nature: "安静的陪跑员",
+    walkFrames: ["/game/cat-cow-1.png", "/game/cat-cow-2.png"],
+    idleFrames: { sit: "/game/cat-cow-idle.png", groom: "/game/cat-cow-groom.png", yawn: "/game/cat-cow-yawn.png" },
+  },
+  {
+    id: "xueqiu" as PetId, name: "雪球", kind: "白绒猫", nature: "爱撒娇的鼓励师",
+    walkFrames: ["/game/cat-white-1.png", "/game/cat-white-2.png"],
+    idleFrames: { sit: "/game/cat-white-idle.png", groom: "/game/cat-white-groom.png", yawn: "/game/cat-white-yawn.png" },
+  },
 ];
 
 const shopItems = [
@@ -78,7 +87,7 @@ function clamp(value: number, min: number, max: number) {
 
 export default function Home() {
   const [page, setPage] = useState<PageId>("home");
-  const [activity, setActivity] = useState("walk");
+  const [activityText, setActivityText] = useState("");
   const [game, setGame] = useState<GameState>(INITIAL_GAME);
   const [ready, setReady] = useState(false);
   const [today, setToday] = useState("");
@@ -88,9 +97,13 @@ export default function Home() {
   const [dragging, setDragging] = useState<string | null>(null);
   const [walking, setWalking] = useState(false);
   const [walkFrame, setWalkFrame] = useState(0);
+  const [walkDuration, setWalkDuration] = useState(550);
+  const [idleAction, setIdleAction] = useState<IdleAction | null>(null);
+  const [idleFrame, setIdleFrame] = useState(0);
   const [direction, setDirection] = useState<"left" | "right">("right");
   const roomRef = useRef<HTMLDivElement>(null);
   const walkingTimer = useRef<number | undefined>(undefined);
+  const idleCycle = useRef(0);
 
   useEffect(() => {
     const now = new Date();
@@ -119,6 +132,7 @@ export default function Home() {
           const gap = Math.round((midnight.getTime() - previous.getTime()) / 86400000);
           if (gap > 1) merged.streak = 0;
         }
+        if (merged.lastCheckin === current && merged.lastActivity) setActivityText(merged.lastActivity);
         setGame(merged);
       } catch {
         setGame(INITIAL_GAME);
@@ -142,13 +156,45 @@ export default function Home() {
       setWalkFrame(0);
       return;
     }
-    const timer = window.setInterval(() => setWalkFrame((frame) => (frame ? 0 : 1)), 170);
+    const timer = window.setInterval(() => setWalkFrame((frame) => (frame ? 0 : 1)), 120);
     return () => window.clearInterval(timer);
   }, [walking]);
 
   useEffect(() => {
+    if (!idleAction) {
+      setIdleFrame(0);
+      return;
+    }
+    const timer = window.setInterval(
+      () => setIdleFrame((frame) => (frame ? 0 : 1)),
+      idleAction === "groom" ? 360 : 620,
+    );
+    return () => window.clearInterval(timer);
+  }, [idleAction]);
+
+  useEffect(() => {
+    if (page !== "home" || walking || decorating) {
+      setIdleAction(null);
+      return;
+    }
+    if (idleAction) {
+      const timer = window.setTimeout(() => {
+        idleCycle.current += 1;
+        setIdleAction(null);
+      }, idleAction === "groom" ? 2600 : 1900);
+      return () => window.clearTimeout(timer);
+    }
+    const timer = window.setTimeout(
+      () => setIdleAction(idleCycle.current % 2 === 0 ? "groom" : "yawn"),
+      idleCycle.current % 2 === 0 ? 3600 : 5600,
+    );
+    return () => window.clearTimeout(timer);
+  }, [decorating, idleAction, page, walking]);
+
+  useEffect(() => {
     if (page !== "home" || decorating) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.target as HTMLElement).closest("input, textarea, [contenteditable='true']")) return;
       const moves: Record<string, Point> = {
         ArrowLeft: { x: -3, y: 0 }, a: { x: -3, y: 0 }, A: { x: -3, y: 0 },
         ArrowRight: { x: 3, y: 0 }, d: { x: 3, y: 0 }, D: { x: 3, y: 0 },
@@ -159,6 +205,7 @@ export default function Home() {
       if (!move) return;
       event.preventDefault();
       if (move.x) setDirection(move.x < 0 ? "left" : "right");
+      setWalkDuration(150);
       setGame((current) => ({
         ...current,
         catPosition: {
@@ -168,7 +215,7 @@ export default function Home() {
       }));
       setWalking(true);
       window.clearTimeout(walkingTimer.current);
-      walkingTimer.current = window.setTimeout(() => setWalking(false), 280);
+      walkingTimer.current = window.setTimeout(() => setWalking(false), 220);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -180,8 +227,8 @@ export default function Home() {
       const rect = roomRef.current?.getBoundingClientRect();
       if (!rect) return;
       const point = {
-        x: clamp(((event.clientX - rect.left) / rect.width) * 100, 6, 94),
-        y: clamp(((event.clientY - rect.top) / rect.height) * 100, 38, 87),
+        x: clamp(((event.clientX - rect.left) / rect.width) * 100, 3, 97),
+        y: clamp(((event.clientY - rect.top) / rect.height) * 100, 8, 94),
       };
       setGame((current) => ({
         ...current,
@@ -191,9 +238,11 @@ export default function Home() {
     const stopDragging = () => setDragging(null);
     window.addEventListener("pointermove", moveFurniture);
     window.addEventListener("pointerup", stopDragging, { once: true });
+    window.addEventListener("pointercancel", stopDragging, { once: true });
     return () => {
       window.removeEventListener("pointermove", moveFurniture);
       window.removeEventListener("pointerup", stopDragging);
+      window.removeEventListener("pointercancel", stopDragging);
     };
   }, [dragging]);
 
@@ -205,7 +254,11 @@ export default function Home() {
   const streakBonus = milestones.find((item) => item.day === nextStreak)?.bonus ?? 0;
   const checkinReward = 8 + streakBonus;
   const nextMilestone = milestones.find((item) => item.day > game.streak);
-  const catAsset = pet.frames[walking ? walkFrame : 0];
+  const catAsset = walking
+    ? pet.walkFrames[walkFrame]
+    : idleAction && idleFrame
+      ? pet.idleFrames[idleAction]
+      : pet.idleFrames.sit;
   const ownedFurniture = shopItems.filter((item) => item.type === "furniture" && game.purchased.includes(item.id));
 
   const navItems = useMemo(() => [
@@ -219,16 +272,25 @@ export default function Home() {
     const rect = event.currentTarget.getBoundingClientRect();
     const x = clamp(((event.clientX - rect.left) / rect.width) * 100, 7, 93);
     const y = clamp(((event.clientY - rect.top) / rect.height) * 100, 36, 86);
+    const distance = Math.hypot(x - game.catPosition.x, y - game.catPosition.y);
+    const duration = Math.round(clamp(distance * 14, 280, 900));
     setDirection(x < game.catPosition.x ? "left" : "right");
+    setWalkDuration(duration);
     setGame((current) => ({ ...current, catPosition: { x, y } }));
     setWalking(true);
     window.clearTimeout(walkingTimer.current);
-    walkingTimer.current = window.setTimeout(() => setWalking(false), 620);
+    walkingTimer.current = window.setTimeout(() => setWalking(false), duration + 60);
     event.currentTarget.focus();
   }
 
-  function checkIn() {
+  function checkIn(event: React.FormEvent) {
+    event.preventDefault();
+    const completedActivity = activityText.trim();
     if (!ready || checkedToday) return;
+    if (!completedActivity) {
+      setToast("先写下今天做了什么吧！");
+      return;
+    }
     const next = game.streak + 1;
     const bonus = milestones.find((item) => item.day === next)?.bonus ?? 0;
     const reward = 8 + bonus;
@@ -237,6 +299,7 @@ export default function Home() {
       berries: current.berries + reward,
       streak: next,
       lastCheckin: today,
+      lastActivity: completedActivity,
       energy: Math.min(100, current.energy + 8),
     }));
     setToast(bonus ? `连续 ${next} 天！获得 ${reward} 颗草莓` : `打卡成功！获得 ${reward} 颗草莓`);
@@ -315,17 +378,26 @@ export default function Home() {
                 <span><small>TODAY&apos;S QUEST</small><b>今日运动</b></span>
                 <i>{dateLabel || "今天"}</i>
               </div>
-              <div className="activity-list" role="radiogroup" aria-label="选择今天的运动">
-                {activities.map((item) => (
-                  <button key={item.id} className={activity === item.id ? "selected" : ""} onClick={() => setActivity(item.id)} role="radio" aria-checked={activity === item.id}>
-                    <span>{item.icon}</span><b>{item.name}<small>{item.goal}</small></b><i>{activity === item.id ? "✓" : ""}</i>
-                  </button>
-                ))}
-              </div>
-              <div className="reward-line"><span>完成可得</span><b>🍓 +{checkinReward}</b></div>
-              <button className="checkin-button" onClick={checkIn} disabled={!ready || checkedToday}>
-                {checkedToday ? "✓ 今天已打卡" : "完成运动，领取草莓"}
-              </button>
+              <form className="activity-entry" onSubmit={checkIn}>
+                <label htmlFor="today-activity">今天做了什么？</label>
+                <div>
+                  <textarea
+                    id="today-activity"
+                    value={activityText}
+                    onChange={(event) => setActivityText(event.target.value)}
+                    placeholder="例如：跳绳 20 分钟、爬楼梯、打了一场球……"
+                    maxLength={40}
+                    rows={3}
+                    disabled={checkedToday}
+                  />
+                  <small>{activityText.trim().length}/40</small>
+                </div>
+                {checkedToday && game.lastActivity && <p>✓ 今天完成：{game.lastActivity}</p>}
+                <div className="reward-line"><span>{checkedToday ? "今天已收获" : "记录即可获得"}</span><b>🍓 +{checkinReward}</b></div>
+                <button className="checkin-button" type="submit" disabled={!ready || checkedToday || !activityText.trim()}>
+                  {checkedToday ? "✓ 今天已打卡" : "记录运动，领取草莓"}
+                </button>
+              </form>
               <div className="streak-card">
                 <div><span><small>连续记录</small><b>{game.streak} 天</b></span><em>下一份奖励</em></div>
                 <div className="week-track">
@@ -367,6 +439,7 @@ export default function Home() {
                       style={{ left: `${position.x}%`, top: `${position.y}%`, zIndex: Math.round(position.y) }}
                       onPointerDown={(event) => {
                         if (!decorating) return;
+                        event.preventDefault();
                         event.stopPropagation();
                         setDragging(item.id);
                       }}
@@ -379,8 +452,8 @@ export default function Home() {
                 })}
 
                 <div
-                  className={`walking-cat ${walking ? "walking" : ""} ${direction === "left" ? "facing-left" : ""}`}
-                  style={{ left: `${game.catPosition.x}%`, top: `${game.catPosition.y}%`, zIndex: Math.round(game.catPosition.y) + 2 }}
+                  className={`walking-cat ${walking ? "walking" : ""} ${idleAction ? `idle-${idleAction}` : ""} ${direction === "left" ? "facing-left" : ""}`}
+                  style={{ left: `${game.catPosition.x}%`, top: `${game.catPosition.y}%`, zIndex: Math.round(game.catPosition.y) + 2, transitionDuration: `${walkDuration}ms` }}
                 >
                   <i />
                   <img src={catAsset} alt={`${pet.name}正在小屋里`} draggable={false} />
@@ -394,14 +467,14 @@ export default function Home() {
 
               <div className="room-dock">
                 <div className="pet-vitality">
-                  <img src={pet.frames[0]} alt="" />
+                  <img src={pet.idleFrames.sit} alt="" />
                   <span><b>{pet.name}的活力</b><small>{pet.nature}</small></span>
                   <div className="energy"><i style={{ width: `${game.energy}%` }} /></div>
                   <strong>{game.energy}</strong>
                   <button onClick={feedPet}>喂猫 <small>🐟 ×{game.food}</small></button>
                 </div>
                 <div className="furniture-inventory">
-                  <span><small>我的家具</small><b>{ownedFurniture.length ? "可在布置模式中自由拖动" : "还没有家具"}</b></span>
+                  <span><small>我的家具</small><b>{ownedFurniture.length ? "可在整间小屋内自由拖动" : "还没有家具"}</b></span>
                   <div>{ownedFurniture.map((item) => <img key={item.id} src={item.asset} alt={item.name} />)}</div>
                   <button onClick={() => setPage("shop")}>{ownedFurniture.length ? "添置家具" : "去商场看看"} →</button>
                 </div>
@@ -420,7 +493,7 @@ export default function Home() {
             <div className="pet-grid">
               {pets.map((item) => (
                 <article key={item.id} className={game.pet === item.id ? "chosen" : ""}>
-                  <div className="pet-showcase"><span>{item.kind}</span><img src={item.frames[0]} alt={`${item.name}，${item.kind}`} /></div>
+                  <div className="pet-showcase"><span>{item.kind}</span><img src={item.idleFrames.sit} alt={`${item.name}，${item.kind}`} /></div>
                   <div><small>{item.nature}</small><h2>{item.name}</h2><p>喜欢散步、晒太阳，也会在你运动回来时跑到门口迎接。</p></div>
                   <button onClick={() => adoptPet(item.id)} disabled={game.pet === item.id}>{game.pet === item.id ? "✓ 正在陪伴你" : "带它回家"}</button>
                 </article>
