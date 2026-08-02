@@ -6,21 +6,21 @@ export async function generateMetadata(): Promise<Metadata> {
   const incoming = await headers();
   const host = (incoming.get("x-forwarded-host") ?? incoming.get("host") ?? "localhost:3000").split(",")[0];
   const protocol = incoming.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
-  const image = `${protocol}://${host}/og-v3.png`;
+  const image = `${protocol}://${host}/og-v4.png`;
 
   return {
     title: "莓好运动岛｜像素运动打卡游戏",
-    description: "自由记录今天做过的运动，在精美的 2D 小屋中和猫咪互动，用奖励布置自己的家。",
+    description: "在全屏 2D 小屋里自由记录运动、布置家具，用背包选择食物喂猫，并欣赏更自然的多帧猫咪动画。",
     openGraph: {
       title: "莓好运动岛",
-      description: "自由记录、猫咪陪伴、自由布置。",
+      description: "全屏小屋、多帧猫咪、背包喂食、自由装扮。",
       type: "website",
       images: [{ url: image, width: 1730, height: 909, alt: "莓好运动岛 2D 游戏封面" }],
     },
     twitter: {
       card: "summary_large_image",
       title: "莓好运动岛",
-      description: "自由记录、猫咪陪伴、自由布置。",
+      description: "全屏小屋、多帧猫咪、背包喂食、自由装扮。",
       images: [image],
     },
   };

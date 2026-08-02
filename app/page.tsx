@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type PetId = "mitao" | "doubao" | "xueqiu";
-type PageId = "home" | "pets" | "shop";
-type Point = { x: number; y: number };
+type OverlayId = "quest" | "bag" | "pets" | "shop" | null;
 type IdleAction = "groom" | "yawn";
+type ShopCategory = "food" | "furniture";
+type FoodId = "driedFish" | "chickenCan" | "salmonMousse" | "tunaRice" | "chickenCubes" | "catnipBiscuits";
+type Point = { x: number; y: number };
 
 type GameState = {
   berries: number;
@@ -14,17 +16,71 @@ type GameState = {
   lastActivity: string | null;
   pet: PetId;
   purchased: string[];
-  food: number;
+  inventory: Record<FoodId, number>;
   energy: number;
   catPosition: Point;
   furniturePositions: Record<string, Point>;
 };
 
 const DEFAULT_FURNITURE_POSITIONS: Record<string, Point> = {
-  rug: { x: 48, y: 76 },
-  plant: { x: 86, y: 61 },
-  lamp: { x: 73, y: 59 },
-  catbed: { x: 25, y: 75 },
+  rug: { x: 48, y: 78 },
+  plant: { x: 86, y: 62 },
+  lamp: { x: 73, y: 61 },
+  catbed: { x: 25, y: 77 },
+  bookcase: { x: 14, y: 58 },
+  table: { x: 61, y: 77 },
+  cushion: { x: 78, y: 81 },
+  chest: { x: 90, y: 78 },
+};
+
+const foodItems = [
+  { id: "driedFish" as FoodId, name: "蝴蝶结小鱼干", detail: "香香脆脆", price: 12, energy: 14, asset: "/game/food-dried-fish.png" },
+  { id: "chickenCan" as FoodId, name: "鸡肉肉酱罐头", detail: "软乎乎的肉酱", price: 18, energy: 20, asset: "/game/food-chicken-can.png" },
+  { id: "salmonMousse" as FoodId, name: "三文鱼慕斯", detail: "细腻的鱼肉慕斯", price: 24, energy: 26, asset: "/game/food-salmon-mousse.png" },
+  { id: "tunaRice" as FoodId, name: "金枪鱼拌饭", detail: "满满的鱼肉碎", price: 28, energy: 30, asset: "/game/food-tuna-rice.png" },
+  { id: "chickenCubes" as FoodId, name: "冻干鸡肉粒", detail: "一口一个咔嚓脆", price: 22, energy: 24, asset: "/game/food-chicken-cubes.png" },
+  { id: "catnipBiscuits" as FoodId, name: "猫薄荷饼干", detail: "快乐的小爪饼干", price: 16, energy: 17, asset: "/game/food-catnip-biscuits.png" },
+];
+
+const furnitureItems = [
+  { id: "rug", name: "草莓地毯", detail: "柔软的大地毯", price: 35, asset: "/game/furniture-rug.png" },
+  { id: "plant", name: "薄荷盆栽", detail: "让房间有一点绿意", price: 48, asset: "/game/furniture-plant.png" },
+  { id: "lamp", name: "蘑菇夜灯", detail: "晚上会暖暖发光", price: 60, asset: "/game/furniture-lamp.png" },
+  { id: "catbed", name: "云朵猫窝", detail: "最适合蜷成一团", price: 75, asset: "/game/furniture-catbed.png" },
+  { id: "bookcase", name: "草莓书柜", detail: "摆满绘本和小收藏", price: 82, asset: "/game/furniture-bookcase.png" },
+  { id: "table", name: "莓果小圆桌", detail: "一起坐下吃点心", price: 58, asset: "/game/furniture-table.png" },
+  { id: "cushion", name: "爱心软垫", detail: "软绵绵的休息角", price: 42, asset: "/game/furniture-cushion.png" },
+  { id: "chest", name: "木制玩具箱", detail: "收好猫咪的小玩具", price: 68, asset: "/game/furniture-chest.png" },
+];
+
+const pets = [
+  {
+    id: "mitao" as PetId, name: "蜜桃", kind: "橘子猫", nature: "热情的小太阳",
+    walkFrames: ["/game/cat-orange-1.png", "/game/cat-orange-2.png"], idle: "/game/cat-orange-idle.png",
+    groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-groom-${frame}.png`),
+    yawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-yawn-${frame}.png`),
+  },
+  {
+    id: "doubao" as PetId, name: "豆包", kind: "奶牛猫", nature: "安静的陪跑员",
+    walkFrames: ["/game/cat-cow-1.png", "/game/cat-cow-2.png"], idle: "/game/cat-cow-idle.png",
+    groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-groom-${frame}.png`),
+    yawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-yawn-${frame}.png`),
+  },
+  {
+    id: "xueqiu" as PetId, name: "雪球", kind: "白绒猫", nature: "爱撒娇的鼓励师",
+    walkFrames: ["/game/cat-white-1.png", "/game/cat-white-2.png"], idle: "/game/cat-white-idle.png",
+    groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-groom-${frame}.png`),
+    yawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-yawn-${frame}.png`),
+  },
+];
+
+const INITIAL_INVENTORY: Record<FoodId, number> = {
+  driedFish: 2,
+  chickenCan: 0,
+  salmonMousse: 0,
+  tunaRice: 0,
+  chickenCubes: 0,
+  catnipBiscuits: 0,
 };
 
 const INITIAL_GAME: GameState = {
@@ -34,38 +90,11 @@ const INITIAL_GAME: GameState = {
   lastActivity: null,
   pet: "mitao",
   purchased: [],
-  food: 2,
+  inventory: INITIAL_INVENTORY,
   energy: 72,
   catPosition: { x: 56, y: 72 },
   furniturePositions: DEFAULT_FURNITURE_POSITIONS,
 };
-
-const pets = [
-  {
-    id: "mitao" as PetId, name: "蜜桃", kind: "橘子猫", nature: "热情的小太阳",
-    walkFrames: ["/game/cat-orange-1.png", "/game/cat-orange-2.png"],
-    idleFrames: { sit: "/game/cat-orange-idle.png", groom: "/game/cat-orange-groom.png", yawn: "/game/cat-orange-yawn.png" },
-  },
-  {
-    id: "doubao" as PetId, name: "豆包", kind: "奶牛猫", nature: "安静的陪跑员",
-    walkFrames: ["/game/cat-cow-1.png", "/game/cat-cow-2.png"],
-    idleFrames: { sit: "/game/cat-cow-idle.png", groom: "/game/cat-cow-groom.png", yawn: "/game/cat-cow-yawn.png" },
-  },
-  {
-    id: "xueqiu" as PetId, name: "雪球", kind: "白绒猫", nature: "爱撒娇的鼓励师",
-    walkFrames: ["/game/cat-white-1.png", "/game/cat-white-2.png"],
-    idleFrames: { sit: "/game/cat-white-idle.png", groom: "/game/cat-white-groom.png", yawn: "/game/cat-white-yawn.png" },
-  },
-];
-
-const shopItems = [
-  { id: "fish", icon: "🐟", name: "小鱼猫粮", detail: "猫粮 +1", price: 12, type: "food", asset: "" },
-  { id: "chicken", icon: "🥫", name: "鸡肉罐头", detail: "猫粮 +1", price: 18, type: "food", asset: "" },
-  { id: "rug", icon: "", name: "草莓地毯", detail: "可拖动布置", price: 35, type: "furniture", asset: "/game/furniture-rug.png" },
-  { id: "plant", icon: "", name: "薄荷盆栽", detail: "可拖动布置", price: 48, type: "furniture", asset: "/game/furniture-plant.png" },
-  { id: "lamp", icon: "", name: "蘑菇夜灯", detail: "可拖动布置", price: 60, type: "furniture", asset: "/game/furniture-lamp.png" },
-  { id: "catbed", icon: "", name: "云朵猫窝", detail: "可拖动布置", price: 75, type: "furniture", asset: "/game/furniture-catbed.png" },
-];
 
 const milestones = [
   { day: 3, bonus: 6 },
@@ -73,6 +102,11 @@ const milestones = [
   { day: 14, bonus: 40 },
   { day: 30, bonus: 100 },
 ];
+
+const actionSequences = {
+  groom: [-1, 0, 1, 2, 3, 2, 3, 2, 1, 0, -1],
+  yawn: [-1, 0, 1, 2, 3, 3, 2, 1, 0, -1],
+};
 
 function localDate(date = new Date()) {
   const year = date.getFullYear();
@@ -86,7 +120,9 @@ function clamp(value: number, min: number, max: number) {
 }
 
 export default function Home() {
-  const [page, setPage] = useState<PageId>("home");
+  const [overlay, setOverlay] = useState<OverlayId>(null);
+  const [shopCategory, setShopCategory] = useState<ShopCategory>("food");
+  const [selectedFood, setSelectedFood] = useState<FoodId>("driedFish");
   const [activityText, setActivityText] = useState("");
   const [game, setGame] = useState<GameState>(INITIAL_GAME);
   const [ready, setReady] = useState(false);
@@ -114,23 +150,23 @@ export default function Home() {
     const saved = window.localStorage.getItem("berry-workout-game");
     if (saved) {
       try {
-        const parsed = JSON.parse(saved) as Partial<GameState>;
+        const parsed = JSON.parse(saved) as Partial<GameState> & { food?: number };
+        const legacyFood = typeof parsed.food === "number" ? parsed.food : INITIAL_INVENTORY.driedFish;
+        const inventory = { ...INITIAL_INVENTORY, ...(parsed.inventory ?? {}) };
+        if (!parsed.inventory) inventory.driedFish = legacyFood;
         const merged: GameState = {
           ...INITIAL_GAME,
           ...parsed,
+          inventory,
           purchased: Array.isArray(parsed.purchased) ? parsed.purchased : [],
           catPosition: parsed.catPosition ?? INITIAL_GAME.catPosition,
-          furniturePositions: {
-            ...DEFAULT_FURNITURE_POSITIONS,
-            ...(parsed.furniturePositions ?? {}),
-          },
+          furniturePositions: { ...DEFAULT_FURNITURE_POSITIONS, ...(parsed.furniturePositions ?? {}) },
         };
         if (merged.lastCheckin) {
           const previous = new Date(`${merged.lastCheckin}T00:00:00`);
           const midnight = new Date(now);
           midnight.setHours(0, 0, 0, 0);
-          const gap = Math.round((midnight.getTime() - previous.getTime()) / 86400000);
-          if (gap > 1) merged.streak = 0;
+          if (Math.round((midnight.getTime() - previous.getTime()) / 86400000) > 1) merged.streak = 0;
         }
         if (merged.lastCheckin === current && merged.lastActivity) setActivityText(merged.lastActivity);
         setGame(merged);
@@ -161,40 +197,37 @@ export default function Home() {
   }, [walking]);
 
   useEffect(() => {
-    if (!idleAction) {
-      setIdleFrame(0);
-      return;
-    }
-    const timer = window.setInterval(
-      () => setIdleFrame((frame) => (frame ? 0 : 1)),
-      idleAction === "groom" ? 360 : 620,
-    );
+    if (!idleAction) return;
+    const sequence = actionSequences[idleAction];
+    let frame = 0;
+    setIdleFrame(0);
+    const timer = window.setInterval(() => {
+      frame += 1;
+      if (frame >= sequence.length) {
+        window.clearInterval(timer);
+        idleCycle.current += 1;
+        setIdleAction(null);
+        setIdleFrame(0);
+        return;
+      }
+      setIdleFrame(frame);
+    }, idleAction === "groom" ? 250 : 290);
     return () => window.clearInterval(timer);
   }, [idleAction]);
 
   useEffect(() => {
-    if (page !== "home" || walking || decorating) {
-      setIdleAction(null);
-      return;
-    }
-    if (idleAction) {
-      const timer = window.setTimeout(() => {
-        idleCycle.current += 1;
-        setIdleAction(null);
-      }, idleAction === "groom" ? 2600 : 1900);
-      return () => window.clearTimeout(timer);
-    }
+    if (walking || decorating || idleAction) return;
     const timer = window.setTimeout(
       () => setIdleAction(idleCycle.current % 2 === 0 ? "groom" : "yawn"),
-      idleCycle.current % 2 === 0 ? 3600 : 5600,
+      idleCycle.current % 2 === 0 ? 3800 : 5400,
     );
     return () => window.clearTimeout(timer);
-  }, [decorating, idleAction, page, walking]);
+  }, [decorating, idleAction, walking]);
 
   useEffect(() => {
-    if (page !== "home" || decorating) return;
+    if (overlay || decorating) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.target as HTMLElement).closest("input, textarea, [contenteditable='true']")) return;
+      if (event.target instanceof HTMLElement && event.target.closest("input, textarea, [contenteditable='true']")) return;
       const moves: Record<string, Point> = {
         ArrowLeft: { x: -3, y: 0 }, a: { x: -3, y: 0 }, A: { x: -3, y: 0 },
         ArrowRight: { x: 3, y: 0 }, d: { x: 3, y: 0 }, D: { x: 3, y: 0 },
@@ -210,7 +243,7 @@ export default function Home() {
         ...current,
         catPosition: {
           x: clamp(current.catPosition.x + move.x, 7, 93),
-          y: clamp(current.catPosition.y + move.y, 36, 86),
+          y: clamp(current.catPosition.y + move.y, 36, 88),
         },
       }));
       setWalking(true);
@@ -219,7 +252,15 @@ export default function Home() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [decorating, page]);
+  }, [decorating, overlay]);
+
+  useEffect(() => {
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOverlay(null);
+    };
+    window.addEventListener("keydown", onEscape);
+    return () => window.removeEventListener("keydown", onEscape);
+  }, []);
 
   useEffect(() => {
     if (!dragging) return;
@@ -227,8 +268,8 @@ export default function Home() {
       const rect = roomRef.current?.getBoundingClientRect();
       if (!rect) return;
       const point = {
-        x: clamp(((event.clientX - rect.left) / rect.width) * 100, 3, 97),
-        y: clamp(((event.clientY - rect.top) / rect.height) * 100, 8, 94),
+        x: clamp(((event.clientX - rect.left) / rect.width) * 100, 2, 98),
+        y: clamp(((event.clientY - rect.top) / rect.height) * 100, 8, 95),
       };
       setGame((current) => ({
         ...current,
@@ -254,24 +295,30 @@ export default function Home() {
   const streakBonus = milestones.find((item) => item.day === nextStreak)?.bonus ?? 0;
   const checkinReward = 8 + streakBonus;
   const nextMilestone = milestones.find((item) => item.day > game.streak);
+  const ownedFurniture = furnitureItems.filter((item) => game.purchased.includes(item.id));
+  const totalFood = foodItems.reduce((total, item) => total + game.inventory[item.id], 0);
+  const selectedFoodItem = foodItems.find((item) => item.id === selectedFood) ?? foodItems[0];
+  const actionFrame = idleAction ? actionSequences[idleAction][idleFrame] : -1;
   const catAsset = walking
     ? pet.walkFrames[walkFrame]
-    : idleAction && idleFrame
-      ? pet.idleFrames[idleAction]
-      : pet.idleFrames.sit;
-  const ownedFurniture = shopItems.filter((item) => item.type === "furniture" && game.purchased.includes(item.id));
+    : idleAction && actionFrame >= 0
+      ? (idleAction === "groom" ? pet.groomFrames : pet.yawnFrames)[actionFrame]
+      : pet.idle;
 
-  const navItems = useMemo(() => [
-    { id: "home" as PageId, icon: "⌂", label: "我的小屋" },
-    { id: "pets" as PageId, icon: "🐾", label: "宠物商店" },
-    { id: "shop" as PageId, icon: "▦", label: "草莓商场" },
-  ], []);
+  function openOverlay(id: Exclude<OverlayId, null>) {
+    setDecorating(false);
+    if (id === "bag") {
+      const firstOwned = foodItems.find((item) => game.inventory[item.id] > 0);
+      if (firstOwned) setSelectedFood(firstOwned.id);
+    }
+    setOverlay(id);
+  }
 
   function moveCat(event: React.PointerEvent<HTMLDivElement>) {
-    if (decorating || (event.target as HTMLElement).closest("[data-furniture]")) return;
+    if (decorating || overlay || (event.target as HTMLElement).closest("[data-furniture]")) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const x = clamp(((event.clientX - rect.left) / rect.width) * 100, 7, 93);
-    const y = clamp(((event.clientY - rect.top) / rect.height) * 100, 36, 86);
+    const y = clamp(((event.clientY - rect.top) / rect.height) * 100, 36, 88);
     const distance = Math.hypot(x - game.catPosition.x, y - game.catPosition.y);
     const duration = Math.round(clamp(distance * 14, 280, 900));
     setDirection(x < game.catPosition.x ? "left" : "right");
@@ -286,11 +333,7 @@ export default function Home() {
   function checkIn(event: React.FormEvent) {
     event.preventDefault();
     const completedActivity = activityText.trim();
-    if (!ready || checkedToday) return;
-    if (!completedActivity) {
-      setToast("先写下今天做了什么吧！");
-      return;
-    }
+    if (!ready || checkedToday || !completedActivity) return;
     const next = game.streak + 1;
     const bonus = milestones.find((item) => item.day === next)?.bonus ?? 0;
     const reward = 8 + bonus;
@@ -302,12 +345,10 @@ export default function Home() {
       lastActivity: completedActivity,
       energy: Math.min(100, current.energy + 8),
     }));
-    setToast(bonus ? `连续 ${next} 天！获得 ${reward} 颗草莓` : `打卡成功！获得 ${reward} 颗草莓`);
+    setToast(bonus ? `连续 ${next} 天！获得 ${reward} 颗草莓` : `记录成功！获得 ${reward} 颗草莓`);
   }
 
-  function buyItem(item: (typeof shopItems)[number]) {
-    const owned = item.type === "furniture" && game.purchased.includes(item.id);
-    if (owned) return;
+  function buyFood(item: (typeof foodItems)[number]) {
     if (game.berries < item.price) {
       setToast("草莓不够，再完成几次运动吧！");
       return;
@@ -315,27 +356,42 @@ export default function Home() {
     setGame((current) => ({
       ...current,
       berries: current.berries - item.price,
-      food: item.type === "food" ? current.food + 1 : current.food,
-      purchased: item.type === "furniture" ? [...current.purchased, item.id] : current.purchased,
-      furniturePositions: item.type === "furniture"
-        ? { ...current.furniturePositions, [item.id]: DEFAULT_FURNITURE_POSITIONS[item.id] }
-        : current.furniturePositions,
+      inventory: { ...current.inventory, [item.id]: current.inventory[item.id] + 1 },
     }));
-    setToast(item.type === "food" ? `${item.name} 已放入背包` : `${item.name} 已送到小屋，可以拖动布置了`);
+    setToast(`${item.name} 已放进背包`);
   }
 
-  function feedPet() {
-    if (!game.food) {
-      setToast("猫粮吃完啦，去商场补充吧！");
-      setPage("shop");
+  function buyFurniture(item: (typeof furnitureItems)[number]) {
+    if (game.purchased.includes(item.id)) return;
+    if (game.berries < item.price) {
+      setToast("草莓不够，再完成几次运动吧！");
+      return;
+    }
+    setGame((current) => ({
+      ...current,
+      berries: current.berries - item.price,
+      purchased: [...current.purchased, item.id],
+      furniturePositions: { ...current.furniturePositions, [item.id]: DEFAULT_FURNITURE_POSITIONS[item.id] },
+    }));
+    setToast(`${item.name} 已送到小屋`);
+  }
+
+  function feedPet(foodId: FoodId) {
+    const item = foodItems.find((food) => food.id === foodId)!;
+    if (!game.inventory[foodId]) {
+      setToast("背包里没有这种食物了");
       return;
     }
     if (game.energy >= 100) {
       setToast(`${pet.name} 现在精神满满！`);
       return;
     }
-    setGame((current) => ({ ...current, food: current.food - 1, energy: Math.min(100, current.energy + 22) }));
-    setToast(`${pet.name} 吃饱啦，开心地蹭了蹭你`);
+    setGame((current) => ({
+      ...current,
+      inventory: { ...current.inventory, [foodId]: current.inventory[foodId] - 1 },
+      energy: Math.min(100, current.energy + item.energy),
+    }));
+    setToast(`${pet.name} 吃掉了${item.name}，活力 +${item.energy}`);
   }
 
   function adoptPet(id: PetId) {
@@ -351,181 +407,183 @@ export default function Home() {
 
   return (
     <main className="game-page">
-      <div className="app-shell">
-        <header className="topbar">
-          <button className="brand" onClick={() => setPage("home")} aria-label="回到我的小屋">
-            <span className="brand-mark">🍓</span>
-            <span><b>莓好运动岛</b><small>把每一次运动，变成家的模样</small></span>
+      <section className="game-stage" aria-label="莓好运动岛全屏游戏">
+        <div
+          className={`game-room ${decorating ? "decorating" : ""}`}
+          ref={roomRef}
+          tabIndex={0}
+          onPointerDown={moveCat}
+          aria-label="全屏像素小屋。点击地面或使用方向键移动猫咪。"
+        >
+          <img className="room-background" src="/game/room-v2.png" alt="温暖的像素风猫咪小屋" draggable={false} />
+          <div className="room-vignette" />
+
+          {ownedFurniture.map((item) => {
+            const position = game.furniturePositions[item.id] ?? DEFAULT_FURNITURE_POSITIONS[item.id];
+            return (
+              <button
+                key={item.id}
+                type="button"
+                data-furniture={item.id}
+                className={`placed-furniture furniture-${item.id} ${dragging === item.id ? "dragging" : ""}`}
+                style={{ left: `${position.x}%`, top: `${position.y}%`, zIndex: Math.round(position.y) }}
+                onPointerDown={(event) => {
+                  if (!decorating) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setDragging(item.id);
+                }}
+                aria-label={`${item.name}${decorating ? "，拖动可调整位置" : ""}`}
+              >
+                <img src={item.asset} alt="" draggable={false} />
+                {decorating && <span>拖动</span>}
+              </button>
+            );
+          })}
+
+          <div
+            className={`walking-cat ${walking ? "walking" : ""} ${direction === "left" ? "facing-left" : ""}`}
+            style={{ left: `${game.catPosition.x}%`, top: `${game.catPosition.y}%`, zIndex: Math.round(game.catPosition.y) + 2, transitionDuration: `${walkDuration}ms` }}
+          >
+            <i />
+            <img src={catAsset} alt={`${pet.name}正在小屋里`} draggable={false} />
+            <b>{pet.name}</b>
+          </div>
+
+          <div className="room-help">
+            {decorating ? "按住家具拖动到小屋里的任意位置" : "点击地面移动 · 方向键 / WASD 也可以走路"}
+          </div>
+        </div>
+
+        <header className="game-hud">
+          <button className="game-logo" onClick={() => setOverlay(null)} aria-label="关闭窗口回到小屋">
+            <span>🍓</span><b>莓好运动岛</b>
           </button>
-          <div className="top-stats">
+          <div className="hud-counters">
             <div><span>🔥</span><small>连续</small><b>{game.streak} 天</b></div>
             <div><span>🍓</span><small>草莓</small><b>{game.berries}</b></div>
           </div>
         </header>
 
-        <nav className="world-nav" aria-label="游戏地点">
-          {navItems.map((item) => (
-            <button key={item.id} className={page === item.id ? "active" : ""} onClick={() => setPage(item.id)}>
-              <span>{item.icon}</span>{item.label}
-            </button>
-          ))}
-        </nav>
+        <aside className="pet-status">
+          <img src={pet.idle} alt="" />
+          <div><small>{pet.name}的活力</small><div className="energy"><i style={{ width: `${game.energy}%` }} /></div></div>
+          <strong>{game.energy}</strong>
+          <button onClick={() => openOverlay("bag")}>喂食</button>
+        </aside>
 
-        {page === "home" && (
-          <div className="home-layout">
-            <aside className="mission-panel">
-              <div className="mission-heading">
-                <span><small>TODAY&apos;S QUEST</small><b>今日运动</b></span>
-                <i>{dateLabel || "今天"}</i>
-              </div>
-              <form className="activity-entry" onSubmit={checkIn}>
-                <label htmlFor="today-activity">今天做了什么？</label>
-                <div>
-                  <textarea
-                    id="today-activity"
-                    value={activityText}
-                    onChange={(event) => setActivityText(event.target.value)}
-                    placeholder="例如：跳绳 20 分钟、爬楼梯、打了一场球……"
-                    maxLength={40}
-                    rows={3}
-                    disabled={checkedToday}
-                  />
-                  <small>{activityText.trim().length}/40</small>
-                </div>
-                {checkedToday && game.lastActivity && <p>✓ 今天完成：{game.lastActivity}</p>}
-                <div className="reward-line"><span>{checkedToday ? "今天已收获" : "记录即可获得"}</span><b>🍓 +{checkinReward}</b></div>
-                <button className="checkin-button" type="submit" disabled={!ready || checkedToday || !activityText.trim()}>
-                  {checkedToday ? "✓ 今天已打卡" : "记录运动，领取草莓"}
-                </button>
-              </form>
-              <div className="streak-card">
-                <div><span><small>连续记录</small><b>{game.streak} 天</b></span><em>下一份奖励</em></div>
-                <div className="week-track">
-                  {[1, 2, 3, 4, 5, 6, 7].map((day) => <i key={day} className={day <= Math.min(game.streak, 7) ? "done" : ""}>{day <= Math.min(game.streak, 7) ? "✓" : day}</i>)}
-                </div>
-                <p>{nextMilestone ? <>再坚持 <b>{nextMilestone.day - game.streak} 天</b>，奖励 🍓 {nextMilestone.bonus}</> : "30 天里程碑已达成！"}</p>
-              </div>
-            </aside>
-
-            <section className="room-section">
-              <div className="room-toolbar">
-                <span><small>HOME SWEET HOME</small><h1>小莓的家</h1></span>
-                <div>
-                  {decorating && <button className="reset-button" onClick={resetFurniture}>恢复布局</button>}
-                  <button className={`decorate-button ${decorating ? "active" : ""}`} onClick={() => setDecorating((value) => !value)}>
-                    {decorating ? "✓ 完成布置" : "✦ 布置小屋"}
-                  </button>
-                </div>
-              </div>
-
-              <div
-                className={`game-room ${decorating ? "decorating" : ""}`}
-                ref={roomRef}
-                tabIndex={0}
-                onPointerDown={moveCat}
-                aria-label="2D 小屋场景。点击地面或使用方向键移动猫咪。"
-              >
-                <img className="room-background" src="/game/room-v2.png" alt="温暖的像素风小屋室内" draggable={false} />
-                <div className="room-vignette" />
-
-                {ownedFurniture.map((item) => {
-                  const position = game.furniturePositions[item.id] ?? DEFAULT_FURNITURE_POSITIONS[item.id];
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      data-furniture={item.id}
-                      className={`placed-furniture furniture-${item.id} ${dragging === item.id ? "dragging" : ""}`}
-                      style={{ left: `${position.x}%`, top: `${position.y}%`, zIndex: Math.round(position.y) }}
-                      onPointerDown={(event) => {
-                        if (!decorating) return;
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setDragging(item.id);
-                      }}
-                      aria-label={`${item.name}${decorating ? "，拖动可调整位置" : ""}`}
-                    >
-                      <img src={item.asset} alt="" draggable={false} />
-                      {decorating && <span>拖动</span>}
-                    </button>
-                  );
-                })}
-
-                <div
-                  className={`walking-cat ${walking ? "walking" : ""} ${idleAction ? `idle-${idleAction}` : ""} ${direction === "left" ? "facing-left" : ""}`}
-                  style={{ left: `${game.catPosition.x}%`, top: `${game.catPosition.y}%`, zIndex: Math.round(game.catPosition.y) + 2, transitionDuration: `${walkDuration}ms` }}
-                >
-                  <i />
-                  <img src={catAsset} alt={`${pet.name}正在小屋里`} draggable={false} />
-                  <b>{pet.name}</b>
-                </div>
-
-                <div className="room-help">
-                  {decorating ? <><span>✥</span>按住家具拖动，摆成你喜欢的样子</> : <><span>⌁</span>点击地面移动 · 也可以使用方向键 / WASD</>}
-                </div>
-              </div>
-
-              <div className="room-dock">
-                <div className="pet-vitality">
-                  <img src={pet.idleFrames.sit} alt="" />
-                  <span><b>{pet.name}的活力</b><small>{pet.nature}</small></span>
-                  <div className="energy"><i style={{ width: `${game.energy}%` }} /></div>
-                  <strong>{game.energy}</strong>
-                  <button onClick={feedPet}>喂猫 <small>🐟 ×{game.food}</small></button>
-                </div>
-                <div className="furniture-inventory">
-                  <span><small>我的家具</small><b>{ownedFurniture.length ? "可在整间小屋内自由拖动" : "还没有家具"}</b></span>
-                  <div>{ownedFurniture.map((item) => <img key={item.id} src={item.asset} alt={item.name} />)}</div>
-                  <button onClick={() => setPage("shop")}>{ownedFurniture.length ? "添置家具" : "去商场看看"} →</button>
-                </div>
-              </div>
-            </section>
+        {decorating && (
+          <div className="decorate-tools">
+            <b>布置模式</b>
+            <button onClick={resetFurniture}>恢复布局</button>
+            <button onClick={() => setDecorating(false)}>完成</button>
           </div>
         )}
 
-        {page === "pets" && (
-          <section className="store-page pet-store-page">
-            <div className="store-heading">
-              <span><small>PAW PAW PET SHOP</small><h1>选择你的运动伙伴</h1><p>它会住进小屋，陪你把每一次打卡变成生活。</p></span>
-              <i>今日营业 · 伙伴免费</i>
-            </div>
-            <div className="pet-store-banner"><span>🐾</span><b>爪爪宠物商店</b><small>三位伙伴都在等你回家</small></div>
-            <div className="pet-grid">
-              {pets.map((item) => (
-                <article key={item.id} className={game.pet === item.id ? "chosen" : ""}>
-                  <div className="pet-showcase"><span>{item.kind}</span><img src={item.idleFrames.sit} alt={`${item.name}，${item.kind}`} /></div>
-                  <div><small>{item.nature}</small><h2>{item.name}</h2><p>喜欢散步、晒太阳，也会在你运动回来时跑到门口迎接。</p></div>
-                  <button onClick={() => adoptPet(item.id)} disabled={game.pet === item.id}>{game.pet === item.id ? "✓ 正在陪伴你" : "带它回家"}</button>
-                </article>
-              ))}
-            </div>
-          </section>
-        )}
+        <nav className="game-dock" aria-label="游戏菜单">
+          <button className={overlay === "quest" ? "active" : ""} onClick={() => openOverlay("quest")}><span>📋</span><b>任务</b></button>
+          <button className={overlay === "bag" ? "active" : ""} onClick={() => openOverlay("bag")}><span>🎒</span><b>背包</b><i>{totalFood}</i></button>
+          <button className={overlay === "shop" ? "active" : ""} onClick={() => openOverlay("shop")}><span>🛒</span><b>商店</b></button>
+          <button className={overlay === "pets" ? "active" : ""} onClick={() => openOverlay("pets")}><span>🐾</span><b>伙伴</b></button>
+          <button className={decorating ? "active" : ""} onClick={() => { setOverlay(null); setDecorating((value) => !value); }}><span>🪑</span><b>布置</b></button>
+        </nav>
 
-        {page === "shop" && (
-          <section className="store-page mall-page">
-            <div className="store-heading">
-              <span><small>BERRY MINI MALL</small><h1>用运动收获，装扮你的家</h1><p>家具购买后会送到小屋，并且可以自由拖动布置。</p></span>
-              <div className="wallet"><small>草莓余额</small><b>🍓 {game.berries}</b></div>
-            </div>
-            <div className="mall-promo"><span>今日推荐</span><b>运动越多，小屋越温暖</b><small>所有家具都是一次购买，永久拥有</small></div>
-            <div className="shop-grid">
-              {shopItems.map((item) => {
-                const owned = item.type === "furniture" && game.purchased.includes(item.id);
-                return (
-                  <article key={item.id} className={owned ? "owned" : ""}>
-                    <div className={`shop-art ${item.type === "food" ? "food-art" : ""}`}>
-                      {item.asset ? <img src={item.asset} alt="" /> : <span>{item.icon}</span>}
+        {overlay && (
+          <div className="window-layer" onPointerDown={() => setOverlay(null)}>
+            <section className={`game-window ${overlay}-window`} onPointerDown={(event) => event.stopPropagation()}>
+              <button className="window-close" onClick={() => setOverlay(null)} aria-label="关闭窗口">×</button>
+
+              {overlay === "quest" && (
+                <>
+                  <div className="window-heading"><small>TODAY&apos;S QUEST</small><h1>今日运动任务</h1><p>{dateLabel || "今天"}</p></div>
+                  <form className="activity-entry" onSubmit={checkIn}>
+                    <label htmlFor="today-activity">今天做了什么？</label>
+                    <div>
+                      <textarea id="today-activity" value={activityText} onChange={(event) => setActivityText(event.target.value)} placeholder="例如：跳绳 20 分钟、爬楼梯、打了一场球……" maxLength={40} rows={3} disabled={checkedToday} />
+                      <small>{activityText.trim().length}/40</small>
                     </div>
-                    <div><small>{item.type === "food" ? "补给" : "家具"}</small><h2>{item.name}</h2><p>{item.detail}</p></div>
-                    <button onClick={() => buyItem(item)} disabled={owned}>{owned ? "✓ 已拥有" : <>🍓 {item.price}</>}</button>
-                  </article>
-                );
-              })}
-            </div>
-          </section>
+                    {checkedToday && game.lastActivity && <p>✓ 今天完成：{game.lastActivity}</p>}
+                    <div className="reward-line"><span>{checkedToday ? "今天已收获" : "记录即可获得"}</span><b>🍓 +{checkinReward}</b></div>
+                    <button className="primary-button" type="submit" disabled={!ready || checkedToday || !activityText.trim()}>{checkedToday ? "✓ 今天已完成" : "记录运动，领取草莓"}</button>
+                  </form>
+                  <div className="streak-card">
+                    <div><span><small>连续记录</small><b>{game.streak} 天</b></span><em>下一份奖励</em></div>
+                    <div className="week-track">{[1, 2, 3, 4, 5, 6, 7].map((day) => <i key={day} className={day <= Math.min(game.streak, 7) ? "done" : ""}>{day <= Math.min(game.streak, 7) ? "✓" : day}</i>)}</div>
+                    <p>{nextMilestone ? <>再坚持 <b>{nextMilestone.day - game.streak} 天</b>，奖励 🍓 {nextMilestone.bonus}</> : "30 天里程碑已达成！"}</p>
+                  </div>
+                </>
+              )}
+
+              {overlay === "bag" && (
+                <>
+                  <div className="window-heading"><small>MY BACKPACK</small><h1>我的背包</h1><p>选择一种食物喂给 {pet.name}</p></div>
+                  <div className="backpack-layout">
+                    <div className="inventory-grid">
+                      {foodItems.map((item) => (
+                        <button key={item.id} className={`${selectedFood === item.id ? "selected" : ""} ${game.inventory[item.id] ? "" : "empty"}`} onClick={() => setSelectedFood(item.id)}>
+                          <img src={item.asset} alt="" /><b>{item.name}</b><span>×{game.inventory[item.id]}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="feed-card">
+                      <img src={selectedFoodItem.asset} alt={selectedFoodItem.name} />
+                      <small>已选择</small><h2>{selectedFoodItem.name}</h2><p>{selectedFoodItem.detail} · 活力 +{selectedFoodItem.energy}</p>
+                      <button className="primary-button" onClick={() => feedPet(selectedFoodItem.id)} disabled={!game.inventory[selectedFoodItem.id] || game.energy >= 100}>
+                        {game.energy >= 100 ? "活力已经满啦" : game.inventory[selectedFoodItem.id] ? `喂给 ${pet.name}` : "背包里没有了"}
+                      </button>
+                      {!totalFood && <button className="text-button" onClick={() => { setShopCategory("food"); setOverlay("shop"); }}>去商店买食物 →</button>}
+                    </div>
+                  </div>
+                  <div className="bag-furniture"><b>家具收藏 {ownedFurniture.length}/{furnitureItems.length}</b><div>{ownedFurniture.map((item) => <img key={item.id} src={item.asset} alt={item.name} />)}</div></div>
+                </>
+              )}
+
+              {overlay === "shop" && (
+                <>
+                  <div className="window-heading with-wallet"><span><small>BERRY MINI MALL</small><h1>莓果小商店</h1><p>食物放进背包，家具送进小屋</p></span><b>🍓 {game.berries}</b></div>
+                  <div className="shop-tabs">
+                    <button className={shopCategory === "food" ? "active" : ""} onClick={() => setShopCategory("food")}>猫咪食物</button>
+                    <button className={shopCategory === "furniture" ? "active" : ""} onClick={() => setShopCategory("furniture")}>小屋家具</button>
+                  </div>
+                  <div className="store-grid">
+                    {shopCategory === "food" ? foodItems.map((item) => (
+                      <article key={item.id}>
+                        <div className="store-art"><img src={item.asset} alt="" /><i>背包 ×{game.inventory[item.id]}</i></div>
+                        <div><small>活力 +{item.energy}</small><h2>{item.name}</h2><p>{item.detail}</p></div>
+                        <button onClick={() => buyFood(item)}>🍓 {item.price}</button>
+                      </article>
+                    )) : furnitureItems.map((item) => {
+                      const owned = game.purchased.includes(item.id);
+                      return (
+                        <article key={item.id} className={owned ? "owned" : ""}>
+                          <div className="store-art"><img src={item.asset} alt="" /></div>
+                          <div><small>可自由拖动</small><h2>{item.name}</h2><p>{item.detail}</p></div>
+                          <button onClick={() => buyFurniture(item)} disabled={owned}>{owned ? "✓ 已拥有" : `🍓 ${item.price}`}</button>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
+              {overlay === "pets" && (
+                <>
+                  <div className="window-heading"><small>PAW PAW FRIENDS</small><h1>选择猫咪伙伴</h1><p>每位伙伴都有完整的走路、舔毛和打哈欠动画</p></div>
+                  <div className="pet-grid">
+                    {pets.map((item) => (
+                      <article key={item.id} className={game.pet === item.id ? "chosen" : ""}>
+                        <div><span>{item.kind}</span><img src={item.idle} alt={`${item.name}，${item.kind}`} /></div>
+                        <small>{item.nature}</small><h2>{item.name}</h2>
+                        <button onClick={() => adoptPet(item.id)} disabled={game.pet === item.id}>{game.pet === item.id ? "✓ 正在陪伴你" : "带它回家"}</button>
+                      </article>
+                    ))}
+                  </div>
+                </>
+              )}
+            </section>
+          </div>
         )}
-      </div>
+      </section>
       <div className={`toast ${toast ? "show" : ""}`} role="status" aria-live="polite">{toast}</div>
     </main>
   );
