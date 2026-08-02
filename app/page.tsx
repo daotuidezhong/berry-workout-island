@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { getFurnitureTarget, type Point } from "./furniture";
 import { getTimePeriod, type TimePeriod } from "./time-period";
 
 type PetId = "mitao" | "doubao" | "xueqiu";
@@ -8,8 +9,6 @@ type OverlayId = "quest" | "bag" | "pets" | "shop" | null;
 type IdleAction = "groom" | "yawn";
 type ShopCategory = "food" | "furniture";
 type FoodId = "driedFish" | "chickenCan" | "salmonMousse" | "tunaRice" | "chickenCubes" | "catnipBiscuits";
-type Point = { x: number; y: number };
-
 type GameState = {
   berries: number;
   streak: number;
@@ -20,6 +19,7 @@ type GameState = {
   inventory: Record<FoodId, number>;
   energy: number;
   catPosition: Point;
+  catFurniture: string | null;
   furniturePositions: Record<string, Point>;
 };
 
@@ -44,14 +44,14 @@ const foodItems = [
 ];
 
 const furnitureItems = [
-  { id: "rug", name: "草莓地毯", detail: "柔软的大地毯", price: 35, asset: "/game/furniture-rug.png" },
-  { id: "plant", name: "薄荷盆栽", detail: "让房间有一点绿意", price: 48, asset: "/game/furniture-plant.png" },
-  { id: "lamp", name: "蘑菇夜灯", detail: "晚上会暖暖发光", price: 60, asset: "/game/furniture-lamp.png" },
-  { id: "catbed", name: "云朵猫窝", detail: "最适合蜷成一团", price: 75, asset: "/game/furniture-catbed.png" },
-  { id: "bookcase", name: "草莓书柜", detail: "摆满绘本和小收藏", price: 82, asset: "/game/furniture-bookcase.png" },
-  { id: "table", name: "莓果小圆桌", detail: "一起坐下吃点心", price: 58, asset: "/game/furniture-table.png" },
-  { id: "cushion", name: "爱心软垫", detail: "软绵绵的休息角", price: 42, asset: "/game/furniture-cushion.png" },
-  { id: "chest", name: "木制玩具箱", detail: "收好猫咪的小玩具", price: 68, asset: "/game/furniture-chest.png" },
+  { id: "rug", name: "草莓地毯", detail: "柔软的大地毯", price: 35, asset: "/game/furniture-rug.png", standHeight: 0 },
+  { id: "plant", name: "薄荷盆栽", detail: "让房间有一点绿意", price: 48, asset: "/game/furniture-plant.png", standHeight: null },
+  { id: "lamp", name: "蘑菇夜灯", detail: "晚上会暖暖发光", price: 60, asset: "/game/furniture-lamp.png", standHeight: null },
+  { id: "catbed", name: "云朵猫窝", detail: "最适合蜷成一团", price: 75, asset: "/game/furniture-catbed.png", standHeight: 4 },
+  { id: "bookcase", name: "草莓书柜", detail: "摆满绘本和小收藏", price: 82, asset: "/game/furniture-bookcase.png", standHeight: null },
+  { id: "table", name: "莓果小圆桌", detail: "一起坐下吃点心", price: 58, asset: "/game/furniture-table.png", standHeight: 8 },
+  { id: "cushion", name: "爱心软垫", detail: "软绵绵的休息角", price: 42, asset: "/game/furniture-cushion.png", standHeight: 2 },
+  { id: "chest", name: "木制玩具箱", detail: "收好猫咪的小玩具", price: 68, asset: "/game/furniture-chest.png", standHeight: 5 },
 ];
 
 const pets = [
@@ -94,6 +94,7 @@ const INITIAL_GAME: GameState = {
   inventory: INITIAL_INVENTORY,
   energy: 72,
   catPosition: { x: 56, y: 72 },
+  catFurniture: null,
   furniturePositions: DEFAULT_FURNITURE_POSITIONS,
 };
 
@@ -133,6 +134,7 @@ export default function Home() {
   const [decorating, setDecorating] = useState(false);
   const [dragging, setDragging] = useState<string | null>(null);
   const [walking, setWalking] = useState(false);
+  const [jumping, setJumping] = useState(false);
   const [walkFrame, setWalkFrame] = useState(0);
   const [walkDuration, setWalkDuration] = useState(550);
   const [timePeriod, setTimePeriod] = useState<TimePeriod>("noon");
@@ -254,10 +256,15 @@ export default function Home() {
           x: clamp(current.catPosition.x + move.x, 7, 93),
           y: clamp(current.catPosition.y + move.y, 36, 88),
         },
+        catFurniture: null,
       }));
+      setJumping(false);
       setWalking(true);
       window.clearTimeout(walkingTimer.current);
-      walkingTimer.current = window.setTimeout(() => setWalking(false), 220);
+      walkingTimer.current = window.setTimeout(() => {
+        setWalking(false);
+        setJumping(false);
+      }, 220);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -332,11 +339,35 @@ export default function Home() {
     const duration = Math.round(clamp(distance * 14, 280, 900));
     setDirection(x < game.catPosition.x ? "left" : "right");
     setWalkDuration(duration);
-    setGame((current) => ({ ...current, catPosition: { x, y } }));
+    setGame((current) => ({ ...current, catPosition: { x, y }, catFurniture: null }));
+    setJumping(false);
     setWalking(true);
     window.clearTimeout(walkingTimer.current);
-    walkingTimer.current = window.setTimeout(() => setWalking(false), duration + 60);
+    walkingTimer.current = window.setTimeout(() => {
+      setWalking(false);
+      setJumping(false);
+    }, duration + 60);
     event.currentTarget.focus();
+  }
+
+  function moveCatToFurniture(item: (typeof furnitureItems)[number], position: Point) {
+    const target = getFurnitureTarget(position, item.standHeight);
+    const distance = Math.hypot(target.x - game.catPosition.x, target.y - game.catPosition.y);
+    const duration = Math.round(clamp(distance * 14, 320, 900));
+    setDirection(target.x < game.catPosition.x ? "left" : "right");
+    setWalkDuration(duration);
+    setJumping(target.jumping);
+    setWalking(true);
+    setGame((current) => ({
+      ...current,
+      catPosition: { x: target.x, y: target.y },
+      catFurniture: target.onTop ? item.id : null,
+    }));
+    window.clearTimeout(walkingTimer.current);
+    walkingTimer.current = window.setTimeout(() => {
+      setWalking(false);
+      setJumping(false);
+    }, duration + 60);
   }
 
   function checkIn(event: React.FormEvent) {
@@ -438,12 +469,12 @@ export default function Home() {
                 className={`placed-furniture furniture-${item.id} ${dragging === item.id ? "dragging" : ""}`}
                 style={{ left: `${position.x}%`, top: `${position.y}%`, zIndex: Math.round(position.y) }}
                 onPointerDown={(event) => {
-                  if (!decorating) return;
                   event.preventDefault();
                   event.stopPropagation();
-                  setDragging(item.id);
+                  if (decorating) setDragging(item.id);
+                  else moveCatToFurniture(item, position);
                 }}
-                aria-label={`${item.name}${decorating ? "，拖动可调整位置" : ""}`}
+                aria-label={`${item.name}${decorating ? "，拖动可调整位置" : item.standHeight === null ? "，走到旁边" : item.standHeight ? "，跳上去" : "，走上去"}`}
               >
                 <img src={item.asset} alt="" draggable={false} />
                 {decorating && <span>拖动</span>}
@@ -452,8 +483,8 @@ export default function Home() {
           })}
 
           <div
-            className={`walking-cat ${walking ? "walking" : ""} ${direction === "left" ? "facing-left" : ""}`}
-            style={{ left: `${game.catPosition.x}%`, top: `${game.catPosition.y}%`, zIndex: Math.round(game.catPosition.y) + 2, transitionDuration: `${walkDuration}ms` }}
+            className={`walking-cat ${walking ? "walking" : ""} ${jumping ? "jumping" : ""} ${direction === "left" ? "facing-left" : ""}`}
+            style={{ left: `${game.catPosition.x}%`, top: `${game.catPosition.y}%`, zIndex: game.catFurniture ? Math.round((game.furniturePositions[game.catFurniture] ?? DEFAULT_FURNITURE_POSITIONS[game.catFurniture]).y) + 2 : Math.round(game.catPosition.y) + 2, transitionDuration: `${walkDuration}ms` }}
           >
             <i />
             <img src={catAsset} alt={`${pet.name}正在小屋里`} draggable={false} />
@@ -492,7 +523,7 @@ export default function Home() {
           <button className={overlay === "bag" ? "active" : ""} onClick={() => openOverlay("bag")}><span>🎒</span><b>背包</b><i>{totalFood}</i></button>
           <button className={overlay === "shop" ? "active" : ""} onClick={() => openOverlay("shop")}><span>🛒</span><b>商店</b></button>
           <button className={overlay === "pets" ? "active" : ""} onClick={() => openOverlay("pets")}><span>🐾</span><b>伙伴</b></button>
-          <button className={decorating ? "active" : ""} onClick={() => { setOverlay(null); setDecorating((value) => !value); }}><span>🪑</span><b>布置</b></button>
+          <button className={decorating ? "active" : ""} onClick={() => { setOverlay(null); setDecorating((value) => !value); setJumping(false); }}><span>🪑</span><b>布置</b></button>
         </nav>
 
         {overlay && (

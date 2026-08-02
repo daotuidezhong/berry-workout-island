@@ -10,6 +10,7 @@
   --sage: #89ad83;
   --sage-dark: #4f7657;
   --gold: #f0c45f;
+  --hud-text-size: clamp(12px, .9vw, 16px);
 }
 
 * { box-sizing: border-box; }
@@ -64,12 +65,12 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid #72b7e2; outli
 
 .game-logo { min-height: 54px; padding: 7px 14px 7px 8px; display: flex; align-items: center; gap: 10px; border-radius: 16px; cursor: pointer; pointer-events: auto; }
 .game-logo span { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 11px; background: var(--berry); font-size: 21px; }
-.game-logo b { font-size: 13px; letter-spacing: 1px; }
+.game-logo b { font-size: var(--hud-text-size); letter-spacing: 1px; }
 .hud-counters { display: flex; gap: 9px; pointer-events: auto; }
 .hud-counters > div { min-width: 112px; padding: 8px 11px; display: grid; grid-template-columns: 29px 1fr; border-radius: 14px; }
 .hud-counters span { grid-row: 1 / 3; align-self: center; font-size: 20px; }
-.hud-counters small { color: var(--muted); font-size: 9px; }
-.hud-counters b { margin-top: 3px; font-size: 12px; }
+.hud-counters small { color: var(--muted); font-size: var(--hud-text-size); }
+.hud-counters b { margin-top: 3px; font-size: var(--hud-text-size); }
 
 .walking-cat {
   position: absolute;
@@ -85,8 +86,10 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid #72b7e2; outli
 .walking-cat img { display: block; width: 100%; max-height: 185px; object-fit: contain; image-rendering: pixelated; filter: var(--scene-lighting) drop-shadow(0 4px 2px rgba(72, 43, 31, .2)); transition: filter 1.2s ease; }
 .walking-cat.facing-left img { transform: scaleX(-1); }
 .walking-cat.walking > i { animation: cat-shadow .44s ease-in-out infinite; }
+.walking-cat.jumping { animation: furniture-jump .65s ease-out; }
 .walking-cat b { position: absolute; left: 50%; bottom: -5px; padding: 4px 7px; transform: translateX(-50%); border: 1px solid #75534a; border-radius: 8px; background: rgba(255, 250, 235, .92); font-size: 9px; white-space: nowrap; }
 @keyframes cat-shadow { 50% { transform: scaleX(.82); opacity: .72; } }
+@keyframes furniture-jump { 48% { transform: translate(-50%, -79%) translateY(-58px); } }
 
 .placed-furniture { position: absolute; width: clamp(86px, 10vw, 180px); padding: 0; border: 0; background: transparent; transform: translate(-50%, -68%); touch-action: none; user-select: none; }
 .placed-furniture img { display: block; width: 100%; max-height: 230px; object-fit: contain; image-rendering: pixelated; filter: var(--scene-lighting) drop-shadow(0 5px 3px rgba(71, 45, 34, .25)); transition: filter 1.2s ease; pointer-events: none; }
@@ -105,17 +108,17 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid #72b7e2; outli
 
 .pet-status { position: absolute; z-index: 48; left: 18px; bottom: 19px; min-width: 325px; padding: 8px 10px; display: grid; grid-template-columns: 51px 1fr 33px auto; align-items: center; gap: 9px; border-radius: 16px; }
 .pet-status > img { width: 51px; height: 51px; object-fit: contain; image-rendering: pixelated; border-radius: 11px; background: #dcebd7; }
-.pet-status small { display: block; margin-bottom: 6px; color: var(--muted); font-size: 9px; }
+.pet-status small { display: block; margin-bottom: 6px; color: var(--muted); font-size: var(--hud-text-size); }
 .energy { height: 12px; overflow: hidden; border: 2px solid #6c5348; border-radius: 8px; background: #e5d4bd; }
 .energy i { display: block; height: 100%; border-radius: 5px; background: linear-gradient(90deg, #71a679, #b2d57e); }
-.pet-status strong { color: var(--sage-dark); font-size: 11px; }
-.pet-status button { padding: 10px 12px; border: 2px solid #654e44; border-radius: 10px; background: #91c7ce; box-shadow: 0 3px 0 #6598a0; cursor: pointer; font-size: 10px; }
+.pet-status strong { color: var(--sage-dark); font-size: var(--hud-text-size); }
+.pet-status button { padding: 10px 12px; border: 2px solid #654e44; border-radius: 10px; background: #91c7ce; box-shadow: 0 3px 0 #6598a0; cursor: pointer; font-size: var(--hud-text-size); }
 
 .game-dock { position: absolute; z-index: 52; left: 50%; bottom: 18px; padding: 7px; display: flex; gap: 6px; transform: translateX(-50%); border-radius: 19px; }
 .game-dock button { position: relative; min-width: 67px; height: 58px; padding: 5px 8px; display: grid; place-items: center; align-content: center; gap: 4px; border: 2px solid transparent; border-radius: 12px; background: transparent; cursor: pointer; }
 .game-dock button:hover, .game-dock button.active { border-color: #9a675b; background: #ffe4b4; transform: translateY(-2px); }
 .game-dock span { font-size: 20px; line-height: 1; }
-.game-dock b { font-size: 12px; line-height: 1; }
+.game-dock b { font-size: var(--hud-text-size); line-height: 1; }
 .game-dock i { position: absolute; top: -4px; right: -3px; min-width: 20px; height: 20px; padding: 0 4px; display: grid; place-items: center; border: 2px solid #713d42; border-radius: 10px; background: var(--berry); color: #fff; font-size: 9px; font-style: normal; }
 
 .decorate-tools { position: absolute; z-index: 53; top: 88px; right: 18px; padding: 8px; display: flex; align-items: center; gap: 7px; border-radius: 14px; }
@@ -217,11 +220,9 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid #72b7e2; outli
   .game-hud { top: 9px; left: 9px; right: 9px; }
   .game-logo { min-height: 46px; padding: 5px 8px; border-width: 2px; }
   .game-logo span { width: 34px; height: 34px; font-size: 18px; }
-  .game-logo b { font-size: 11px; }
   .hud-counters { gap: 5px; }
   .hud-counters > div { min-width: 64px; padding: 7px; display: block; border-width: 2px; text-align: center; }
   .hud-counters span, .hud-counters small { display: none; }
-  .hud-counters b { font-size: 10px; }
   .pet-status { left: 9px; bottom: 78px; min-width: 210px; padding: 6px; grid-template-columns: 42px 1fr auto; border-width: 2px; }
   .pet-status > img { width: 42px; height: 42px; }
   .pet-status strong { display: none; }
