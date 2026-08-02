@@ -23,6 +23,7 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid #72b7e2; outli
 .game-stage { position: relative; width: 100%; height: 100%; overflow: hidden; isolation: isolate; }
 
 .game-room {
+  --scene-lighting: brightness(1.04) saturate(1.02);
   position: absolute;
   inset: 0;
   overflow: hidden;
@@ -33,8 +34,14 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid #72b7e2; outli
 }
 
 .game-room.decorating { cursor: default; box-shadow: inset 0 0 0 7px rgba(255, 206, 91, .9); }
-.room-background { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; pointer-events: none; }
-.room-vignette { position: absolute; inset: 0; z-index: 1; background: radial-gradient(ellipse at 52% 48%, transparent 42%, rgba(53, 31, 25, .28) 100%); pointer-events: none; }
+.game-room[data-period="morning"] { --scene-lighting: brightness(.94) sepia(.1) saturate(1.08); }
+.game-room[data-period="evening"] { --scene-lighting: brightness(.78) sepia(.23) saturate(1.16) hue-rotate(-7deg); }
+.game-room[data-period="night"] { --scene-lighting: brightness(.47) saturate(.7) hue-rotate(12deg); }
+.room-background { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; filter: var(--scene-lighting); transition: filter 1.2s ease; pointer-events: none; }
+.room-vignette { position: absolute; inset: 0; z-index: 1; background: radial-gradient(ellipse at 52% 48%, transparent 42%, rgba(53, 31, 25, .28) 100%); transition: background 1.2s ease; pointer-events: none; }
+.game-room[data-period="morning"] .room-vignette { background: linear-gradient(rgba(255, 210, 143, .1), rgba(255, 235, 194, .04)), radial-gradient(ellipse at 52% 48%, transparent 40%, rgba(92, 55, 37, .25) 100%); }
+.game-room[data-period="evening"] .room-vignette { background: linear-gradient(rgba(204, 91, 57, .2), rgba(80, 47, 61, .18)), radial-gradient(ellipse at 52% 48%, transparent 34%, rgba(65, 36, 41, .38) 100%); }
+.game-room[data-period="night"] .room-vignette { background: linear-gradient(rgba(28, 45, 91, .4), rgba(15, 26, 56, .32)), radial-gradient(ellipse at 52% 48%, transparent 30%, rgba(12, 20, 44, .58) 100%); }
 
 .game-hud {
   position: absolute;
@@ -75,16 +82,14 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid #72b7e2; outli
 }
 
 .walking-cat > i { position: absolute; z-index: -1; left: 18%; right: 18%; bottom: 7%; height: 12%; border-radius: 50%; background: rgba(70, 42, 31, .3); filter: blur(4px); }
-.walking-cat img { display: block; width: 100%; max-height: 185px; object-fit: contain; image-rendering: pixelated; filter: drop-shadow(0 4px 2px rgba(72, 43, 31, .2)); }
+.walking-cat img { display: block; width: 100%; max-height: 185px; object-fit: contain; image-rendering: pixelated; filter: var(--scene-lighting) drop-shadow(0 4px 2px rgba(72, 43, 31, .2)); transition: filter 1.2s ease; }
 .walking-cat.facing-left img { transform: scaleX(-1); }
-.walking-cat.walking { animation: cat-stride .24s ease-in-out infinite; }
-.walking-cat.walking > i { animation: cat-shadow .24s ease-in-out infinite; }
+.walking-cat.walking > i { animation: cat-shadow .44s ease-in-out infinite; }
 .walking-cat b { position: absolute; left: 50%; bottom: -5px; padding: 4px 7px; transform: translateX(-50%); border: 1px solid #75534a; border-radius: 8px; background: rgba(255, 250, 235, .92); font-size: 9px; white-space: nowrap; }
-@keyframes cat-stride { 50% { margin-top: -4px; } }
 @keyframes cat-shadow { 50% { transform: scaleX(.82); opacity: .72; } }
 
 .placed-furniture { position: absolute; width: clamp(86px, 10vw, 180px); padding: 0; border: 0; background: transparent; transform: translate(-50%, -68%); touch-action: none; user-select: none; }
-.placed-furniture img { display: block; width: 100%; max-height: 230px; object-fit: contain; image-rendering: pixelated; filter: drop-shadow(0 5px 3px rgba(71, 45, 34, .25)); pointer-events: none; }
+.placed-furniture img { display: block; width: 100%; max-height: 230px; object-fit: contain; image-rendering: pixelated; filter: var(--scene-lighting) drop-shadow(0 5px 3px rgba(71, 45, 34, .25)); transition: filter 1.2s ease; pointer-events: none; }
 .furniture-rug { width: clamp(180px, 24vw, 390px); transform: translate(-50%, -48%); }
 .furniture-plant, .furniture-lamp { width: clamp(82px, 9.5vw, 165px); transform: translate(-50%, -76%); }
 .furniture-catbed { width: clamp(130px, 16vw, 265px); transform: translate(-50%, -61%); }
@@ -98,8 +103,6 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid #72b7e2; outli
 .placed-furniture.dragging { z-index: 120 !important; cursor: grabbing; filter: brightness(1.08); }
 .placed-furniture > span { position: absolute; left: 50%; bottom: -15px; z-index: 2; padding: 4px 7px; transform: translateX(-50%); border: 2px solid #725447; border-radius: 8px; background: #fff7d8; font-size: 9px; white-space: nowrap; }
 
-.room-help { position: absolute; z-index: 35; left: 50%; bottom: 105px; max-width: calc(100vw - 34px); padding: 8px 13px; transform: translateX(-50%); border: 2px solid rgba(255, 246, 211, .58); border-radius: 12px; background: rgba(53, 39, 34, .74); color: #fff8dc; font-size: 10px; white-space: nowrap; pointer-events: none; }
-
 .pet-status { position: absolute; z-index: 48; left: 18px; bottom: 19px; min-width: 325px; padding: 8px 10px; display: grid; grid-template-columns: 51px 1fr 33px auto; align-items: center; gap: 9px; border-radius: 16px; }
 .pet-status > img { width: 51px; height: 51px; object-fit: contain; image-rendering: pixelated; border-radius: 11px; background: #dcebd7; }
 .pet-status small { display: block; margin-bottom: 6px; color: var(--muted); font-size: 9px; }
@@ -112,7 +115,7 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid #72b7e2; outli
 .game-dock button { position: relative; min-width: 67px; height: 58px; padding: 5px 8px; display: grid; place-items: center; align-content: center; gap: 4px; border: 2px solid transparent; border-radius: 12px; background: transparent; cursor: pointer; }
 .game-dock button:hover, .game-dock button.active { border-color: #9a675b; background: #ffe4b4; transform: translateY(-2px); }
 .game-dock span { font-size: 20px; line-height: 1; }
-.game-dock b { font-size: 9px; }
+.game-dock b { font-size: 12px; line-height: 1; }
 .game-dock i { position: absolute; top: -4px; right: -3px; min-width: 20px; height: 20px; padding: 0 4px; display: grid; place-items: center; border: 2px solid #713d42; border-radius: 10px; background: var(--berry); color: #fff; font-size: 9px; font-style: normal; }
 
 .decorate-tools { position: absolute; z-index: 53; top: 88px; right: 18px; padding: 8px; display: flex; align-items: center; gap: 7px; border-radius: 14px; }
@@ -226,7 +229,6 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid #72b7e2; outli
   .game-dock { left: 8px; right: 8px; bottom: 8px; padding: 5px; justify-content: space-around; transform: none; border-width: 2px; }
   .game-dock button { min-width: 0; width: 19%; height: 56px; padding: 4px; }
   .game-dock span { font-size: 18px; }
-  .room-help { bottom: 145px; font-size: 8px; }
   .decorate-tools { top: 67px; right: 9px; border-width: 2px; }
   .decorate-tools b { display: none; }
   .window-layer { padding: 68px 8px 76px; align-items: stretch; }

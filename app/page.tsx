@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { getTimePeriod, type TimePeriod } from "./time-period";
 
 type PetId = "mitao" | "doubao" | "xueqiu";
 type OverlayId = "quest" | "bag" | "pets" | "shop" | null;
@@ -56,19 +57,19 @@ const furnitureItems = [
 const pets = [
   {
     id: "mitao" as PetId, name: "蜜桃", kind: "橘子猫", nature: "热情的小太阳",
-    walkFrames: ["/game/cat-orange-1.png", "/game/cat-orange-2.png"], idle: "/game/cat-orange-idle.png",
+    walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-walk-v2-${frame}.png`), idle: "/game/cat-orange-idle.png",
     groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-groom-${frame}.png`),
     yawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-yawn-${frame}.png`),
   },
   {
     id: "doubao" as PetId, name: "豆包", kind: "奶牛猫", nature: "安静的陪跑员",
-    walkFrames: ["/game/cat-cow-1.png", "/game/cat-cow-2.png"], idle: "/game/cat-cow-idle.png",
+    walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-walk-v2-${frame}.png`), idle: "/game/cat-cow-idle.png",
     groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-groom-${frame}.png`),
     yawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-yawn-${frame}.png`),
   },
   {
     id: "xueqiu" as PetId, name: "雪球", kind: "白绒猫", nature: "爱撒娇的鼓励师",
-    walkFrames: ["/game/cat-white-1.png", "/game/cat-white-2.png"], idle: "/game/cat-white-idle.png",
+    walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-walk-v2-${frame}.png`), idle: "/game/cat-white-idle.png",
     groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-groom-${frame}.png`),
     yawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-yawn-${frame}.png`),
   },
@@ -134,6 +135,7 @@ export default function Home() {
   const [walking, setWalking] = useState(false);
   const [walkFrame, setWalkFrame] = useState(0);
   const [walkDuration, setWalkDuration] = useState(550);
+  const [timePeriod, setTimePeriod] = useState<TimePeriod>("noon");
   const [idleAction, setIdleAction] = useState<IdleAction | null>(null);
   const [idleFrame, setIdleFrame] = useState(0);
   const [direction, setDirection] = useState<"left" | "right">("right");
@@ -178,6 +180,13 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    const syncTimePeriod = () => setTimePeriod(getTimePeriod());
+    syncTimePeriod();
+    const timer = window.setInterval(syncTimePeriod, 60000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
     if (ready) window.localStorage.setItem("berry-workout-game", JSON.stringify(game));
   }, [game, ready]);
 
@@ -192,7 +201,7 @@ export default function Home() {
       setWalkFrame(0);
       return;
     }
-    const timer = window.setInterval(() => setWalkFrame((frame) => (frame ? 0 : 1)), 120);
+    const timer = window.setInterval(() => setWalkFrame((frame) => (frame + 1) % 4), 110);
     return () => window.clearInterval(timer);
   }, [walking]);
 
@@ -410,6 +419,7 @@ export default function Home() {
       <section className="game-stage" aria-label="莓好运动岛全屏游戏">
         <div
           className={`game-room ${decorating ? "decorating" : ""}`}
+          data-period={timePeriod}
           ref={roomRef}
           tabIndex={0}
           onPointerDown={moveCat}
@@ -450,9 +460,6 @@ export default function Home() {
             <b>{pet.name}</b>
           </div>
 
-          <div className="room-help">
-            {decorating ? "按住家具拖动到小屋里的任意位置" : "点击地面移动 · 方向键 / WASD 也可以走路"}
-          </div>
         </div>
 
         <header className="game-hud">
