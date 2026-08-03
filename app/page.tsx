@@ -606,7 +606,12 @@ export default function Home() {
           aria-label="全屏像素小屋。点击地面或使用方向键移动猫咪。"
         >
           <img className="room-background" src="/game/room-v2.png" alt="温暖的像素风猫咪小屋" draggable={false} />
-          <div className="weather-window" aria-hidden="true"><i /><i /><i /></div>
+          <div className="weather-outside" aria-hidden="true">
+            <div className="weather-canvas">
+              <div className="weather-window">{Array.from({ length: 6 }, (_, index) => <i key={index} />)}</div>
+              <div className="weather-door">{Array.from({ length: 4 }, (_, index) => <i key={index} />)}</div>
+            </div>
+          </div>
           <div className="room-vignette" />
           <div className="weather-chip" role="status" title="天气数据：Open-Meteo / wttr.in">佛山 · {weather.label}{weather.temperature == null ? "" : ` · ${weather.temperature}°C`}</div>
 
