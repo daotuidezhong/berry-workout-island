@@ -132,7 +132,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 
 .window-layer { position: absolute; inset: 0; z-index: 200; padding: 84px 20px 96px; display: grid; place-items: center; background: rgba(40, 28, 24, .5); backdrop-filter: blur(5px); }
 .game-window { position: relative; width: min(1040px, 100%); max-height: 100%; overflow: auto; padding: 27px; border: 4px solid #765247; border-radius: 22px; background: rgba(255, 248, 233, .98); box-shadow: 0 8px 0 #4f352e, 0 24px 60px rgba(35, 21, 17, .45), inset 0 0 0 3px #f3d7aa; }
-.quest-window { width: min(620px, 100%); }
+.quest-window { width: min(620px, 100%); font-size: var(--hud-text-size); }
 .bag-window { width: min(900px, 100%); }
 .pets-window { width: min(900px, 100%); }
 .window-close { position: sticky; z-index: 5; top: 0; float: right; width: 36px; height: 36px; margin: -12px -12px 0 0; border: 3px solid #714c42; border-radius: 11px; background: #f4a4a1; box-shadow: 0 3px 0 #bd6c6b; cursor: pointer; font-size: 18px; line-height: 1; }
@@ -187,6 +187,30 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .history-card li span small { margin-top: 4px; }
 .history-card strong { color: var(--berry-dark); font-size: 9px; white-space: nowrap; }
 .history-card > p { margin: 12px 0 0; color: var(--muted); font-size: 9px; line-height: 1.6; }
+
+.quest-window .window-heading small,
+.quest-window .window-heading p,
+.quest-window .activity-entry label,
+.quest-window .activity-entry textarea,
+.quest-window .activity-entry > div:first-of-type > small,
+.quest-window .activity-entry > p,
+.quest-window .duration-field span,
+.quest-window .duration-field input,
+.quest-window .calorie-estimate span,
+.quest-window .calorie-estimate small,
+.quest-window .reward-line,
+.quest-window .primary-button,
+.quest-window .streak-card small,
+.quest-window .streak-card em,
+.quest-window .week-track i,
+.quest-window .streak-card p,
+.quest-window .history-card > div small,
+.quest-window .history-card em,
+.quest-window .history-card time,
+.quest-window .history-card li small,
+.quest-window .history-card li span b,
+.quest-window .history-card strong,
+.quest-window .history-card > p { font-size: var(--hud-text-size); }
 
 .backpack-layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(230px, .7fr); gap: 20px; }
 .inventory-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
