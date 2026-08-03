@@ -1,4 +1,11 @@
-// Intentionally empty by default.
-// Add Drizzle tables here when the site actually needs a database.
-// See examples/d1/db/schema.ts for an opt-in example.
-export {};
+import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+
+export const checkins = sqliteTable("checkins", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  deviceId: text("device_id").notNull(),
+  date: text("date").notNull(),
+  activity: text("activity").notNull(),
+  minutes: integer("minutes"),
+  calories: integer("calories"),
+  createdAt: text("created_at").notNull(),
+}, (table) => [uniqueIndex("idx_checkins_device_date").on(table.deviceId, table.date)]);

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { CAT_BOUNDS, clampCatPosition, getFurnitureTarget } from "../app/furniture.ts";
 import { getTimePeriod } from "../app/time-period.ts";
+import { estimateCalories } from "../app/calories.ts";
 
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -20,6 +21,12 @@ test("maps local hours to four room lighting periods", () => {
     [4, 5, 10, 11, 15, 16, 18, 19, 23].map(getTimePeriod),
     ["night", "morning", "morning", "noon", "noon", "evening", "evening", "night", "night"],
   );
+});
+
+test("estimates calories from activity and duration", () => {
+  assert.equal(estimateCalories("跳绳", 20), 210);
+  assert.equal(estimateCalories("瑜伽", 30), 95);
+  assert.equal(estimateCalories("", 30), 0);
 });
 
 test("uses furniture height to choose walking or jumping", () => {

@@ -3,11 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { clampCatPosition, getFurnitureTarget, type Point } from "./furniture";
 import { getTimePeriod, type TimePeriod } from "./time-period";
+import { estimateCalories } from "./calories";
 
 type PetId = "mitao" | "doubao" | "xueqiu";
 type OverlayId = "quest" | "bag" | "pets" | "shop" | null;
 type IdleAction = "groom" | "yawn";
 type ShopCategory = "food" | "furniture";
+type CheckinRecord = { id: number; date: string; activity: string; minutes: number | null; calories: number | null };
 type FoodId = "driedFish" | "chickenCan" | "salmonMousse" | "tunaRice" | "chickenCubes" | "catnipBiscuits";
 type GameState = {
   berries: number;
@@ -143,6 +145,10 @@ export default function Home() {
   const [shopCategory, setShopCategory] = useState<ShopCategory>("food");
   const [selectedFood, setSelectedFood] = useState<FoodId>("driedFish");
   const [activityText, setActivityText] = useState("");
+  const [durationMinutes, setDurationMinutes] = useState(30);
+  const [deviceId, setDeviceId] = useState("");
+  const [history, setHistory] = useState<CheckinRecord[]>([]);
+  const [savingCheckin, setSavingCheckin] = useState(false);
   const [game, setGame] = useState<GameState>(INITIAL_GAME);
   const [ready, setReady] = useState(false);
   const [today, setToday] = useState("");
@@ -169,6 +175,12 @@ export default function Home() {
     setDateLabel(now.toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "short" }));
 
     const saved = window.localStorage.getItem("berry-workout-game");
+    let savedDeviceId = window.localStorage.getItem("berry-workout-device");
+    if (!savedDeviceId) {
+      savedDeviceId = crypto.randomUUID();
+      window.localStorage.setItem("berry-workout-device", savedDeviceId);
+    }
+    setDeviceId(savedDeviceId);
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as Partial<GameState> & { food?: number };
@@ -197,6 +209,36 @@ export default function Home() {
     }
     setReady(true);
   }, []);
+
+  useEffect(() => {
+    if (!ready || !deviceId) return;
+    let cancelled = false;
+    const loadHistory = async () => {
+      try {
+        const response = await fetch(`/api/checkins?device=${encodeURIComponent(deviceId)}`);
+        if (!response.ok) throw new Error();
+        const data = await response.json() as { records: CheckinRecord[] };
+        let records = data.records;
+        if (!records.length && game.lastCheckin && game.lastActivity) {
+          const migrated = await fetch("/api/checkins", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ deviceId, date: game.lastCheckin, activity: game.lastActivity, minutes: null }),
+          });
+          if (migrated.ok) records = [(await migrated.json() as { record: CheckinRecord }).record];
+        }
+        if (!cancelled) {
+          setHistory(records);
+          const todayRecord = records.find((record) => record.date === today);
+          if (todayRecord?.minutes) setDurationMinutes(todayRecord.minutes);
+        }
+      } catch {
+        if (!cancelled) setToast("历史记录暂时无法载入");
+      }
+    };
+    loadHistory();
+    return () => { cancelled = true; };
+  }, [deviceId, ready]);
 
   useEffect(() => {
     const syncTimePeriod = () => setTimePeriod(getTimePeriod());
@@ -337,6 +379,7 @@ export default function Home() {
   const nextStreak = game.streak + (checkedToday ? 0 : 1);
   const streakBonus = milestones.find((item) => item.day === nextStreak)?.bonus ?? 0;
   const checkinReward = 8 + streakBonus;
+  const estimatedCalories = estimateCalories(activityText, durationMinutes);
   const nextMilestone = milestones.find((item) => item.day > game.streak);
   const ownedFurniture = furnitureItems.filter((item) => game.purchased.includes(item.id));
   const totalFood = foodItems.reduce((total, item) => total + game.inventory[item.id], 0);
@@ -404,23 +447,38 @@ export default function Home() {
     }, duration + 60);
   }
 
-  function checkIn(event: React.FormEvent) {
+  async function checkIn(event: React.FormEvent) {
     event.preventDefault();
     const completedActivity = activityText.trim();
-    if (!ready || checkedToday || !completedActivity) return;
+    if (!ready || checkedToday || !completedActivity || !deviceId || savingCheckin) return;
     const next = game.streak + 1;
     const bonus = milestones.find((item) => item.day === next)?.bonus ?? 0;
     const reward = 8 + bonus;
-    setGame((current) => ({
-      ...current,
-      berries: current.berries + reward,
-      streak: next,
-      lastCheckin: today,
-      lastActivity: completedActivity,
-      energy: Math.min(100, current.energy + 8),
-      sleepiness: Math.max(0, current.sleepiness - 8),
-    }));
-    setToast(bonus ? `连续 ${next} 天！获得 ${reward} 颗草莓` : `记录成功！获得 ${reward} 颗草莓`);
+    setSavingCheckin(true);
+    try {
+      const response = await fetch("/api/checkins", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ deviceId, date: today, activity: completedActivity, minutes: durationMinutes }),
+      });
+      if (!response.ok) throw new Error();
+      const record = (await response.json() as { record: CheckinRecord }).record;
+      setHistory((records) => [record, ...records.filter((item) => item.date !== record.date)]);
+      setGame((current) => ({
+        ...current,
+        berries: current.berries + reward,
+        streak: next,
+        lastCheckin: today,
+        lastActivity: completedActivity,
+        energy: Math.min(100, current.energy + 8),
+        sleepiness: Math.max(0, current.sleepiness - 8),
+      }));
+      setToast(bonus ? `连续 ${next} 天！获得 ${reward} 颗草莓` : `记录成功！获得 ${reward} 颗草莓`);
+    } catch {
+      setToast("记录保存失败，请稍后再试");
+    } finally {
+      setSavingCheckin(false);
+    }
   }
 
   function buyFood(item: (typeof foodItems)[number]) {
@@ -572,20 +630,28 @@ export default function Home() {
                 <>
                   <div className="window-heading"><small>TODAY&apos;S QUEST</small><h1>今日运动任务</h1><p>{dateLabel || "今天"}</p></div>
                   <form className="activity-entry" onSubmit={checkIn}>
-                    <label htmlFor="today-activity">今天做了什么？</label>
+                    <label htmlFor="today-activity">今天做了什么运动？</label>
                     <div>
-                      <textarea id="today-activity" value={activityText} onChange={(event) => setActivityText(event.target.value)} placeholder="例如：跳绳 20 分钟、爬楼梯、打了一场球……" maxLength={40} rows={3} disabled={checkedToday} />
+                      <textarea id="today-activity" value={activityText} onChange={(event) => setActivityText(event.target.value)} placeholder="例如：跳绳、爬楼梯、打篮球……" maxLength={40} rows={3} disabled={checkedToday} />
                       <small>{activityText.trim().length}/40</small>
                     </div>
+                    <label className="duration-field">运动时长 <span><input type="number" min="1" max="600" value={durationMinutes} onChange={(event) => setDurationMinutes(Math.min(600, Math.max(1, Number(event.target.value) || 1)))} disabled={checkedToday} /> 分钟</span></label>
+                    <div className="calorie-estimate"><span>✨ 智能估算消耗</span><b>{estimatedCalories || "—"} 千卡</b><small>按运动项目、时长和 60 kg 参考体重估算，仅供参考</small></div>
                     {checkedToday && game.lastActivity && <p>✓ 今天完成：{game.lastActivity}</p>}
                     <div className="reward-line"><span>{checkedToday ? "今天已收获" : "记录即可获得"}</span><b>🍓 +{checkinReward}</b></div>
-                    <button className="primary-button" type="submit" disabled={!ready || checkedToday || !activityText.trim()}>{checkedToday ? "✓ 今天已完成" : "记录运动，领取草莓"}</button>
+                    <button className="primary-button" type="submit" disabled={!ready || checkedToday || !activityText.trim() || savingCheckin}>{checkedToday ? "✓ 今天已完成" : savingCheckin ? "正在保存……" : "记录运动，领取草莓"}</button>
                   </form>
                   <div className="streak-card">
                     <div><span><small>连续记录</small><b>{game.streak} 天</b></span><em>下一份奖励</em></div>
                     <div className="week-track">{[1, 2, 3, 4, 5, 6, 7].map((day) => <i key={day} className={day <= Math.min(game.streak, 7) ? "done" : ""}>{day <= Math.min(game.streak, 7) ? "✓" : day}</i>)}</div>
                     <p>{nextMilestone ? <>再坚持 <b>{nextMilestone.day - game.streak} 天</b>，奖励 🍓 {nextMilestone.bonus}</> : "30 天里程碑已达成！"}</p>
                   </div>
+                  <section className="history-card">
+                    <div><span><small>CHECK-IN HISTORY</small><b>历史打卡记录</b></span><em>{history.length} 次</em></div>
+                    {history.length ? <ul>{history.map((record) => (
+                      <li key={record.id}><time>{record.date.replaceAll("-", ".")}</time><span><b>{record.activity}</b><small>{record.minutes ? `${record.minutes} 分钟` : "未记录时长"}</small></span><strong>{record.calories == null ? "—" : `${record.calories} kcal`}</strong></li>
+                    ))}</ul> : <p>完成第一次运动打卡后，记录会显示在这里。</p>}
+                  </section>
                 </>
               )}
 
