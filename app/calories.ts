@@ -14,5 +14,5 @@ const activities = [
 export function estimateCalories(activity: string, minutes: number) {
   if (!activity.trim() || !Number.isFinite(minutes) || minutes <= 0) return 0;
   const met = activities.find((item) => item.words.some((word) => activity.includes(word)))?.met ?? 5;
-  return Math.round(met * 3.5 * 60 / 200 * Math.min(minutes, 600));
+  return Math.round(met * 3.5 * 52.5 / 200 * Math.min(minutes, 600));
 }

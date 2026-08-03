@@ -636,7 +636,7 @@ export default function Home() {
                       <small>{activityText.trim().length}/40</small>
                     </div>
                     <label className="duration-field">运动时长 <span><input type="number" min="1" max="600" value={durationMinutes} onChange={(event) => setDurationMinutes(Math.min(600, Math.max(1, Number(event.target.value) || 1)))} disabled={checkedToday} /> 分钟</span></label>
-                    <div className="calorie-estimate"><span>✨ 智能估算消耗</span><b>{estimatedCalories || "—"} 千卡</b><small>按运动项目、时长和 60 kg 参考体重估算，仅供参考</small></div>
+                    <div className="calorie-estimate"><span>✨ 智能估算消耗</span><b>{estimatedCalories || "—"} 千卡</b><small>按运动项目、时长和 50–55 kg 参考区间估算，仅供参考</small></div>
                     {checkedToday && game.lastActivity && <p>✓ 今天完成：{game.lastActivity}</p>}
                     <div className="reward-line"><span>{checkedToday ? "今天已收获" : "记录即可获得"}</span><b>🍓 +{checkinReward}</b></div>
                     <button className="primary-button" type="submit" disabled={!ready || checkedToday || !activityText.trim() || savingCheckin}>{checkedToday ? "✓ 今天已完成" : savingCheckin ? "正在保存……" : "记录运动，领取草莓"}</button>

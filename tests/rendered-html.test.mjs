@@ -24,8 +24,8 @@ test("maps local hours to four room lighting periods", () => {
 });
 
 test("estimates calories from activity and duration", () => {
-  assert.equal(estimateCalories("跳绳", 20), 210);
-  assert.equal(estimateCalories("瑜伽", 30), 95);
+  assert.equal(estimateCalories("跳绳", 20), 184);
+  assert.equal(estimateCalories("瑜伽", 30), 83);
   assert.equal(estimateCalories("", 30), 0);
 });
 
