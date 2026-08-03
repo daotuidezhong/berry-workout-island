@@ -72,11 +72,18 @@ final result: passed
 
 ## 游戏猫爪光标
 
-- 使用 32×32 PNG 猫爪光标：`public/game/cursor-cat-paw.png`，包含四颗粉色脚趾豆、圆润肉垫、深棕描边和奶油色外沿，热点位于 `(15, 15)`。
+- 视觉真值：`work/cursor-handdrawn/reference-paw.png`，559 × 429 px；只提取其中的猫爪，不保留纸张纹理、上方文字和周围杂点。
+- 使用 32×32 透明 PNG 猫爪光标：`public/game/cursor-cat-paw.png`。它保留参考图的黑色手绘轮廓、四颗粉色脚趾豆、中央肉垫、四个三角爪尖和底部腕线，热点位于 `(15, 15)`。
 - 光标资源只在 `.game-stage` 声明一次，全部子元素通过 `cursor: inherit` 继承，避免 SVG 在快速移动和跨元素时反复重绘造成闪烁。
 - 旧的 `cursor-cat-paw.svg` 已移除；原有 `crosshair`、`pointer`、`grab` 与 `grabbing` 均被继承规则覆盖。
-- 浏览器快速跨越房间、商店菜单和猫窝前后，三处计算样式始终为 `url("/game/cursor-cat-paw.png") 15 15, auto`。
-- 生产构建、12 项自动测试和 `git diff --check` 均通过。
+- 本地页面截图：`work/cursor-handdrawn/implementation-1280x720.png`；浏览器视口为 1280 × 720 CSS px、DPR 1，状态为小屋主场景。
+- 同屏对照：`work/cursor-handdrawn/design-qa-comparison.png`。参考图按原始像素显示，32×32 成品同时按 1:1 和 10× 最近邻预览；页面截图不包含浏览器系统指针，因此以成品透明 PNG 与浏览器计算样式作为聚焦证据。
+- 字体与文案：本次没有修改页面字体或文案；间距与布局：光标不参与页面布局，未引入溢出或位移；颜色：黑色轮廓、奶油白爪面和鲑粉肉垫与参考图一致；图像质量：透明角、半透明抗锯齿边缘和小尺寸辨识度通过；内容：四颗脚趾豆、中央肉垫、四个爪尖均保留。
+- 浏览器实测 `.game-stage`、`.game-room`、菜单按钮和弹窗关闭按钮的计算样式均为 `url("http://127.0.0.1:4173/game/cursor-cat-paw.png") 15 15, auto`；任务窗口可正常打开和关闭，控制台无错误。
+- 对比历史：首轮聚焦对比未发现 P0/P1/P2 问题，无需二次视觉修正；仅按既有 32×32 光标槽位完成透明边缘和小尺寸锐化。
+- 生产构建和 12 项自动测试通过。
+
+final result: passed
 
 ## 起床动画固定尺寸修正
 
