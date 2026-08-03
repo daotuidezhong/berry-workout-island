@@ -871,9 +871,9 @@ export default function Home() {
                     <p>{nextMilestone ? <>再坚持 <b>{nextMilestone.day - game.streak} 天</b>，奖励 🍓 {nextMilestone.bonus}</> : "30 天里程碑已达成！"}</p>
                   </div>
                   <section className="history-card">
-                    <div><span><small>CHECK-IN HISTORY</small><b>历史打卡记录</b></span><em>{history.length} 次</em></div>
+                    <div><span><small>CHECK-IN HISTORY</small><b>历史打卡记录</b></span><em><b>{history.length}</b> 次</em></div>
                     {history.length ? <ul>{history.map((record) => (
-                      <li key={record.id}><time>{record.date.replaceAll("-", ".")}</time><span><b>{record.activity}</b><small>{record.minutes ? `${record.minutes} 分钟` : "未记录时长"}</small></span><strong>{record.calories == null ? "—" : `${record.calories} kcal`}</strong></li>
+                      <li key={record.id}><time dateTime={record.date}>{record.date.replaceAll("-", ".")}</time><span><b>{record.activity}</b><small>{record.minutes ? `${record.minutes} 分钟` : "未记录时长"}</small></span><strong>{record.calories == null ? "—" : record.calories}{record.calories != null && <small>kcal</small>}</strong></li>
                     ))}</ul> : <p>完成第一次运动打卡后，记录会显示在这里。</p>}
                   </section>
                 </>

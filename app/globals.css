@@ -189,22 +189,25 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .week-track i.done { border-color: var(--sage-dark); background: var(--sage); color: #fff; }
 .streak-card p { margin: 10px 0 0; padding-top: 9px; border-top: 1px dashed #d3bca4; color: var(--muted); font-size: 9px; line-height: 1.6; }
 .streak-card p b { display: inline; font-size: inherit; }
-.history-card { margin-top: 16px; padding: 13px; border: 2px solid #a78971; border-radius: 14px; background: #fffaf0; box-shadow: 0 4px 0 #d1b594; }
-.history-card > div { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.history-card { margin-top: 16px; padding: 15px; border: 2px solid #a78971; border-radius: 14px; background: #fffaf0; box-shadow: 0 4px 0 #d1b594; }
+.history-card > div { padding-bottom: 11px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px dashed #d3bca4; }
 .history-card > div small, .history-card > div b { display: block; }
-.history-card > div small { color: var(--berry-dark); font-size: 8px; letter-spacing: 1px; }
-.history-card > div b { margin-top: 5px; font-size: 13px; }
-.history-card em { color: var(--muted); font-size: 9px; font-style: normal; }
-.history-card ul { max-height: 230px; margin: 12px 0 0; padding: 0; overflow: auto; list-style: none; }
-.history-card li { padding: 10px 0; display: grid; grid-template-columns: minmax(124px, .9fr) minmax(0, 1.4fr) auto; align-items: center; gap: 14px; border-top: 1px dashed #d3bca4; }
-.history-card li > span { min-width: 0; }
-.history-card time { white-space: nowrap; }
-.history-card time, .history-card li small { color: var(--muted); font-size: 8px; }
+.history-card > div small { color: var(--berry-dark); font-size: calc(var(--hud-text-size) - 2px); letter-spacing: 1px; }
+.history-card > div b { margin-top: 5px; font-size: var(--hud-text-size); }
+.history-card > div em { flex: 0 0 auto; padding: 7px 9px; border: 1px solid #d3b69d; border-radius: 9px; background: #f6ead8; color: var(--muted); font-size: calc(var(--hud-text-size) - 1px); font-style: normal; line-height: 1; }
+.history-card > div em b { display: inline; margin: 0 3px 0 0; color: var(--berry-dark); font-size: calc(var(--hud-text-size) + 1px); }
+.history-card ul { max-height: 230px; margin: 0; padding: 0; overflow: auto; list-style: none; }
+.history-card li { padding: 14px 0; display: grid; grid-template-areas: "date calories" "activity calories"; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 7px 16px; }
+.history-card li + li { border-top: 1px dashed #d3bca4; }
+.history-card li > span { grid-area: activity; min-width: 0; }
+.history-card time { grid-area: date; color: var(--muted); font-size: calc(var(--hud-text-size) - 1px); letter-spacing: .5px; white-space: nowrap; }
+.history-card li small { color: var(--muted); font-size: calc(var(--hud-text-size) - 1px); }
 .history-card li span b, .history-card li span small { display: block; }
-.history-card li span b { font-size: 9px; line-height: 1.5; }
+.history-card li span b { font-size: var(--hud-text-size); line-height: 1.5; }
 .history-card li span small { margin-top: 4px; }
-.history-card strong { color: var(--berry-dark); font-size: 9px; white-space: nowrap; }
-.history-card > p { margin: 12px 0 0; color: var(--muted); font-size: 9px; line-height: 1.6; }
+.history-card strong { grid-area: calories; min-width: 112px; padding: 9px 10px; display: flex; align-items: baseline; justify-content: center; gap: 6px; border: 1px solid #e2b3ac; border-radius: 10px; background: #fff0e9; color: var(--berry-dark); font-size: calc(var(--hud-text-size) + 1px); line-height: 1; white-space: nowrap; }
+.history-card strong small { color: #9a5b60; font-size: calc(var(--hud-text-size) - 2px); }
+.history-card > p { margin: 12px 0 0; color: var(--muted); font-size: var(--hud-text-size); line-height: 1.6; }
 
 .quest-window .window-heading small,
 .quest-window .window-heading p,
@@ -221,14 +224,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .quest-window .streak-card small,
 .quest-window .streak-card em,
 .quest-window .week-track i,
-.quest-window .streak-card p,
-.quest-window .history-card > div small,
-.quest-window .history-card em,
-.quest-window .history-card time,
-.quest-window .history-card li small,
-.quest-window .history-card li span b,
-.quest-window .history-card strong,
-.quest-window .history-card > p { font-size: var(--hud-text-size); }
+.quest-window .streak-card p { font-size: var(--hud-text-size); }
 
 .backpack-layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(230px, .7fr); gap: 20px; }
 .inventory-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
@@ -332,8 +328,6 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
   .pet-grid img { height: 135px; }
   .furniture-rug { width: 27vw; min-width: 130px; }
   .placed-furniture { min-width: 66px; }
-  .history-card li { grid-template-columns: 108px minmax(0, 1fr); gap: 9px; }
-  .history-card strong { grid-column: 2; }
 }
 
 @media (prefers-reduced-motion: reduce) {
