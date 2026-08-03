@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { clampCatPosition, getFurnitureTarget, type Point } from "./furniture";
 import { getTimePeriod, type TimePeriod } from "./time-period";
 import { estimateCalories } from "./calories";
-import { getWeatherKind, type WeatherKind } from "./weather";
+import { getRoomAsset, getWeatherKind, type WeatherKind } from "./weather";
 import { getNextIdleAction, type IdleAction } from "./cat-actions";
+import { canPetMove, decayPetStats, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "./pet-stats";
 
 type PetId = "mitao" | "doubao" | "xueqiu";
 type OverlayId = "quest" | "bag" | "pets" | "shop" | null;
@@ -24,6 +25,8 @@ type GameState = {
   sleepiness: number;
   catPosition: Point;
   catFurniture: string | null;
+  sleepEndsAt: number | null;
+  sleepRest: number;
   furniturePositions: Record<string, Point>;
 };
 
@@ -53,9 +56,9 @@ const furnitureItems = [
   { id: "rug", name: "草莓地毯", detail: "柔软的大地毯", price: 35, asset: "/game/furniture-rug.png", standHeight: 0 },
   { id: "plant", name: "薄荷盆栽", detail: "让房间有一点绿意", price: 48, asset: "/game/furniture-plant.png", standHeight: null },
   { id: "lamp", name: "蘑菇夜灯", detail: "晚上会暖暖发光", price: 60, asset: "/game/furniture-lamp.png", standHeight: null },
-  { id: "catbed", name: "云朵猫窝", detail: "软绵绵的基础小窝", price: 45, asset: "/game/furniture-catbed.png", standHeight: 4, rest: 35 },
-  { id: "strawberrybed", name: "草莓篮子窝", detail: "暖红色的莓果小窝", price: 95, asset: "/game/furniture-catbed.png", standHeight: 4, rest: 50 },
-  { id: "moonbed", name: "星空甜甜圈窝", detail: "适合睡一场长长的觉", price: 120, asset: "/game/furniture-catbed.png", standHeight: 4, rest: 65 },
+  { id: "catbed", name: "云朵猫窝", detail: "软绵绵的基础小窝", price: 45, asset: "/game/furniture-catbed.png", standHeight: 4, rest: 30 },
+  { id: "strawberrybed", name: "草莓篮子窝", detail: "暖红色的莓果小窝", price: 95, asset: "/game/furniture-catbed.png", standHeight: 4, rest: 55 },
+  { id: "moonbed", name: "星空甜甜圈窝", detail: "适合睡一场长长的觉", price: 120, asset: "/game/furniture-catbed.png", standHeight: 4, rest: 80 },
   { id: "bookcase", name: "草莓书柜", detail: "摆满绘本和小收藏", price: 82, asset: "/game/furniture-bookcase.png", standHeight: null },
   { id: "table", name: "莓果小圆桌", detail: "一起坐下吃点心", price: 58, asset: "/game/furniture-table.png", standHeight: 8 },
   { id: "cushion", name: "爱心软垫", detail: "软绵绵的休息角", price: 42, asset: "/game/furniture-cushion.png", standHeight: 2 },
@@ -65,7 +68,8 @@ const furnitureItems = [
 const pets = [
   {
     id: "mitao" as PetId, name: "蜜桃", kind: "橘子猫", nature: "热情的小太阳",
-    walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-walk-v2-${frame}.png`), idle: "/game/cat-orange-idle.png",
+    walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-walk-v2-${frame}.png`), idle: "/game/cat-orange-idle.png", sleep: "/game/cat-orange-sleep.png", wake: "/game/cat-orange-wake.png",
+    wakeYawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-wake-yawn-${frame}.png`),
     groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-groom-${frame}.png`),
     yawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-yawn-${frame}.png`),
     frameAdjustments: {
@@ -76,7 +80,8 @@ const pets = [
   },
   {
     id: "doubao" as PetId, name: "豆包", kind: "奶牛猫", nature: "安静的陪跑员",
-    walkFrames: [1, 3, 4, 3].map((frame) => `/game/cat-cow-walk-v2-${frame}.png`), idle: "/game/cat-cow-idle.png",
+    walkFrames: [1, 3, 4, 3].map((frame) => `/game/cat-cow-walk-v2-${frame}.png`), idle: "/game/cat-cow-idle.png", sleep: "/game/cat-cow-sleep.png", wake: "/game/cat-cow-wake.png",
+    wakeYawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-wake-yawn-${frame}.png`),
     groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-groom-${frame}.png`),
     yawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-yawn-${frame}.png`),
     frameAdjustments: {
@@ -87,7 +92,8 @@ const pets = [
   },
   {
     id: "xueqiu" as PetId, name: "雪球", kind: "白绒猫", nature: "爱撒娇的鼓励师",
-    walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-walk-v2-${frame}.png`), idle: "/game/cat-white-idle.png",
+    walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-walk-v2-${frame}.png`), idle: "/game/cat-white-idle.png", sleep: "/game/cat-white-sleep.png", wake: "/game/cat-white-wake.png",
+    wakeYawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-wake-yawn-${frame}.png`),
     groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-groom-${frame}.png`),
     yawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-yawn-${frame}.png`),
     frameAdjustments: {
@@ -119,6 +125,8 @@ const INITIAL_GAME: GameState = {
   sleepiness: 24,
   catPosition: { x: 56, y: 72 },
   catFurniture: null,
+  sleepEndsAt: null,
+  sleepRest: 0,
   furniturePositions: DEFAULT_FURNITURE_POSITIONS,
 };
 
@@ -133,6 +141,8 @@ const actionSequences = {
   groom: [0, 1, 2, 3, 2, 3, 2, 1, 0],
   yawn: [0, 1, 2, 3, 3, 2, 1, 0],
 };
+
+const WAKE_SEQUENCE_LENGTH = actionSequences.yawn.length + 3;
 
 function localDate(date = new Date()) {
   const year = date.getFullYear();
@@ -166,14 +176,21 @@ export default function Home() {
   const [walkFrame, setWalkFrame] = useState(0);
   const [walkDuration, setWalkDuration] = useState(550);
   const [timePeriod, setTimePeriod] = useState<TimePeriod>("noon");
-  const [weather, setWeather] = useState<{ kind: WeatherKind; label: string; temperature: number | null }>({ kind: "clear", label: "天气同步中", temperature: null });
+  const [weather, setWeather] = useState<{ kind: WeatherKind; label: string }>({ kind: "clear", label: "晴" });
   const [idleAction, setIdleAction] = useState<IdleAction | null>(null);
   const [idleFrame, setIdleFrame] = useState(0);
   const [actionsReady, setActionsReady] = useState(false);
   const [resting, setResting] = useState(false);
+  const [sleepRemainingMs, setSleepRemainingMs] = useState(0);
+  const [interruptConfirm, setInterruptConfirm] = useState(false);
+  const [wakingUp, setWakingUp] = useState(false);
+  const [wakeFrame, setWakeFrame] = useState(0);
+  const [headShaking, setHeadShaking] = useState(false);
   const [direction, setDirection] = useState<"left" | "right">("right");
   const roomRef = useRef<HTMLDivElement>(null);
   const walkingTimer = useRef<number | undefined>(undefined);
+  const headShakeTimer = useRef<number | undefined>(undefined);
+  const sleepInterruptReadyAt = useRef(0);
   const idleCycle = useRef(0);
 
   useEffect(() => {
@@ -210,8 +227,16 @@ export default function Home() {
           if (Math.round((midnight.getTime() - previous.getTime()) / 86400000) > 1) merged.streak = 0;
         }
         if (merged.lastCheckin === current && merged.lastActivity) setActivityText(merged.lastActivity);
+        const sleepRemaining = getSleepRemainingMs(merged.sleepEndsAt, now.getTime());
+        if (merged.sleepEndsAt && sleepRemaining === 0) {
+          merged.sleepiness = Math.min(100, merged.sleepiness + merged.sleepRest);
+          merged.sleepEndsAt = null;
+          merged.sleepRest = 0;
+        } else if (sleepRemaining > 0) {
+          setResting(true);
+          setSleepRemainingMs(sleepRemaining);
+        }
         setGame(merged);
-        if (furnitureItems.some((item) => item.id === merged.catFurniture && item.rest)) setResting(true);
       } catch {
         setGame(INITIAL_GAME);
       }
@@ -261,21 +286,21 @@ export default function Home() {
     const labels: Record<WeatherKind, string> = { clear: "晴", cloudy: "多云", rain: "小雨", thunderstorm: "雷暴雨" };
     const syncWeather = async () => {
       try {
-        const response = await fetch("https://api.open-meteo.com/v1/forecast?latitude=23.0215&longitude=113.1214&current=temperature_2m,weather_code,cloud_cover,precipitation&timezone=Asia%2FShanghai");
+        const response = await fetch("https://api.open-meteo.com/v1/forecast?latitude=23.0215&longitude=113.1214&current=weather_code,cloud_cover,precipitation&timezone=Asia%2FShanghai");
         if (!response.ok) throw new Error();
-        const data = await response.json() as { current: { temperature_2m: number; weather_code: number; cloud_cover: number; precipitation: number } };
+        const data = await response.json() as { current: { weather_code: number; cloud_cover: number; precipitation: number } };
         const kind = getWeatherKind(data.current.weather_code, data.current.precipitation, data.current.cloud_cover);
-        if (!cancelled) setWeather({ kind, label: labels[kind], temperature: Math.round(data.current.temperature_2m) });
+        if (!cancelled) setWeather({ kind, label: labels[kind] });
       } catch {
         try {
           const response = await fetch("https://wttr.in/Foshan?format=j1");
           if (!response.ok) throw new Error();
-          const data = await response.json() as { current_condition: Array<{ temp_C: string; cloudcover: string; precipMM: string; weatherDesc: Array<{ value: string }> }> };
+          const data = await response.json() as { current_condition: Array<{ cloudcover: string; precipMM: string; weatherDesc: Array<{ value: string }> }> };
           const current = data.current_condition[0];
           const description = current.weatherDesc[0]?.value.toLowerCase() ?? "";
           const code = description.includes("thunder") ? 95 : description.includes("rain") || description.includes("drizzle") || description.includes("shower") ? 61 : description.includes("cloud") || description.includes("overcast") ? 3 : 0;
           const kind = getWeatherKind(code, Number(current.precipMM), Number(current.cloudcover));
-          if (!cancelled) setWeather({ kind, label: labels[kind], temperature: Math.round(Number(current.temp_C)) });
+          if (!cancelled) setWeather({ kind, label: labels[kind] });
         } catch {
           if (!cancelled) setWeather((current) => ({ ...current, label: "天气暂时无法同步" }));
         }
@@ -294,6 +319,45 @@ export default function Home() {
   }, [game, ready]);
 
   useEffect(() => {
+    if (!ready || resting) return;
+    const timer = window.setInterval(() => {
+      setGame((current) => ({ ...current, ...decayPetStats(current.energy, current.sleepiness) }));
+    }, PET_STAT_DECAY_MS);
+    return () => window.clearInterval(timer);
+  }, [ready, resting]);
+
+  useEffect(() => {
+    if (!ready || !game.sleepEndsAt) {
+      setSleepRemainingMs(0);
+      setResting(false);
+      setInterruptConfirm(false);
+      return;
+    }
+    const updateSleep = () => {
+      const remaining = getSleepRemainingMs(game.sleepEndsAt);
+      setSleepRemainingMs(remaining);
+      if (remaining > 0) {
+        setResting(true);
+        return;
+      }
+      setResting(false);
+      setGame((current) => {
+        if (!current.sleepEndsAt || getSleepRemainingMs(current.sleepEndsAt) > 0) return current;
+        return {
+          ...current,
+          sleepiness: Math.min(100, current.sleepiness + current.sleepRest),
+          sleepEndsAt: null,
+          sleepRest: 0,
+        };
+      });
+      setToast(`睡醒啦，困倦值恢复 +${game.sleepRest}`);
+    };
+    updateSleep();
+    const timer = window.setInterval(updateSleep, 1000);
+    return () => window.clearInterval(timer);
+  }, [game.sleepEndsAt, game.sleepRest, ready]);
+
+  useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(""), 2400);
     return () => window.clearTimeout(timer);
@@ -301,7 +365,7 @@ export default function Home() {
 
   useEffect(() => {
     let cancelled = false;
-    const frames = pets.flatMap((item) => [...item.walkFrames, ...item.groomFrames, ...item.yawnFrames]);
+    const frames = pets.flatMap((item) => [item.sleep, item.wake, ...item.wakeYawnFrames, ...item.walkFrames, ...item.groomFrames, ...item.yawnFrames]);
     Promise.all(frames.map((src) => new Promise<void>((resolve) => {
       const image = new Image();
       image.onload = image.onerror = () => resolve();
@@ -341,13 +405,31 @@ export default function Home() {
   }, [idleAction]);
 
   useEffect(() => {
-    if (!actionsReady || walking || decorating || resting || idleAction) return;
+    if (!wakingUp) return;
+    let frame = 0;
+    setWakeFrame(0);
+    const timer = window.setInterval(() => {
+      frame += 1;
+      if (frame >= WAKE_SEQUENCE_LENGTH) {
+        window.clearInterval(timer);
+        setWakeFrame(0);
+        setWakingUp(false);
+        setToast("已经打完哈欠，可以继续活动了");
+        return;
+      }
+      setWakeFrame(frame);
+    }, 280);
+    return () => window.clearInterval(timer);
+  }, [wakingUp]);
+
+  useEffect(() => {
+    if (!actionsReady || walking || decorating || resting || wakingUp || idleAction) return;
     const nextAction = getNextIdleAction(idleCycle.current, game.sleepiness);
     const timer = window.setTimeout(() => {
       setIdleAction(nextAction);
     }, nextAction === "groom" ? 3800 : 5400);
     return () => window.clearTimeout(timer);
-  }, [actionsReady, decorating, game.sleepiness, idleAction, resting, walking]);
+  }, [actionsReady, decorating, game.sleepiness, idleAction, resting, wakingUp, walking]);
 
   useEffect(() => {
     if (overlay || decorating) return;
@@ -362,6 +444,24 @@ export default function Home() {
       const move = moves[event.key];
       if (!move) return;
       event.preventDefault();
+      if (wakingUp) {
+        setToast("正在打哈欠起床，请稍等一下");
+        return;
+      }
+      if (resting) {
+        setToast(`正在睡觉，还剩 ${formatSleepRemaining(sleepRemainingMs)}`);
+        return;
+      }
+      if (!canPetMove(game.sleepiness)) {
+        setWalking(false);
+        setIdleAction(null);
+        setIdleFrame(0);
+        setHeadShaking(true);
+        window.clearTimeout(headShakeTimer.current);
+        headShakeTimer.current = window.setTimeout(() => setHeadShaking(false), 650);
+        setToast("困倦值太低，先去猫窝休息吧");
+        return;
+      }
       if (move.x) setDirection(move.x < 0 ? "left" : "right");
       setWalkDuration(120);
       setGame((current) => ({
@@ -385,7 +485,7 @@ export default function Home() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [decorating, overlay]);
+  }, [decorating, game.sleepiness, overlay, resting, sleepRemainingMs, wakingUp]);
 
   useEffect(() => {
     const onEscape = (event: KeyboardEvent) => {
@@ -420,7 +520,10 @@ export default function Home() {
     };
   }, [dragging]);
 
-  useEffect(() => () => window.clearTimeout(walkingTimer.current), []);
+  useEffect(() => () => {
+    window.clearTimeout(walkingTimer.current);
+    window.clearTimeout(headShakeTimer.current);
+  }, []);
 
   const checkedToday = Boolean(today && game.lastCheckin === today);
   const pet = pets.find((item) => item.id === game.pet) ?? pets[0];
@@ -433,9 +536,10 @@ export default function Home() {
   const totalFood = foodItems.reduce((total, item) => total + game.inventory[item.id], 0);
   const selectedFoodItem = foodItems.find((item) => item.id === selectedFood) ?? foodItems[0];
   const actionFrame = idleAction ? actionSequences[idleAction][idleFrame] : -1;
-  const baseAdjustment = walking ? pet.frameAdjustments.walk : { scale: 1, y: 0 };
+  const wakeSequenceAssets = [pet.sleep, pet.wake, ...actionSequences.yawn.map((frame) => pet.wakeYawnFrames[frame]), pet.idle];
+  const baseAdjustment = wakingUp ? { scale: 1, y: 0 } : walking ? pet.frameAdjustments.walk : { scale: 1, y: 0 };
   const actionAdjustment = idleAction ? pet.frameAdjustments[idleAction] : pet.frameAdjustments.groom;
-  const catAsset = walking ? pet.walkFrames[walkFrame] : pet.idle;
+  const catAsset = wakingUp ? wakeSequenceAssets[wakeFrame] : resting ? pet.sleep : walking ? pet.walkFrames[walkFrame] : pet.idle;
   const actionAsset = idleAction === "yawn"
     ? pet.yawnFrames[Math.max(actionFrame, 0)]
     : pet.groomFrames[Math.max(actionFrame, 0)];
@@ -449,8 +553,51 @@ export default function Home() {
     setOverlay(id);
   }
 
+  function requestSleepInterrupt() {
+    if (!resting || wakingUp || interruptConfirm || Date.now() < sleepInterruptReadyAt.current) return;
+    setInterruptConfirm(true);
+  }
+
+  function continueSleeping() {
+    setInterruptConfirm(false);
+    sleepInterruptReadyAt.current = Date.now() + 1200;
+  }
+
+  function interruptSleep() {
+    setInterruptConfirm(false);
+    setResting(false);
+    setSleepRemainingMs(0);
+    setIdleAction(null);
+    setIdleFrame(0);
+    setWakeFrame(0);
+    setWakingUp(true);
+    setGame((current) => ({ ...current, sleepEndsAt: null, sleepRest: 0 }));
+    setToast("睡眠已打断，本次没有增加困倦值");
+  }
+
+  function refuseMovementIfTired() {
+    if (wakingUp) {
+      setToast("正在打哈欠起床，请稍等一下");
+      return true;
+    }
+    if (resting) {
+      setToast(`${pet.name}正在睡觉，还剩 ${formatSleepRemaining(sleepRemainingMs)}`);
+      return true;
+    }
+    if (canPetMove(game.sleepiness)) return false;
+    setWalking(false);
+    setIdleAction(null);
+    setIdleFrame(0);
+    setHeadShaking(true);
+    window.clearTimeout(headShakeTimer.current);
+    headShakeTimer.current = window.setTimeout(() => setHeadShaking(false), 650);
+    setToast(`${pet.name}太困了，先去猫窝休息吧`);
+    return true;
+  }
+
   function moveCat(event: React.PointerEvent<HTMLDivElement>) {
     if (decorating || overlay || (event.target as HTMLElement).closest("[data-furniture]")) return;
+    if (refuseMovementIfTired()) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const { x, y } = clampCatPosition({
       x: ((event.clientX - rect.left) / rect.width) * 100,
@@ -475,6 +622,9 @@ export default function Home() {
   }
 
   function moveCatToFurniture(item: (typeof furnitureItems)[number], position: Point) {
+    if (wakingUp && refuseMovementIfTired()) return;
+    if (resting && refuseMovementIfTired()) return;
+    if (!item.rest && refuseMovementIfTired()) return;
     const target = getFurnitureTarget(position, item.standHeight);
     const distance = Math.hypot(target.x - game.catPosition.x, target.y - game.catPosition.y);
     const duration = Math.round(clamp(distance * 14, 420, 900));
@@ -495,9 +645,12 @@ export default function Home() {
       setWalking(false);
       setJumping(false);
       if (item.rest) {
+        const sleepEndsAt = Date.now() + SLEEP_DURATION_MS;
         setResting(true);
-        setGame((current) => ({ ...current, sleepiness: Math.min(100, current.sleepiness + item.rest) }));
-        setToast(`${pet.name}在${item.name}里休息，困倦值恢复 +${item.rest}`);
+        setSleepRemainingMs(SLEEP_DURATION_MS);
+        sleepInterruptReadyAt.current = Date.now() + 900;
+        setGame((current) => ({ ...current, sleepEndsAt, sleepRest: item.rest }));
+        setToast(`${pet.name}开始在${item.name}睡觉，3小时后恢复困倦值 +${item.rest}`);
       }
     }, duration + 60);
   }
@@ -603,18 +756,11 @@ export default function Home() {
           ref={roomRef}
           tabIndex={0}
           onPointerDown={moveCat}
+          onPointerMove={requestSleepInterrupt}
           aria-label="全屏像素小屋。点击地面或使用方向键移动猫咪。"
         >
-          <img className="room-background" src="/game/room-v2.png" alt="温暖的像素风猫咪小屋" draggable={false} />
-          <div className="weather-outside" aria-hidden="true">
-            <div className="weather-canvas">
-              <div className="weather-window">{Array.from({ length: 6 }, (_, index) => <i key={index} />)}</div>
-              <div className="weather-door">{Array.from({ length: 4 }, (_, index) => <i key={index} />)}</div>
-            </div>
-          </div>
+          <img className="room-background" src={getRoomAsset(weather.kind, timePeriod)} alt={`像素风猫咪小屋的${weather.label}场景`} draggable={false} />
           <div className="room-vignette" />
-          <div className="weather-chip" role="status" title="天气数据：Open-Meteo / wttr.in">佛山 · {weather.label}{weather.temperature == null ? "" : ` · ${weather.temperature}°C`}</div>
-
           {ownedFurniture.map((item) => {
             const position = game.furniturePositions[item.id] ?? DEFAULT_FURNITURE_POSITIONS[item.id];
             return (
@@ -630,7 +776,7 @@ export default function Home() {
                   if (decorating) setDragging(item.id);
                   else moveCatToFurniture(item, position);
                 }}
-                aria-label={`${item.name}${decorating ? "，拖动可调整位置" : item.rest ? "，回窝休息" : item.standHeight === null ? "，走到旁边" : item.standHeight ? "，跳上去" : "，走上去"}`}
+                aria-label={`${item.name}${decorating ? "，拖动可调整位置" : item.rest ? "，睡觉3小时" : item.standHeight === null ? "，走到旁边" : item.standHeight ? "，跳上去" : "，走上去"}`}
               >
                 <img src={item.asset} alt="" draggable={false} />
                 {decorating && <span>拖动</span>}
@@ -639,16 +785,30 @@ export default function Home() {
           })}
 
           <div
-            className={`walking-cat ${walking ? "walking" : ""} ${jumping ? "jumping" : ""} ${resting ? "resting" : ""} ${!walking && actionFrame >= 0 ? "idle-action" : ""} ${direction === "left" ? "facing-left" : ""}`}
+            className={`walking-cat ${walking ? "walking" : ""} ${jumping ? "jumping" : ""} ${resting ? "resting" : ""} ${wakingUp ? "waking-up" : ""} ${headShaking ? "head-shaking" : ""} ${!walking && actionFrame >= 0 ? "idle-action" : ""} ${direction === "left" ? "facing-left" : ""}`}
             style={{ left: `${game.catPosition.x}%`, top: `${game.catPosition.y}%`, zIndex: game.catFurniture ? Math.round((game.furniturePositions[game.catFurniture] ?? DEFAULT_FURNITURE_POSITIONS[game.catFurniture]).y) + 2 : Math.round(game.catPosition.y) + 2, transitionDuration: `${walkDuration}ms` }}
           >
             <i />
             <img className="cat-base" src={catAsset} alt={`${pet.name}正在小屋里`} draggable={false} style={{ transform: `translateY(${baseAdjustment.y}%) scale(${direction === "left" ? -baseAdjustment.scale : baseAdjustment.scale}, ${baseAdjustment.scale})` }} />
             <img key={actionAsset} className="cat-action" src={actionAsset} alt="" draggable={false} style={{ transform: `translateY(${actionAdjustment.y}%) scale(${direction === "left" ? -actionAdjustment.scale : actionAdjustment.scale}, ${actionAdjustment.scale})` }} />
-            <b>{resting ? `${pet.name} Zzz…` : pet.name}</b>
+            <b>{headShaking ? "太困啦…" : wakingUp ? "起床中…" : resting ? `还剩 ${formatSleepRemaining(sleepRemainingMs)}` : pet.name}</b>
           </div>
 
         </div>
+
+        {interruptConfirm && (
+          <div className="sleep-interrupt-layer">
+            <section className="sleep-interrupt-dialog" role="dialog" aria-modal="true" aria-label="睡眠打断确认">
+              <span>💤</span>
+              <h2>是否要打断睡眠？</h2>
+              <p>现在叫醒猫咪，本次睡眠不会增加困倦值。</p>
+              <div>
+                <button type="button" onClick={continueSleeping}>继续睡觉</button>
+                <button type="button" className="interrupt-button" onClick={interruptSleep}>打断睡眠</button>
+              </div>
+            </section>
+          </div>
+        )}
 
         <header className="game-hud">
           <button className="game-logo" onClick={() => setOverlay(null)} aria-label="关闭窗口回到小屋">
@@ -754,7 +914,7 @@ export default function Home() {
                     {shopCategory === "food" ? foodItems.map((item) => (
                       <article key={item.id}>
                         <div className="store-art"><img src={item.asset} alt="" /><i>背包 ×{game.inventory[item.id]}</i></div>
-                        <div><small>活力 +{item.energy}</small><h2>{item.name}</h2><p>{item.detail}</p></div>
+                        <div><small>补充活力 +{item.energy}</small><h2>{item.name}</h2><p>{item.detail}</p></div>
                         <button onClick={() => buyFood(item)}>🍓 {item.price}</button>
                       </article>
                     )) : furnitureItems.map((item) => {
@@ -762,7 +922,7 @@ export default function Home() {
                       return (
                         <article key={item.id} className={`${owned ? "owned" : ""} furniture-card-${item.id}`}>
                           <div className="store-art"><img src={item.asset} alt="" /></div>
-                          <div><small>{item.rest ? `休息恢复 +${item.rest}` : "可自由拖动"}</small><h2>{item.name}</h2><p>{item.detail}</p></div>
+                          <div><small>{item.rest ? `睡眠3小时 · 困倦值 +${item.rest}` : "可自由拖动"}</small><h2>{item.name}</h2><p>{item.detail}</p></div>
                           <button onClick={() => buyFurniture(item)} disabled={owned}>{owned ? "✓ 已拥有" : `🍓 ${item.price}`}</button>
                         </article>
                       );
