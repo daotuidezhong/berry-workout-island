@@ -327,6 +327,8 @@ export default function Home() {
         }),
         catFurniture: null,
       }));
+      setIdleAction(null);
+      setIdleFrame(0);
       setJumping(false);
       setWalking(true);
       window.clearTimeout(walkingTimer.current);
@@ -385,16 +387,12 @@ export default function Home() {
   const totalFood = foodItems.reduce((total, item) => total + game.inventory[item.id], 0);
   const selectedFoodItem = foodItems.find((item) => item.id === selectedFood) ?? foodItems[0];
   const actionFrame = idleAction ? actionSequences[idleAction][idleFrame] : -1;
-  const frameAdjustment = walking
-    ? pet.frameAdjustments.walk
-    : idleAction && actionFrame >= 0
-      ? pet.frameAdjustments[idleAction]
-      : { scale: 1, y: 0 };
-  const catAsset = walking
-    ? pet.walkFrames[walkFrame]
-    : idleAction && actionFrame >= 0
-      ? (idleAction === "groom" ? pet.groomFrames : pet.yawnFrames)[actionFrame]
-      : pet.idle;
+  const baseAdjustment = walking ? pet.frameAdjustments.walk : { scale: 1, y: 0 };
+  const actionAdjustment = idleAction ? pet.frameAdjustments[idleAction] : pet.frameAdjustments.groom;
+  const catAsset = walking ? pet.walkFrames[walkFrame] : pet.idle;
+  const actionAsset = idleAction === "yawn"
+    ? pet.yawnFrames[Math.max(actionFrame, 0)]
+    : pet.groomFrames[Math.max(actionFrame, 0)];
 
   function openOverlay(id: Exclude<OverlayId, null>) {
     setDecorating(false);
@@ -417,6 +415,8 @@ export default function Home() {
     setDirection(x < game.catPosition.x ? "left" : "right");
     setWalkDuration(duration);
     setGame((current) => ({ ...current, catPosition: { x, y }, catFurniture: null }));
+    setIdleAction(null);
+    setIdleFrame(0);
     setJumping(false);
     setWalking(true);
     window.clearTimeout(walkingTimer.current);
@@ -433,6 +433,8 @@ export default function Home() {
     const duration = Math.round(clamp(distance * 14, 420, 900));
     setDirection(target.x < game.catPosition.x ? "left" : "right");
     setWalkDuration(duration);
+    setIdleAction(null);
+    setIdleFrame(0);
     setJumping(target.jumping);
     setWalking(true);
     setGame((current) => ({
@@ -576,11 +578,12 @@ export default function Home() {
           })}
 
           <div
-            className={`walking-cat ${walking ? "walking" : ""} ${jumping ? "jumping" : ""} ${direction === "left" ? "facing-left" : ""}`}
+            className={`walking-cat ${walking ? "walking" : ""} ${jumping ? "jumping" : ""} ${!walking && actionFrame >= 0 ? "idle-action" : ""} ${direction === "left" ? "facing-left" : ""}`}
             style={{ left: `${game.catPosition.x}%`, top: `${game.catPosition.y}%`, zIndex: game.catFurniture ? Math.round((game.furniturePositions[game.catFurniture] ?? DEFAULT_FURNITURE_POSITIONS[game.catFurniture]).y) + 2 : Math.round(game.catPosition.y) + 2, transitionDuration: `${walkDuration}ms` }}
           >
             <i />
-            <img src={catAsset} alt={`${pet.name}正在小屋里`} draggable={false} style={{ transform: `translateY(${frameAdjustment.y}%) scale(${direction === "left" ? -frameAdjustment.scale : frameAdjustment.scale}, ${frameAdjustment.scale})` }} />
+            <img className="cat-base" src={catAsset} alt={`${pet.name}正在小屋里`} draggable={false} style={{ transform: `translateY(${baseAdjustment.y}%) scale(${direction === "left" ? -baseAdjustment.scale : baseAdjustment.scale}, ${baseAdjustment.scale})` }} />
+            <img className="cat-action" src={actionAsset} alt="" draggable={false} style={{ transform: `translateY(${actionAdjustment.y}%) scale(${direction === "left" ? -actionAdjustment.scale : actionAdjustment.scale}, ${actionAdjustment.scale})` }} />
             <b>{pet.name}</b>
           </div>
 
