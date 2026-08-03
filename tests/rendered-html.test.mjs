@@ -3,6 +3,8 @@ import test from "node:test";
 import { CAT_BOUNDS, clampCatPosition, getFurnitureTarget } from "../app/furniture.ts";
 import { getTimePeriod } from "../app/time-period.ts";
 import { estimateCalories } from "../app/calories.ts";
+import { getWeatherKind } from "../app/weather.ts";
+import { getNextIdleAction } from "../app/cat-actions.ts";
 
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -38,6 +40,19 @@ test("uses furniture height to choose walking or jumping", () => {
   assert.deepEqual(getFurnitureTarget({ x: 86, y: 62 }, null), { x: 92, y: 62, jumping: false, onTop: false });
 });
 
+test("maps Foshan weather codes to room weather states", () => {
+  assert.equal(getWeatherKind(0, 0, 8), "clear");
+  assert.equal(getWeatherKind(3, 0, 80), "cloudy");
+  assert.equal(getWeatherKind(61, 0.4, 95), "rain");
+  assert.equal(getWeatherKind(95, 2.2, 100), "thunderstorm");
+});
+
+test("only yawns below 40 sleepiness", () => {
+  assert.equal(getNextIdleAction(1, 39), "yawn");
+  assert.equal(getNextIdleAction(1, 40), "groom");
+  assert.equal(getNextIdleAction(0, 20), "groom");
+});
+
 test("server-renders the full-screen game without the old movement hint", async () => {
   const response = await render();
   assert.equal(response.status, 200);
@@ -48,5 +63,6 @@ test("server-renders the full-screen game without the old movement hint", async 
   assert.match(html, /class="cat-action"/);
   assert.match(html, /aria-label="游戏菜单"/);
   assert.match(html, /的困倦值/);
+  assert.match(html, /天气同步中/);
   assert.doesNotMatch(html, /room-help|点击地面移动/);
 });

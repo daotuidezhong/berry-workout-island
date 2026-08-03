@@ -4,10 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { clampCatPosition, getFurnitureTarget, type Point } from "./furniture";
 import { getTimePeriod, type TimePeriod } from "./time-period";
 import { estimateCalories } from "./calories";
+import { getWeatherKind, type WeatherKind } from "./weather";
+import { getNextIdleAction, type IdleAction } from "./cat-actions";
 
 type PetId = "mitao" | "doubao" | "xueqiu";
 type OverlayId = "quest" | "bag" | "pets" | "shop" | null;
-type IdleAction = "groom" | "yawn";
 type ShopCategory = "food" | "furniture";
 type CheckinRecord = { id: number; date: string; activity: string; minutes: number | null; calories: number | null };
 type FoodId = "driedFish" | "chickenCan" | "salmonMousse" | "tunaRice" | "chickenCubes" | "catnipBiscuits";
@@ -31,6 +32,8 @@ const DEFAULT_FURNITURE_POSITIONS: Record<string, Point> = {
   plant: { x: 86, y: 62 },
   lamp: { x: 73, y: 61 },
   catbed: { x: 25, y: 77 },
+  strawberrybed: { x: 38, y: 79 },
+  moonbed: { x: 51, y: 78 },
   bookcase: { x: 14, y: 58 },
   table: { x: 61, y: 77 },
   cushion: { x: 78, y: 81 },
@@ -50,7 +53,9 @@ const furnitureItems = [
   { id: "rug", name: "草莓地毯", detail: "柔软的大地毯", price: 35, asset: "/game/furniture-rug.png", standHeight: 0 },
   { id: "plant", name: "薄荷盆栽", detail: "让房间有一点绿意", price: 48, asset: "/game/furniture-plant.png", standHeight: null },
   { id: "lamp", name: "蘑菇夜灯", detail: "晚上会暖暖发光", price: 60, asset: "/game/furniture-lamp.png", standHeight: null },
-  { id: "catbed", name: "云朵猫窝", detail: "最适合蜷成一团", price: 75, asset: "/game/furniture-catbed.png", standHeight: 4 },
+  { id: "catbed", name: "云朵猫窝", detail: "软绵绵的基础小窝", price: 45, asset: "/game/furniture-catbed.png", standHeight: 4, rest: 35 },
+  { id: "strawberrybed", name: "草莓篮子窝", detail: "暖红色的莓果小窝", price: 95, asset: "/game/furniture-catbed.png", standHeight: 4, rest: 50 },
+  { id: "moonbed", name: "星空甜甜圈窝", detail: "适合睡一场长长的觉", price: 120, asset: "/game/furniture-catbed.png", standHeight: 4, rest: 65 },
   { id: "bookcase", name: "草莓书柜", detail: "摆满绘本和小收藏", price: 82, asset: "/game/furniture-bookcase.png", standHeight: null },
   { id: "table", name: "莓果小圆桌", detail: "一起坐下吃点心", price: 58, asset: "/game/furniture-table.png", standHeight: 8 },
   { id: "cushion", name: "爱心软垫", detail: "软绵绵的休息角", price: 42, asset: "/game/furniture-cushion.png", standHeight: 2 },
@@ -125,8 +130,8 @@ const milestones = [
 ];
 
 const actionSequences = {
-  groom: [-1, 0, 1, 2, 3, 2, 3, 2, 1, 0, -1],
-  yawn: [-1, 0, 1, 2, 3, 3, 2, 1, 0, -1],
+  groom: [0, 1, 2, 3, 2, 3, 2, 1, 0],
+  yawn: [0, 1, 2, 3, 3, 2, 1, 0],
 };
 
 function localDate(date = new Date()) {
@@ -161,8 +166,11 @@ export default function Home() {
   const [walkFrame, setWalkFrame] = useState(0);
   const [walkDuration, setWalkDuration] = useState(550);
   const [timePeriod, setTimePeriod] = useState<TimePeriod>("noon");
+  const [weather, setWeather] = useState<{ kind: WeatherKind; label: string; temperature: number | null }>({ kind: "clear", label: "天气同步中", temperature: null });
   const [idleAction, setIdleAction] = useState<IdleAction | null>(null);
   const [idleFrame, setIdleFrame] = useState(0);
+  const [actionsReady, setActionsReady] = useState(false);
+  const [resting, setResting] = useState(false);
   const [direction, setDirection] = useState<"left" | "right">("right");
   const roomRef = useRef<HTMLDivElement>(null);
   const walkingTimer = useRef<number | undefined>(undefined);
@@ -203,6 +211,7 @@ export default function Home() {
         }
         if (merged.lastCheckin === current && merged.lastActivity) setActivityText(merged.lastActivity);
         setGame(merged);
+        if (furnitureItems.some((item) => item.id === merged.catFurniture && item.rest)) setResting(true);
       } catch {
         setGame(INITIAL_GAME);
       }
@@ -248,6 +257,39 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    const labels: Record<WeatherKind, string> = { clear: "晴", cloudy: "多云", rain: "小雨", thunderstorm: "雷暴雨" };
+    const syncWeather = async () => {
+      try {
+        const response = await fetch("https://api.open-meteo.com/v1/forecast?latitude=23.0215&longitude=113.1214&current=temperature_2m,weather_code,cloud_cover,precipitation&timezone=Asia%2FShanghai");
+        if (!response.ok) throw new Error();
+        const data = await response.json() as { current: { temperature_2m: number; weather_code: number; cloud_cover: number; precipitation: number } };
+        const kind = getWeatherKind(data.current.weather_code, data.current.precipitation, data.current.cloud_cover);
+        if (!cancelled) setWeather({ kind, label: labels[kind], temperature: Math.round(data.current.temperature_2m) });
+      } catch {
+        try {
+          const response = await fetch("https://wttr.in/Foshan?format=j1");
+          if (!response.ok) throw new Error();
+          const data = await response.json() as { current_condition: Array<{ temp_C: string; cloudcover: string; precipMM: string; weatherDesc: Array<{ value: string }> }> };
+          const current = data.current_condition[0];
+          const description = current.weatherDesc[0]?.value.toLowerCase() ?? "";
+          const code = description.includes("thunder") ? 95 : description.includes("rain") || description.includes("drizzle") || description.includes("shower") ? 61 : description.includes("cloud") || description.includes("overcast") ? 3 : 0;
+          const kind = getWeatherKind(code, Number(current.precipMM), Number(current.cloudcover));
+          if (!cancelled) setWeather({ kind, label: labels[kind], temperature: Math.round(Number(current.temp_C)) });
+        } catch {
+          if (!cancelled) setWeather((current) => ({ ...current, label: "天气暂时无法同步" }));
+        }
+      }
+    };
+    syncWeather();
+    const timer = window.setInterval(syncWeather, 15 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
     if (ready) window.localStorage.setItem("berry-workout-game", JSON.stringify(game));
   }, [game, ready]);
 
@@ -258,10 +300,16 @@ export default function Home() {
   }, [toast]);
 
   useEffect(() => {
-    pets.flatMap((item) => [...item.walkFrames, ...item.groomFrames, ...item.yawnFrames]).forEach((src) => {
+    let cancelled = false;
+    const frames = pets.flatMap((item) => [...item.walkFrames, ...item.groomFrames, ...item.yawnFrames]);
+    Promise.all(frames.map((src) => new Promise<void>((resolve) => {
       const image = new Image();
+      image.onload = image.onerror = () => resolve();
       image.src = src;
+    }))).then(() => {
+      if (!cancelled) setActionsReady(true);
     });
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -293,16 +341,13 @@ export default function Home() {
   }, [idleAction]);
 
   useEffect(() => {
-    if (walking || decorating || idleAction) return;
-    const nextAction = idleCycle.current % 2 === 0 ? "groom" : "yawn";
+    if (!actionsReady || walking || decorating || resting || idleAction) return;
+    const nextAction = getNextIdleAction(idleCycle.current, game.sleepiness);
     const timer = window.setTimeout(() => {
-      if (nextAction === "yawn") {
-        setGame((current) => ({ ...current, sleepiness: Math.min(100, current.sleepiness + 2) }));
-      }
       setIdleAction(nextAction);
     }, nextAction === "groom" ? 3800 : 5400);
     return () => window.clearTimeout(timer);
-  }, [decorating, idleAction, walking]);
+  }, [actionsReady, decorating, game.sleepiness, idleAction, resting, walking]);
 
   useEffect(() => {
     if (overlay || decorating) return;
@@ -329,6 +374,7 @@ export default function Home() {
       }));
       setIdleAction(null);
       setIdleFrame(0);
+      setResting(false);
       setJumping(false);
       setWalking(true);
       window.clearTimeout(walkingTimer.current);
@@ -417,6 +463,7 @@ export default function Home() {
     setGame((current) => ({ ...current, catPosition: { x, y }, catFurniture: null }));
     setIdleAction(null);
     setIdleFrame(0);
+    setResting(false);
     setJumping(false);
     setWalking(true);
     window.clearTimeout(walkingTimer.current);
@@ -435,6 +482,7 @@ export default function Home() {
     setWalkDuration(duration);
     setIdleAction(null);
     setIdleFrame(0);
+    setResting(false);
     setJumping(target.jumping);
     setWalking(true);
     setGame((current) => ({
@@ -446,6 +494,11 @@ export default function Home() {
     walkingTimer.current = window.setTimeout(() => {
       setWalking(false);
       setJumping(false);
+      if (item.rest) {
+        setResting(true);
+        setGame((current) => ({ ...current, sleepiness: Math.min(100, current.sleepiness + item.rest) }));
+        setToast(`${pet.name}在${item.name}里休息，困倦值恢复 +${item.rest}`);
+      }
     }, duration + 60);
   }
 
@@ -546,13 +599,16 @@ export default function Home() {
         <div
           className={`game-room ${decorating ? "decorating" : ""}`}
           data-period={timePeriod}
+          data-weather={weather.kind}
           ref={roomRef}
           tabIndex={0}
           onPointerDown={moveCat}
           aria-label="全屏像素小屋。点击地面或使用方向键移动猫咪。"
         >
           <img className="room-background" src="/game/room-v2.png" alt="温暖的像素风猫咪小屋" draggable={false} />
+          <div className="weather-window" aria-hidden="true"><i /><i /><i /></div>
           <div className="room-vignette" />
+          <div className="weather-chip" role="status" title="天气数据：Open-Meteo / wttr.in">佛山 · {weather.label}{weather.temperature == null ? "" : ` · ${weather.temperature}°C`}</div>
 
           {ownedFurniture.map((item) => {
             const position = game.furniturePositions[item.id] ?? DEFAULT_FURNITURE_POSITIONS[item.id];
@@ -569,7 +625,7 @@ export default function Home() {
                   if (decorating) setDragging(item.id);
                   else moveCatToFurniture(item, position);
                 }}
-                aria-label={`${item.name}${decorating ? "，拖动可调整位置" : item.standHeight === null ? "，走到旁边" : item.standHeight ? "，跳上去" : "，走上去"}`}
+                aria-label={`${item.name}${decorating ? "，拖动可调整位置" : item.rest ? "，回窝休息" : item.standHeight === null ? "，走到旁边" : item.standHeight ? "，跳上去" : "，走上去"}`}
               >
                 <img src={item.asset} alt="" draggable={false} />
                 {decorating && <span>拖动</span>}
@@ -578,13 +634,13 @@ export default function Home() {
           })}
 
           <div
-            className={`walking-cat ${walking ? "walking" : ""} ${jumping ? "jumping" : ""} ${!walking && actionFrame >= 0 ? "idle-action" : ""} ${direction === "left" ? "facing-left" : ""}`}
+            className={`walking-cat ${walking ? "walking" : ""} ${jumping ? "jumping" : ""} ${resting ? "resting" : ""} ${!walking && actionFrame >= 0 ? "idle-action" : ""} ${direction === "left" ? "facing-left" : ""}`}
             style={{ left: `${game.catPosition.x}%`, top: `${game.catPosition.y}%`, zIndex: game.catFurniture ? Math.round((game.furniturePositions[game.catFurniture] ?? DEFAULT_FURNITURE_POSITIONS[game.catFurniture]).y) + 2 : Math.round(game.catPosition.y) + 2, transitionDuration: `${walkDuration}ms` }}
           >
             <i />
             <img className="cat-base" src={catAsset} alt={`${pet.name}正在小屋里`} draggable={false} style={{ transform: `translateY(${baseAdjustment.y}%) scale(${direction === "left" ? -baseAdjustment.scale : baseAdjustment.scale}, ${baseAdjustment.scale})` }} />
-            <img className="cat-action" src={actionAsset} alt="" draggable={false} style={{ transform: `translateY(${actionAdjustment.y}%) scale(${direction === "left" ? -actionAdjustment.scale : actionAdjustment.scale}, ${actionAdjustment.scale})` }} />
-            <b>{pet.name}</b>
+            <img key={actionAsset} className="cat-action" src={actionAsset} alt="" draggable={false} style={{ transform: `translateY(${actionAdjustment.y}%) scale(${direction === "left" ? -actionAdjustment.scale : actionAdjustment.scale}, ${actionAdjustment.scale})` }} />
+            <b>{resting ? `${pet.name} Zzz…` : pet.name}</b>
           </div>
 
         </div>
@@ -699,9 +755,9 @@ export default function Home() {
                     )) : furnitureItems.map((item) => {
                       const owned = game.purchased.includes(item.id);
                       return (
-                        <article key={item.id} className={owned ? "owned" : ""}>
+                        <article key={item.id} className={`${owned ? "owned" : ""} furniture-card-${item.id}`}>
                           <div className="store-art"><img src={item.asset} alt="" /></div>
-                          <div><small>可自由拖动</small><h2>{item.name}</h2><p>{item.detail}</p></div>
+                          <div><small>{item.rest ? `休息恢复 +${item.rest}` : "可自由拖动"}</small><h2>{item.name}</h2><p>{item.detail}</p></div>
                           <button onClick={() => buyFurniture(item)} disabled={owned}>{owned ? "✓ 已拥有" : `🍓 ${item.price}`}</button>
                         </article>
                       );

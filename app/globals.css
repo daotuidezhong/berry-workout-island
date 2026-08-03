@@ -39,7 +39,14 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .game-room[data-period="evening"] { --scene-lighting: brightness(.78) sepia(.23) saturate(1.16) hue-rotate(-7deg); }
 .game-room[data-period="night"] { --scene-lighting: brightness(.47) saturate(.7) hue-rotate(12deg); }
 .room-background { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; filter: var(--scene-lighting); transition: filter 1.2s ease; pointer-events: none; }
-.room-vignette { position: absolute; inset: 0; z-index: 1; background: radial-gradient(ellipse at 52% 48%, transparent 42%, rgba(53, 31, 25, .28) 100%); transition: background 1.2s ease; pointer-events: none; }
+.weather-window { position: absolute; z-index: 1; left: 42.7%; top: 12.4%; width: 15.5%; height: 18.2%; overflow: hidden; border-radius: 3px; opacity: 0; pointer-events: none; transition: opacity .8s ease; }
+.game-room[data-weather="cloudy"] .weather-window, .game-room[data-weather="rain"] .weather-window, .game-room[data-weather="thunderstorm"] .weather-window { opacity: 1; }
+.weather-window::before { position: absolute; inset: 0; content: ""; background: linear-gradient(rgba(100, 125, 143, .45), rgba(136, 153, 159, .28)), radial-gradient(circle at 22% 22%, #d9e0df 0 12%, transparent 13%), radial-gradient(circle at 44% 20%, #c7d0d1 0 18%, transparent 19%), radial-gradient(circle at 72% 28%, #d8dedc 0 16%, transparent 17%); }
+.weather-window i { display: none; position: absolute; inset: -15% 0; background: repeating-linear-gradient(105deg, transparent 0 13px, rgba(221, 240, 249, .72) 14px 16px, transparent 17px 29px); animation: window-rain .48s linear infinite; }
+.game-room[data-weather="rain"] .weather-window i:first-child, .game-room[data-weather="thunderstorm"] .weather-window i { display: block; }
+.game-room[data-weather="thunderstorm"] .weather-window::after { position: absolute; inset: 0; content: ""; background: rgba(246, 245, 205, .78); opacity: 0; animation: window-lightning 5s steps(1) infinite; }
+.weather-chip { position: absolute; z-index: 49; top: 88px; right: 18px; padding: 9px 11px; border: 3px solid #6f5147; border-radius: 12px; background: rgba(255, 248, 225, .92); box-shadow: 0 4px 0 #4f352e; font-size: var(--hud-text-size); pointer-events: none; }
+.room-vignette { position: absolute; inset: 0; z-index: 2; background: radial-gradient(ellipse at 52% 48%, transparent 42%, rgba(53, 31, 25, .28) 100%); transition: background 1.2s ease; pointer-events: none; }
 .game-room[data-period="morning"] .room-vignette { background: linear-gradient(rgba(255, 210, 143, .1), rgba(255, 235, 194, .04)), radial-gradient(ellipse at 52% 48%, transparent 40%, rgba(92, 55, 37, .25) 100%); }
 .game-room[data-period="evening"] .room-vignette { background: linear-gradient(rgba(204, 91, 57, .2), rgba(80, 47, 61, .18)), radial-gradient(ellipse at 52% 48%, transparent 34%, rgba(65, 36, 41, .38) 100%); }
 .game-room[data-period="night"] .room-vignette { background: linear-gradient(rgba(28, 45, 91, .4), rgba(15, 26, 56, .32)), radial-gradient(ellipse at 52% 48%, transparent 30%, rgba(12, 20, 44, .58) 100%); }
@@ -87,17 +94,25 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .walking-cat .cat-action { position: absolute; inset: 0; opacity: 0; }
 .walking-cat.idle-action .cat-base { opacity: 0; }
 .walking-cat.idle-action .cat-action { opacity: 1; }
+.walking-cat.resting .cat-base { animation: cat-rest 1.8s ease-in-out infinite; }
 .walking-cat.walking > i { animation: cat-shadow .44s ease-in-out infinite; }
 .walking-cat.jumping { animation: furniture-jump .65s ease-out; }
 .walking-cat b { position: absolute; left: 50%; bottom: -5px; padding: 4px 7px; transform: translateX(-50%); border: 1px solid #75534a; border-radius: 8px; background: rgba(255, 250, 235, .92); font-size: 9px; white-space: nowrap; }
 @keyframes cat-shadow { 50% { transform: scaleX(.82); opacity: .72; } }
 @keyframes furniture-jump { 48% { transform: translate(-50%, -79%) translateY(-58px); } }
+@keyframes cat-rest { 50% { translate: 0 3px; } }
+@keyframes window-rain { to { transform: translateY(18%); } }
+@keyframes window-lightning { 0%, 7%, 100% { opacity: 0; } 3%, 5% { opacity: .86; } 4% { opacity: .15; } }
 
 .placed-furniture { position: absolute; width: clamp(86px, 10vw, 180px); padding: 0; border: 0; background: transparent; transform: translate(-50%, -68%); touch-action: none; user-select: none; }
 .placed-furniture img { display: block; width: 100%; max-height: 230px; object-fit: contain; image-rendering: pixelated; filter: var(--scene-lighting) drop-shadow(0 5px 3px rgba(71, 45, 34, .25)); transition: filter 1.2s ease; pointer-events: none; }
 .furniture-rug { width: clamp(180px, 24vw, 390px); transform: translate(-50%, -48%); }
 .furniture-plant, .furniture-lamp { width: clamp(82px, 9.5vw, 165px); transform: translate(-50%, -76%); }
-.furniture-catbed { width: clamp(130px, 16vw, 265px); transform: translate(-50%, -61%); }
+.furniture-catbed, .furniture-strawberrybed, .furniture-moonbed { width: clamp(130px, 16vw, 265px); transform: translate(-50%, -61%); }
+.furniture-strawberrybed img { filter: var(--scene-lighting) hue-rotate(325deg) saturate(1.35) brightness(1.02) drop-shadow(0 5px 3px rgba(71, 45, 34, .25)); }
+.furniture-moonbed img { filter: var(--scene-lighting) hue-rotate(145deg) saturate(.9) brightness(.9) drop-shadow(0 5px 3px rgba(71, 45, 34, .25)); }
+.furniture-card-strawberrybed .store-art img { filter: hue-rotate(325deg) saturate(1.35) brightness(1.02); }
+.furniture-card-moonbed .store-art img { filter: hue-rotate(145deg) saturate(.9) brightness(.9); }
 .furniture-bookcase { width: clamp(105px, 12vw, 205px); transform: translate(-50%, -79%); }
 .furniture-table { width: clamp(130px, 16vw, 270px); transform: translate(-50%, -56%); }
 .furniture-cushion { width: clamp(100px, 12vw, 210px); transform: translate(-50%, -51%); }
@@ -180,7 +195,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .history-card > div b { margin-top: 5px; font-size: 13px; }
 .history-card em { color: var(--muted); font-size: 9px; font-style: normal; }
 .history-card ul { max-height: 230px; margin: 12px 0 0; padding: 0; overflow: auto; list-style: none; }
-.history-card li { padding: 10px 0; display: grid; grid-template-columns: 86px 1fr auto; align-items: center; gap: 10px; border-top: 1px dashed #d3bca4; }
+.history-card li { padding: 10px 0; display: grid; grid-template-columns: minmax(124px, .9fr) minmax(0, 1.4fr) auto; align-items: center; gap: 14px; border-top: 1px dashed #d3bca4; }
+.history-card li > span { min-width: 0; }
+.history-card time { white-space: nowrap; }
 .history-card time, .history-card li small { color: var(--muted); font-size: 8px; }
 .history-card li span b, .history-card li span small { display: block; }
 .history-card li span b { font-size: 9px; line-height: 1.5; }
@@ -280,6 +297,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
   .game-dock button { min-width: 0; width: 19%; height: 56px; padding: 4px; }
   .game-dock span { font-size: 18px; }
   .decorate-tools { top: 67px; right: 9px; border-width: 2px; }
+  .weather-chip { top: 66px; right: 9px; padding: 7px 9px; border-width: 2px; }
   .decorate-tools b { display: none; }
   .window-layer { padding: 68px 8px 76px; align-items: stretch; }
   .game-window { width: 100%; max-height: 100%; padding: 20px 14px; border-width: 3px; border-radius: 17px; }
@@ -314,7 +332,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
   .pet-grid img { height: 135px; }
   .furniture-rug { width: 27vw; min-width: 130px; }
   .placed-furniture { min-width: 66px; }
-  .history-card li { grid-template-columns: 72px 1fr; }
+  .history-card li { grid-template-columns: 108px minmax(0, 1fr); gap: 9px; }
   .history-card strong { grid-column: 2; }
 }
 
