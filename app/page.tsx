@@ -142,9 +142,9 @@ const milestones = [
 
 const WAKE_YAWN_SEQUENCE = [0, 1, 2, 3, 3, 2, 1, 0];
 const WAKE_SEQUENCE_LENGTH = WAKE_YAWN_SEQUENCE.length + 3;
-const WAKE_FRAME_MS = 420;
-const WALK_FRAME_MS = 170;
+const WALK_FRAME_MS = 90;
 const WALK_CYCLE_MS = WALK_FRAME_MS * 4;
+const STATUS_IDLE_MS = 8000;
 
 function localDate(date = new Date()) {
   const year = date.getFullYear();
@@ -183,6 +183,7 @@ export default function Home() {
   const [actionsReady, setActionsReady] = useState(false);
   const [catStatus, setCatStatus] = useState<CatStatusId>(() => getCatStatus(INITIAL_GAME.energy, INITIAL_GAME.sleepiness));
   const [statusFrame, setStatusFrame] = useState(0);
+  const [statusIdle, setStatusIdle] = useState(true);
   const [statusTransition, setStatusTransition] = useState<CatAnimationFrame[] | null>(null);
   const [statusTransitionTarget, setStatusTransitionTarget] = useState<CatStatusId | null>(null);
   const [resting, setResting] = useState(false);
@@ -404,16 +405,28 @@ export default function Home() {
         window.clearInterval(timer);
         setWakeFrame(0);
         setWakingUp(false);
+        setStatusIdle(true);
         setToast("已经打完哈欠，可以继续活动了");
         return;
       }
       setWakeFrame(frame);
-    }, WAKE_FRAME_MS);
+    }, 280);
     return () => window.clearInterval(timer);
   }, [wakingUp]);
 
   useEffect(() => {
     if (!actionsReady || overlay || walking || decorating || resting || wakingUp) return;
+    if (statusIdle) {
+      const timer = window.setTimeout(() => {
+        if (desiredCatStatus !== catStatus) {
+          setStatusTransition(getCatStatusTransition(catStatus, desiredCatStatus));
+          setStatusTransitionTarget(desiredCatStatus);
+        }
+        setStatusFrame(0);
+        setStatusIdle(false);
+      }, STATUS_IDLE_MS);
+      return () => window.clearTimeout(timer);
+    }
     const frames = statusTransition ?? CAT_STATUS_ANIMATIONS[catStatus].frames;
     const currentFrame = frames[statusFrame] ?? frames[0];
     const timer = window.setTimeout(() => {
@@ -426,16 +439,14 @@ export default function Home() {
         setStatusTransition(null);
         setStatusTransitionTarget(null);
         setStatusFrame(0);
+        setStatusIdle(true);
         return;
       }
-      if (desiredCatStatus !== catStatus) {
-        setStatusTransition(getCatStatusTransition(catStatus, desiredCatStatus));
-        setStatusTransitionTarget(desiredCatStatus);
-      }
       setStatusFrame(0);
+      setStatusIdle(true);
     }, currentFrame.duration);
     return () => window.clearTimeout(timer);
-  }, [actionsReady, catStatus, decorating, desiredCatStatus, overlay, resting, statusFrame, statusTransition, statusTransitionTarget, wakingUp, walking]);
+  }, [actionsReady, catStatus, decorating, desiredCatStatus, overlay, resting, statusFrame, statusIdle, statusTransition, statusTransitionTarget, wakingUp, walking]);
 
   useEffect(() => {
     if (overlay || decorating) return;
@@ -522,7 +533,9 @@ export default function Home() {
   const historyPageCount = Math.max(1, Math.ceil(history.length / 2));
   const historyPageRecords = history.slice(historyPage * 2, historyPage * 2 + 2);
   const statusFrames = statusTransition ?? CAT_STATUS_ANIMATIONS[catStatus].frames;
-  const currentStatusFrame = statusFrames[statusFrame] ?? statusFrames[0];
+  const currentStatusFrame: CatAnimationFrame = statusIdle
+    ? { pose: catStatus === "low-high" ? "sleep" : "idle", duration: STATUS_IDLE_MS }
+    : statusFrames[statusFrame] ?? statusFrames[0];
   const poseFrame = currentStatusFrame.frame ?? 0;
   const statusAsset = currentStatusFrame.pose === "walk"
     ? pet.walkFrames[poseFrame]
@@ -558,6 +571,7 @@ export default function Home() {
   function resetStatusAnimation() {
     setCatStatus(desiredCatStatus);
     setStatusFrame(0);
+    setStatusIdle(true);
     setStatusTransition(null);
     setStatusTransitionTarget(null);
   }
@@ -639,7 +653,7 @@ export default function Home() {
       y: ((event.clientY - rect.top) / rect.height) * 100,
     });
     const distance = Math.hypot(x - game.catPosition.x, y - game.catPosition.y);
-    const duration = Math.round(clamp(distance * 18, WALK_CYCLE_MS, 1200));
+    const duration = Math.round(clamp(distance * 14, 420, 900));
     setDirection(x < game.catPosition.x ? "left" : "right");
     setWalkDuration(duration);
     setGame((current) => ({ ...current, catPosition: { x, y }, catFurniture: null }));
@@ -655,7 +669,7 @@ export default function Home() {
     if (refuseMovementIfTired(Boolean(item.rest))) return;
     const target = getFurnitureTarget(position, item.standHeight);
     const distance = Math.hypot(target.x - game.catPosition.x, target.y - game.catPosition.y);
-    const duration = Math.round(clamp(distance * 18, WALK_CYCLE_MS, 1200));
+    const duration = Math.round(clamp(distance * 14, 420, 900));
     setDirection(target.x < game.catPosition.x ? "left" : "right");
     setWalkDuration(duration);
     resetStatusAnimation();
@@ -814,7 +828,7 @@ export default function Home() {
             data-active-status={catStatus}
             style={{ left: `${game.catPosition.x}%`, top: `${game.catPosition.y}%`, zIndex: game.catFurniture ? Math.round((game.furniturePositions[game.catFurniture] ?? DEFAULT_FURNITURE_POSITIONS[game.catFurniture]).y) + 2 : Math.round(game.catPosition.y) + 2, transitionDuration: `${walkDuration}ms` }}
           >
-            <img className={`cat-base cat-pose-${activePose}`} src={catAsset} alt={`${pet.name}正在小屋里`} draggable={false} style={{ transform: `translateY(${baseAdjustment.y}%) scale(${direction === "left" ? -baseAdjustment.scale : baseAdjustment.scale}, ${baseAdjustment.scale})`, translate: `${motionX}px ${motionY}px` }} />
+            <img className="cat-base" src={catAsset} alt={`${pet.name}正在小屋里`} draggable={false} style={{ transform: `translateY(${baseAdjustment.y}%) scale(${direction === "left" ? -baseAdjustment.scale : baseAdjustment.scale}, ${baseAdjustment.scale})`, translate: `${motionX}px ${motionY}px` }} />
             <b>{headShaking ? "太困啦…" : wakingUp ? "起床中…" : resting ? `还剩 ${formatSleepRemaining(sleepRemainingMs)}` : pet.name}</b>
           </div>
 
