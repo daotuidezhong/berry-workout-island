@@ -239,7 +239,7 @@ export function getCatStatusTransition(from: CatStatusId, to: CatStatusId): CatA
   }
   if (current.sleepiness === "high" && next.sleepiness === "low") {
     return [
-      { pose: "wake", duration: 360 },
+      { pose: "yawn", frame: 1, duration: 280 },
       { pose: "yawn", frame: 0, duration: 240 },
       { pose: "idle", duration: 360 },
     ];

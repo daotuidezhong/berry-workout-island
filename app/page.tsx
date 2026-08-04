@@ -82,7 +82,7 @@ const pets = [
   },
   {
     id: "doubao" as PetId, name: "豆包", kind: "奶牛猫", nature: "安静的陪跑员",
-    walkFrames: [1, 3, 4, 3].map((frame) => `/game/cat-cow-walk-fixed-${frame}.png`), idle: "/game/cat-cow-idle.png", sleep: "/game/cat-cow-sleep.png", wake: "/game/cat-cow-wake.png",
+    walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-walk-fixed-${frame}.png`), idle: "/game/cat-cow-idle.png", sleep: "/game/cat-cow-sleep.png", wake: "/game/cat-cow-wake.png",
     wakeYawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-wake-yawn-${frame}.png`),
     groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-groom-fixed-${frame}.png`),
   },
@@ -811,7 +811,7 @@ export default function Home() {
             data-active-status={catStatus}
             style={{ left: `${game.catPosition.x}%`, top: `${game.catPosition.y}%`, zIndex: game.catFurniture ? Math.round((game.furniturePositions[game.catFurniture] ?? DEFAULT_FURNITURE_POSITIONS[game.catFurniture]).y) + 2 : Math.round(game.catPosition.y) + 2, transitionDuration: `${walkDuration}ms` }}
           >
-            <img className={`cat-base cat-pose-${activePose}`} src={catAsset} alt={`${pet.name}正在小屋里`} draggable={false} style={{ transform: `scaleX(${direction === "left" ? -1 : 1})`, translate: `${motionX}px ${motionY}px` }} />
+            <img className={`cat-base cat-pose-${activePose}`} src={catAsset} alt={`${pet.name}正在小屋里`} decoding="sync" draggable={false} style={{ transform: `scaleX(${direction === "left" ? -1 : 1})`, translate: `${motionX}px ${motionY}px` }} />
             <b>{headShaking ? "太困啦…" : wakingUp ? "起床中…" : resting ? `还剩 ${formatSleepRemaining(sleepRemainingMs)}` : pet.name}</b>
           </div>
 

@@ -92,13 +92,18 @@ test("maps the two pet stats to all nine animation states", () => {
   assert.equal(getCatStatus(31, 31), "medium-medium");
   assert.equal(getCatStatus(71, 71), "high-high");
   assert.equal(Object.keys(CAT_STATUS_ANIMATIONS).length, 9);
-  for (const animation of Object.values(CAT_STATUS_ANIMATIONS)) {
+  for (const [status, animation] of Object.entries(CAT_STATUS_ANIMATIONS)) {
     assert.ok(animation.frames.length >= 5);
     assert.ok(animation.frames.every((frame) => frame.duration >= 90 && !("scale" in frame)));
     assert.ok(animation.frames.every((frame) => frame.pose !== "wake"));
+    const restingPose = status === "low-high" ? "sleep" : "idle";
+    assert.equal(animation.frames[0].pose, restingPose);
+    assert.equal(animation.frames.at(-1).pose, restingPose);
   }
   assert.equal(getCatStatusTransition("high-low", "low-high").at(-1).pose, "sleep");
   assert.equal(getCatStatusTransition("low-high", "high-low").at(-1).pose, "idle");
+  assert.ok(getCatStatusTransition("high-high", "high-low").every((frame) => frame.pose !== "wake"));
+  assert.ok(getCatStatusTransition("low-high", "high-low").some((frame) => frame.pose === "wake"));
 });
 
 test("drains energy, raises sleepiness, and blocks movement only when extremely sleepy", () => {
@@ -155,6 +160,7 @@ test("keeps every cat animation loaded and coordinates transitions", async () =>
   assert.match(source, /setWalkDuration\(WALK_CYCLE_MS\)/);
   assert.match(source, /clamp\(distance \* 14, WALK_CYCLE_MS \* 2, 900\)/);
   assert.match(source, /const STATUS_IDLE_MS = 8000/);
+  assert.match(source, /className=\{`cat-base cat-pose-\$\{activePose\}`\}[\s\S]*decoding="sync"/);
   assert.match(source, /const \[statusIdle, setStatusIdle\] = useState\(true\)/);
   assert.match(source, /statusIdle[\s\S]*setStatusIdle\(false\)[\s\S]*setStatusIdle\(true\)/);
   assert.match(source, /desiredCatStatus !== catStatus[\s\S]*getCatStatusTransition\(catStatus, desiredCatStatus\)/);
