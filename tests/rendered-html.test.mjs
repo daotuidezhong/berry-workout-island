@@ -95,6 +95,7 @@ test("maps the two pet stats to all nine animation states", () => {
   for (const animation of Object.values(CAT_STATUS_ANIMATIONS)) {
     assert.ok(animation.frames.length >= 5);
     assert.ok(animation.frames.every((frame) => frame.duration >= 90 && !("scale" in frame)));
+    assert.ok(animation.frames.every((frame) => frame.pose !== "wake"));
   }
   assert.equal(getCatStatusTransition("high-low", "low-high").at(-1).pose, "sleep");
   assert.equal(getCatStatusTransition("low-high", "high-low").at(-1).pose, "idle");
@@ -129,7 +130,7 @@ test("sleep interruption clears the pending reward before the wake-up animation"
   assert.match(interruptBody, /setWakingUp\(true\)/);
   assert.doesNotMatch(interruptBody, /sleepiness/);
   assert.match(source, /cat-orange-wake\.png[\s\S]*cat-cow-wake\.png[\s\S]*cat-white-wake\.png/);
-  assert.match(source, /const baseAdjustment = activePose === "walk"/);
+  assert.doesNotMatch(source, /frameAdjustments|baseAdjustment/);
   assert.doesNotMatch(css, /walking-cat\.(?:resting|waking-up)[^{]*\{[^}]*\bwidth:/);
   assert.doesNotMatch(css, /@keyframes cat-rest[^\n]*\bscale:/);
   assert.doesNotMatch(css, /@keyframes cat-head-shake[^\n]*\brotate:/);
@@ -140,11 +141,19 @@ test("keeps every cat animation loaded and coordinates transitions", async () =>
   const assets = await readdir(new URL("../public/game", import.meta.url));
   for (const cat of ["orange", "cow", "white"]) {
     assert.equal(assets.filter((name) => new RegExp(`^cat-${cat}-(?:walk-v2|groom|yawn|wake-yawn)-[1-4]\\.png$`).test(name)).length, 16);
+    const fixedFrames = assets.filter((name) => new RegExp(`^cat-${cat}-(?:walk|groom)-fixed-[1-4]\\.png$`).test(name));
+    assert.equal(fixedFrames.length, 8);
+    for (const frame of fixedFrames) {
+      const png = await readFile(new URL(`../public/game/${frame}`, import.meta.url));
+      assert.equal(png.readUInt32BE(16), 418);
+      assert.equal(png.readUInt32BE(20), 418);
+    }
     for (const state of ["idle", "sleep", "wake"]) assert.ok(assets.includes(`cat-${cat}-${state}.png`));
   }
   assert.match(source, /await image\.decode\(\)/);
   assert.match(source, /!actionsReady \|\| overlay \|\| walking/);
   assert.match(source, /setWalkDuration\(WALK_CYCLE_MS\)/);
+  assert.match(source, /clamp\(distance \* 14, WALK_CYCLE_MS \* 2, 900\)/);
   assert.match(source, /const STATUS_IDLE_MS = 8000/);
   assert.match(source, /const \[statusIdle, setStatusIdle\] = useState\(true\)/);
   assert.match(source, /statusIdle[\s\S]*setStatusIdle\(false\)[\s\S]*setStatusIdle\(true\)/);
@@ -174,7 +183,7 @@ test("server-renders the full-screen game without the old movement hint", async 
   const html = await response.text();
   assert.match(html, /class="game-stage"/);
   assert.match(html, /class="game-room/);
-  assert.match(html, /class="cat-base"/);
+  assert.match(html, /class="cat-base\b/);
   assert.match(html, /data-cat-status="high-low"/);
   assert.doesNotMatch(html, /class="cat-action"/);
   assert.match(html, /aria-label="游戏菜单"/);

@@ -76,33 +76,21 @@ const furnitureItems = [
 const pets = [
   {
     id: "mitao" as PetId, name: "蜜桃", kind: "橘子猫", nature: "热情的小太阳",
-    walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-walk-v2-${frame}.png`), idle: "/game/cat-orange-idle.png", sleep: "/game/cat-orange-sleep.png", wake: "/game/cat-orange-wake.png",
+    walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-walk-fixed-${frame}.png`), idle: "/game/cat-orange-idle.png", sleep: "/game/cat-orange-sleep.png", wake: "/game/cat-orange-wake.png",
     wakeYawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-wake-yawn-${frame}.png`),
-    groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-groom-${frame}.png`),
-    frameAdjustments: {
-      walk: { scale: 1.036, y: 5.05 },
-      groom: { scale: 1.321, y: 1.68 },
-    },
+    groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-groom-fixed-${frame}.png`),
   },
   {
     id: "doubao" as PetId, name: "豆包", kind: "奶牛猫", nature: "安静的陪跑员",
-    walkFrames: [1, 3, 4, 3].map((frame) => `/game/cat-cow-walk-v2-${frame}.png`), idle: "/game/cat-cow-idle.png", sleep: "/game/cat-cow-sleep.png", wake: "/game/cat-cow-wake.png",
+    walkFrames: [1, 3, 4, 3].map((frame) => `/game/cat-cow-walk-fixed-${frame}.png`), idle: "/game/cat-cow-idle.png", sleep: "/game/cat-cow-sleep.png", wake: "/game/cat-cow-wake.png",
     wakeYawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-wake-yawn-${frame}.png`),
-    groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-groom-${frame}.png`),
-    frameAdjustments: {
-      walk: { scale: 1.073, y: 7.48 },
-      groom: { scale: 1.165, y: -6.3 },
-    },
+    groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-groom-fixed-${frame}.png`),
   },
   {
     id: "xueqiu" as PetId, name: "雪球", kind: "白绒猫", nature: "爱撒娇的鼓励师",
-    walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-walk-v2-${frame}.png`), idle: "/game/cat-white-idle.png", sleep: "/game/cat-white-sleep.png", wake: "/game/cat-white-wake.png",
+    walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-walk-fixed-${frame}.png`), idle: "/game/cat-white-idle.png", sleep: "/game/cat-white-sleep.png", wake: "/game/cat-white-wake.png",
     wakeYawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-wake-yawn-${frame}.png`),
-    groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-groom-${frame}.png`),
-    frameAdjustments: {
-      walk: { scale: 1.07, y: 9.25 },
-      groom: { scale: 1.193, y: -12.35 },
-    },
+    groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-groom-fixed-${frame}.png`),
   },
 ];
 
@@ -550,11 +538,6 @@ export default function Home() {
             : pet.idle;
   const wakeSequenceAssets = [pet.sleep, pet.wake, ...WAKE_YAWN_SEQUENCE.map((frame) => pet.wakeYawnFrames[frame]), pet.idle];
   const activePose: CatPose = walking ? "walk" : resting ? "sleep" : wakingUp ? "wake" : currentStatusFrame.pose;
-  const baseAdjustment = activePose === "walk"
-    ? pet.frameAdjustments.walk
-    : activePose === "groom"
-      ? pet.frameAdjustments.groom
-      : { scale: 1, y: 0 };
   const catAsset = wakingUp ? wakeSequenceAssets[wakeFrame] : resting ? pet.sleep : walking ? pet.walkFrames[walkFrame] : statusAsset;
   const motionX = walking || resting || wakingUp ? 0 : (currentStatusFrame.x ?? 0) * (direction === "left" ? -1 : 1);
   const motionY = walking || resting || wakingUp ? 0 : currentStatusFrame.y ?? 0;
@@ -653,7 +636,7 @@ export default function Home() {
       y: ((event.clientY - rect.top) / rect.height) * 100,
     });
     const distance = Math.hypot(x - game.catPosition.x, y - game.catPosition.y);
-    const duration = Math.round(clamp(distance * 14, 420, 900));
+    const duration = Math.round(clamp(distance * 14, WALK_CYCLE_MS * 2, 900));
     setDirection(x < game.catPosition.x ? "left" : "right");
     setWalkDuration(duration);
     setGame((current) => ({ ...current, catPosition: { x, y }, catFurniture: null }));
@@ -669,7 +652,7 @@ export default function Home() {
     if (refuseMovementIfTired(Boolean(item.rest))) return;
     const target = getFurnitureTarget(position, item.standHeight);
     const distance = Math.hypot(target.x - game.catPosition.x, target.y - game.catPosition.y);
-    const duration = Math.round(clamp(distance * 14, 420, 900));
+    const duration = Math.round(clamp(distance * 14, WALK_CYCLE_MS * 2, 900));
     setDirection(target.x < game.catPosition.x ? "left" : "right");
     setWalkDuration(duration);
     resetStatusAnimation();
@@ -828,7 +811,7 @@ export default function Home() {
             data-active-status={catStatus}
             style={{ left: `${game.catPosition.x}%`, top: `${game.catPosition.y}%`, zIndex: game.catFurniture ? Math.round((game.furniturePositions[game.catFurniture] ?? DEFAULT_FURNITURE_POSITIONS[game.catFurniture]).y) + 2 : Math.round(game.catPosition.y) + 2, transitionDuration: `${walkDuration}ms` }}
           >
-            <img className="cat-base" src={catAsset} alt={`${pet.name}正在小屋里`} draggable={false} style={{ transform: `translateY(${baseAdjustment.y}%) scale(${direction === "left" ? -baseAdjustment.scale : baseAdjustment.scale}, ${baseAdjustment.scale})`, translate: `${motionX}px ${motionY}px` }} />
+            <img className={`cat-base cat-pose-${activePose}`} src={catAsset} alt={`${pet.name}正在小屋里`} draggable={false} style={{ transform: `scaleX(${direction === "left" ? -1 : 1})`, translate: `${motionX}px ${motionY}px` }} />
             <b>{headShaking ? "太困啦…" : wakingUp ? "起床中…" : resting ? `还剩 ${formatSleepRemaining(sleepRemainingMs)}` : pet.name}</b>
           </div>
 

@@ -81,12 +81,24 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 }
 
 .walking-cat img { display: block; width: 100%; max-height: 185px; object-fit: contain; image-rendering: pixelated; transform-origin: 50% 100%; filter: var(--scene-lighting); transition: filter 1.2s ease, translate .12s ease-out; }
+.walking-cat.walking .cat-base { animation: cat-pose-walk-in .18s ease-out both; }
+.walking-cat.status-animation:not(.resting):not(.waking-up) .cat-base.cat-pose-idle { animation: cat-pose-idle-in .18s ease-out both; }
+.walking-cat.status-animation:not(.resting):not(.waking-up) .cat-base.cat-pose-walk { animation: cat-pose-status-walk-in .18s ease-out both; }
+.walking-cat.status-animation:not(.resting):not(.waking-up) .cat-base.cat-pose-groom { animation: cat-pose-groom-in .18s ease-out both; }
+.walking-cat.status-animation:not(.resting):not(.waking-up) .cat-base.cat-pose-yawn { animation: cat-pose-yawn-in .18s ease-out both; }
+.walking-cat.status-animation:not(.resting):not(.waking-up) .cat-base.cat-pose-sleep { animation: cat-pose-sleep-in .18s ease-out both; }
 .walking-cat.resting .cat-base { animation: cat-rest 2.4s ease-in-out infinite; }
 .walking-cat.head-shaking .cat-base { transform-origin: 58% 48%; animation: cat-head-shake .65s ease-in-out; }
 .walking-cat.jumping { animation: furniture-jump .65s ease-out; }
 .walking-cat b { position: absolute; left: 50%; bottom: -5px; padding: 4px 7px; transform: translateX(-50%); border: 1px solid #75534a; border-radius: 8px; background: rgba(255, 250, 235, .92); font-size: 9px; white-space: nowrap; }
 @keyframes furniture-jump { 48% { transform: translate(-50%, -79%) translateY(-58px); } }
 @keyframes cat-rest { 50% { translate: 0 1px; } }
+@keyframes cat-pose-walk-in { from { opacity: .64; } }
+@keyframes cat-pose-idle-in { from { opacity: .64; } }
+@keyframes cat-pose-status-walk-in { from { opacity: .64; } }
+@keyframes cat-pose-groom-in { from { opacity: .64; } }
+@keyframes cat-pose-yawn-in { from { opacity: .64; } }
+@keyframes cat-pose-sleep-in { from { opacity: .64; } }
 @keyframes cat-head-shake { 0%, 100% { translate: 0 0; } 20%, 60% { translate: -3px 0; } 40%, 80% { translate: 3px 0; } }
 
 .sleep-interrupt-layer { position: absolute; inset: 0; z-index: 90; display: grid; place-items: center; padding: 20px; background: rgba(57, 39, 37, .3); backdrop-filter: blur(2px); }
