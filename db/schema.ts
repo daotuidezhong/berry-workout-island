@@ -7,5 +7,6 @@ export const checkins = sqliteTable("checkins", {
   activity: text("activity").notNull(),
   minutes: integer("minutes"),
   calories: integer("calories"),
+  mood: text("mood"),
   createdAt: text("created_at").notNull(),
 }, (table) => [uniqueIndex("idx_checkins_device_date").on(table.deviceId, table.date)]);

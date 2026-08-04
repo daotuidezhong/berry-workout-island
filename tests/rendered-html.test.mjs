@@ -125,6 +125,15 @@ test("shop discloses distinct food and cat-bed recovery values", async () => {
   assert.match(source, /rest: 30[\s\S]*rest: 55[\s\S]*rest: 80/);
 });
 
+test("opens a two-day notebook and saves mood notes with each check-in", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const schema = await readFile(new URL("../db/schema.ts", import.meta.url), "utf8");
+  assert.match(source, /history\.slice\(historyPage \* 2, historyPage \* 2 \+ 2\)/);
+  assert.match(source, /CHECK-IN HISTORY[\s\S]*运动手账[\s\S]*写下运动后的心情/);
+  assert.match(source, /method: "PATCH"/);
+  assert.match(schema, /mood: text\("mood"\)/);
+});
+
 test("server-renders the full-screen game without the old movement hint", async () => {
   const response = await render();
   assert.equal(response.status, 200);

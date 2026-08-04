@@ -1,0 +1,1 @@
+ALTER TABLE `checkins` ADD `mood` text;

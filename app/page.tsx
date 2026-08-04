@@ -9,9 +9,9 @@ import { getNextIdleAction, type IdleAction } from "./cat-actions";
 import { canPetMove, decayPetStats, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "./pet-stats";
 
 type PetId = "mitao" | "doubao" | "xueqiu";
-type OverlayId = "quest" | "bag" | "pets" | "shop" | null;
+type OverlayId = "quest" | "history" | "bag" | "pets" | "shop" | null;
 type ShopCategory = "food" | "furniture";
-type CheckinRecord = { id: number; date: string; activity: string; minutes: number | null; calories: number | null };
+type CheckinRecord = { id: number; date: string; activity: string; minutes: number | null; calories: number | null; mood: string | null };
 type FoodId = "driedFish" | "chickenCan" | "salmonMousse" | "tunaRice" | "chickenCubes" | "catnipBiscuits";
 type GameState = {
   berries: number;
@@ -163,6 +163,7 @@ export default function Home() {
   const [durationMinutes, setDurationMinutes] = useState(30);
   const [deviceId, setDeviceId] = useState("");
   const [history, setHistory] = useState<CheckinRecord[]>([]);
+  const [historyPage, setHistoryPage] = useState(0);
   const [savingCheckin, setSavingCheckin] = useState(false);
   const [game, setGame] = useState<GameState>(INITIAL_GAME);
   const [ready, setReady] = useState(false);
@@ -535,6 +536,8 @@ export default function Home() {
   const ownedFurniture = furnitureItems.filter((item) => game.purchased.includes(item.id));
   const totalFood = foodItems.reduce((total, item) => total + game.inventory[item.id], 0);
   const selectedFoodItem = foodItems.find((item) => item.id === selectedFood) ?? foodItems[0];
+  const historyPageCount = Math.max(1, Math.ceil(history.length / 2));
+  const historyPageRecords = history.slice(historyPage * 2, historyPage * 2 + 2);
   const actionFrame = idleAction ? actionSequences[idleAction][idleFrame] : -1;
   const wakeSequenceAssets = [pet.sleep, pet.wake, ...actionSequences.yawn.map((frame) => pet.wakeYawnFrames[frame]), pet.idle];
   const baseAdjustment = wakingUp ? { scale: 1, y: 0 } : walking ? pet.frameAdjustments.walk : { scale: 1, y: 0 };
@@ -551,6 +554,21 @@ export default function Home() {
       if (firstOwned) setSelectedFood(firstOwned.id);
     }
     setOverlay(id);
+  }
+
+  async function saveMood(id: number, mood: string) {
+    if (!deviceId) return;
+    try {
+      const response = await fetch("/api/checkins", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ deviceId, id, mood }),
+      });
+      if (!response.ok) throw new Error();
+      setToast("心情已经写进手账");
+    } catch {
+      setToast("心情暂时无法保存");
+    }
   }
 
   function requestSleepInterrupt() {
@@ -838,7 +856,7 @@ export default function Home() {
         )}
 
         <nav className="game-dock" aria-label="游戏菜单">
-          <button className={overlay === "quest" ? "active" : ""} onClick={() => openOverlay("quest")}><span>📋</span><b>任务</b></button>
+          <button className={overlay === "quest" || overlay === "history" ? "active" : ""} onClick={() => openOverlay("quest")}><span>📋</span><b>任务</b></button>
           <button className={overlay === "bag" ? "active" : ""} onClick={() => openOverlay("bag")}><span>🎒</span><b>背包</b><i>{totalFood}</i></button>
           <button className={overlay === "shop" ? "active" : ""} onClick={() => openOverlay("shop")}><span>🛒</span><b>商店</b></button>
           <button className={overlay === "pets" ? "active" : ""} onClick={() => openOverlay("pets")}><span>🐾</span><b>伙伴</b></button>
@@ -870,12 +888,52 @@ export default function Home() {
                     <div className="week-track">{[1, 2, 3, 4, 5, 6, 7].map((day) => <i key={day} className={day <= Math.min(game.streak, 7) ? "done" : ""}>{day <= Math.min(game.streak, 7) ? "✓" : day}</i>)}</div>
                     <p>{nextMilestone ? <>再坚持 <b>{nextMilestone.day - game.streak} 天</b>，奖励 🍓 {nextMilestone.bonus}</> : "30 天里程碑已达成！"}</p>
                   </div>
-                  <section className="history-card">
-                    <div><span><small>CHECK-IN HISTORY</small><b>历史打卡记录</b></span><em><b>{history.length}</b> 次</em></div>
-                    {history.length ? <ul>{history.map((record) => (
-                      <li key={record.id}><time dateTime={record.date}>{record.date.replaceAll("-", ".")}</time><span><b>{record.activity}</b><small>{record.minutes ? `${record.minutes} 分钟` : "未记录时长"}</small></span><strong>{record.calories == null ? "—" : record.calories}{record.calories != null && <small>kcal</small>}</strong></li>
-                    ))}</ul> : <p>完成第一次运动打卡后，记录会显示在这里。</p>}
-                  </section>
+                  <button className="history-link" type="button" onClick={() => { setHistoryPage(0); setOverlay("history"); }}>
+                    <span>CHECK-IN HISTORY</span><b>{history.length} 次　→</b>
+                  </button>
+                </>
+              )}
+
+              {overlay === "history" && (
+                <>
+                  <div className="notebook-heading">
+                    <button type="button" onClick={() => setOverlay("quest")}>← 返回今日任务</button>
+                    <small>CHECK-IN HISTORY</small><h1>运动手账</h1><p>每一页收藏两天的运动和心情</p>
+                  </div>
+                  {history.length ? (
+                    <>
+                      <section className="notebook-page" aria-label={`运动手账第 ${historyPage + 1} 页`}>
+                        {[0, 1].map((slot) => {
+                          const record = historyPageRecords[slot];
+                          return record ? (
+                            <article className="notebook-entry" key={record.id}>
+                              <time dateTime={record.date}>{record.date.replaceAll("-", ".")}</time>
+                              <div className="notebook-stats">
+                                <span><small>运动</small><b>{record.activity}</b></span>
+                                <span><small>时长</small><b>{record.minutes ? `${record.minutes} 分钟` : "未记录"}</b></span>
+                                <span><small>卡路里</small><b>{record.calories == null ? "—" : `${record.calories} kcal`}</b></span>
+                              </div>
+                              <label>今日心情
+                                <textarea
+                                  value={record.mood ?? ""}
+                                  onChange={(event) => setHistory((records) => records.map((item) => item.id === record.id ? { ...item, mood: event.target.value } : item))}
+                                  onBlur={(event) => saveMood(record.id, event.currentTarget.value)}
+                                  placeholder="写下运动后的心情……"
+                                  maxLength={200}
+                                  rows={6}
+                                />
+                              </label>
+                            </article>
+                          ) : <div className="notebook-blank" key={slot}>下一次运动会写在这里</div>;
+                        })}
+                      </section>
+                      <nav className="notebook-pagination" aria-label="手账翻页">
+                        <button type="button" onClick={() => setHistoryPage((page) => Math.max(0, page - 1))} disabled={historyPage === 0}>← 上一页</button>
+                        <span>第 {historyPage + 1} / {historyPageCount} 页</span>
+                        <button type="button" onClick={() => setHistoryPage((page) => Math.min(historyPageCount - 1, page + 1))} disabled={historyPage === historyPageCount - 1}>下一页 →</button>
+                      </nav>
+                    </>
+                  ) : <div className="notebook-empty">完成第一次运动打卡后，手账会从这里开始。</div>}
                 </>
               )}
 

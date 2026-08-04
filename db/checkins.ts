@@ -6,6 +6,7 @@ export type CheckinRecord = {
   activity: string;
   minutes: number | null;
   calories: number | null;
+  mood: string | null;
 };
 
 async function prepareCheckins() {
@@ -16,6 +17,7 @@ async function prepareCheckins() {
     activity TEXT NOT NULL,
     minutes INTEGER,
     calories INTEGER,
+    mood TEXT,
     created_at TEXT NOT NULL
   )`).run();
   await env.DB.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_checkins_device_date ON checkins(device_id, date)").run();
@@ -24,7 +26,7 @@ async function prepareCheckins() {
 export async function listCheckins(deviceId: string) {
   await prepareCheckins();
   const result = await env.DB.prepare(
-    "SELECT id, date, activity, minutes, calories FROM checkins WHERE device_id = ? ORDER BY date DESC LIMIT 100",
+    "SELECT id, date, activity, minutes, calories, mood FROM checkins WHERE device_id = ? ORDER BY date DESC LIMIT 100",
   ).bind(deviceId).all<CheckinRecord>();
   return result.results;
 }
@@ -36,6 +38,14 @@ export async function saveCheckin(deviceId: string, date: string, activity: stri
     ON CONFLICT(device_id, date) DO UPDATE SET activity = excluded.activity, minutes = excluded.minutes, calories = excluded.calories`)
     .bind(deviceId, date, activity, minutes, calories, new Date().toISOString()).run();
   return env.DB.prepare(
-    "SELECT id, date, activity, minutes, calories FROM checkins WHERE device_id = ? AND date = ?",
+    "SELECT id, date, activity, minutes, calories, mood FROM checkins WHERE device_id = ? AND date = ?",
   ).bind(deviceId, date).first<CheckinRecord>();
+}
+
+export async function saveCheckinMood(deviceId: string, id: number, mood: string) {
+  await prepareCheckins();
+  await env.DB.prepare("UPDATE checkins SET mood = ? WHERE id = ? AND device_id = ?").bind(mood, id, deviceId).run();
+  return env.DB.prepare(
+    "SELECT id, date, activity, minutes, calories, mood FROM checkins WHERE id = ? AND device_id = ?",
+  ).bind(id, deviceId).first<CheckinRecord>();
 }

@@ -29,3 +29,21 @@ export async function POST(request: Request) {
   const record = await saveCheckin(deviceId, date, activity, minutes, calories);
   return record ? Response.json({ record }) : Response.json({ error: "保存失败" }, { status: 500 });
 }
+
+export async function PATCH(request: Request) {
+  let body: { deviceId?: string; id?: number; mood?: string };
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: "心情内容无效" }, { status: 400 });
+  }
+  const deviceId = body.deviceId ?? "";
+  const id = body.id;
+  const mood = body.mood ?? "";
+  if (!devicePattern.test(deviceId) || typeof id !== "number" || !Number.isInteger(id) || id < 1 || typeof body.mood !== "string" || mood.length > 200) {
+    return Response.json({ error: "心情内容无效" }, { status: 400 });
+  }
+  const { saveCheckinMood } = await import("@/db/checkins");
+  const record = await saveCheckinMood(deviceId, id, mood);
+  return record ? Response.json({ record }) : Response.json({ error: "记录不存在" }, { status: 404 });
+}

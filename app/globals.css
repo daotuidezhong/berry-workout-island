@@ -149,6 +149,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .window-layer { position: absolute; inset: 0; z-index: 200; padding: 84px 20px 96px; display: grid; place-items: center; background: rgba(40, 28, 24, .5); backdrop-filter: blur(5px); }
 .game-window { position: relative; width: min(1040px, 100%); max-height: 100%; overflow: auto; padding: 27px; border: 4px solid #765247; border-radius: 22px; background: rgba(255, 248, 233, .98); box-shadow: 0 8px 0 #4f352e, 0 24px 60px rgba(35, 21, 17, .45), inset 0 0 0 3px #f3d7aa; }
 .quest-window { width: min(620px, 100%); font-size: var(--hud-text-size); }
+.history-window { width: min(920px, 100%); }
 .bag-window { width: min(900px, 100%); }
 .pets-window { width: min(900px, 100%); }
 .window-close { position: sticky; z-index: 5; top: 0; float: right; width: 36px; height: 36px; margin: -12px -12px 0 0; border: 3px solid #714c42; border-radius: 11px; background: #f4a4a1; box-shadow: 0 3px 0 #bd6c6b; cursor: pointer; font-size: 18px; line-height: 1; }
@@ -189,25 +190,35 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .week-track i.done { border-color: var(--sage-dark); background: var(--sage); color: #fff; }
 .streak-card p { margin: 10px 0 0; padding-top: 9px; border-top: 1px dashed #d3bca4; color: var(--muted); font-size: 9px; line-height: 1.6; }
 .streak-card p b { display: inline; font-size: inherit; }
-.history-card { margin-top: 16px; padding: 15px; border: 2px solid #a78971; border-radius: 14px; background: #fffaf0; box-shadow: 0 4px 0 #d1b594; }
-.history-card > div { padding-bottom: 11px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px dashed #d3bca4; }
-.history-card > div small, .history-card > div b { display: block; }
-.history-card > div small { color: var(--berry-dark); font-size: calc(var(--hud-text-size) - 2px); letter-spacing: 1px; }
-.history-card > div b { margin-top: 5px; font-size: var(--hud-text-size); }
-.history-card > div em { flex: 0 0 auto; padding: 7px 9px; border: 1px solid #d3b69d; border-radius: 9px; background: #f6ead8; color: var(--muted); font-size: calc(var(--hud-text-size) - 1px); font-style: normal; line-height: 1; }
-.history-card > div em b { display: inline; margin: 0 3px 0 0; color: var(--berry-dark); font-size: calc(var(--hud-text-size) + 1px); }
-.history-card ul { max-height: 230px; margin: 0; padding: 0; overflow: auto; list-style: none; }
-.history-card li { padding: 14px 0; display: grid; grid-template-areas: "date calories" "activity calories"; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 7px 16px; }
-.history-card li + li { border-top: 1px dashed #d3bca4; }
-.history-card li > span { grid-area: activity; min-width: 0; }
-.history-card time { grid-area: date; color: var(--muted); font-size: calc(var(--hud-text-size) - 1px); letter-spacing: .5px; white-space: nowrap; }
-.history-card li small { color: var(--muted); font-size: calc(var(--hud-text-size) - 1px); }
-.history-card li span b, .history-card li span small { display: block; }
-.history-card li span b { font-size: var(--hud-text-size); line-height: 1.5; }
-.history-card li span small { margin-top: 4px; }
-.history-card strong { grid-area: calories; min-width: 112px; padding: 9px 10px; display: flex; align-items: baseline; justify-content: center; gap: 6px; border: 1px solid #e2b3ac; border-radius: 10px; background: #fff0e9; color: var(--berry-dark); font-size: calc(var(--hud-text-size) + 1px); line-height: 1; white-space: nowrap; }
-.history-card strong small { color: #9a5b60; font-size: calc(var(--hud-text-size) - 2px); }
-.history-card > p { margin: 12px 0 0; color: var(--muted); font-size: var(--hud-text-size); line-height: 1.6; }
+.history-link { width: 100%; margin-top: 17px; padding: 13px 3px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border: 0; border-top: 1px dashed #c7aa90; border-bottom: 1px dashed #c7aa90; background: transparent; color: var(--berry-dark); cursor: pointer; font-size: var(--hud-text-size); letter-spacing: 1px; text-align: left; }
+.history-link:hover { color: #7b3037; transform: translateX(2px); }
+.history-link b { flex: 0 0 auto; color: var(--muted); font-size: var(--hud-text-size); letter-spacing: 0; }
+.notebook-heading { margin-bottom: 18px; padding-right: 38px; }
+.notebook-heading button { margin-bottom: 15px; padding: 0; border: 0; background: transparent; color: var(--berry-dark); cursor: pointer; font-size: var(--hud-text-size); }
+.notebook-heading small { display: block; color: var(--berry-dark); font-size: var(--hud-text-size); letter-spacing: 1.5px; }
+.notebook-heading h1 { margin: 7px 0; font-size: clamp(21px, 3vw, 32px); }
+.notebook-heading p { margin: 0; color: var(--muted); font-size: var(--hud-text-size); }
+.notebook-page { position: relative; min-height: 430px; padding: 28px 24px 24px 42px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; overflow: hidden; border: 2px solid #aa896d; border-radius: 8px 18px 18px 8px; background: repeating-linear-gradient(to bottom, #fffdf5 0 31px, #e7d7c5 32px); box-shadow: 0 6px 0 #c7a47f, inset 9px 0 16px rgba(103, 72, 54, .08); }
+.notebook-page::before { content: ""; position: absolute; inset: 0 auto 0 27px; width: 2px; background: rgba(194, 104, 104, .42); }
+.notebook-page::after { content: ""; position: absolute; top: 14px; bottom: 14px; left: 8px; width: 12px; background: radial-gradient(circle, #bda58e 0 3px, #fff8e9 4px, transparent 5px) center top / 12px 34px repeat-y; }
+.notebook-page > :nth-child(2) { padding-left: 22px; border-left: 1px dashed #c7aa90; }
+.notebook-entry { min-width: 0; }
+.notebook-entry time { display: block; margin-bottom: 18px; color: var(--berry-dark); font-size: calc(var(--hud-text-size) + 2px); letter-spacing: 1px; }
+.notebook-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.notebook-stats span { padding: 10px; border: 1px solid rgba(174, 139, 111, .65); border-radius: 9px; background: rgba(255, 249, 235, .8); }
+.notebook-stats span:first-child { grid-column: 1 / -1; }
+.notebook-stats small, .notebook-stats b { display: block; }
+.notebook-stats small { margin-bottom: 6px; color: var(--muted); font-size: calc(var(--hud-text-size) - 1px); }
+.notebook-stats b { overflow-wrap: anywhere; font-size: var(--hud-text-size); line-height: 1.5; }
+.notebook-entry label { margin-top: 20px; display: block; color: var(--berry-dark); font-size: var(--hud-text-size); }
+.notebook-entry textarea { width: 100%; min-height: 150px; margin-top: 8px; padding: 0 5px; resize: vertical; border: 0; outline: 0; background: repeating-linear-gradient(to bottom, transparent 0 28px, rgba(172, 146, 122, .48) 29px); color: var(--ink); font: inherit; font-size: var(--hud-text-size); line-height: 29px; }
+.notebook-entry textarea::placeholder { color: #a88f7d; }
+.notebook-blank, .notebook-empty { display: grid; place-items: center; color: #a88f7d; font-size: var(--hud-text-size); line-height: 1.7; text-align: center; }
+.notebook-empty { min-height: 260px; border: 2px dashed #c7aa90; border-radius: 16px; background: #fffaf0; }
+.notebook-pagination { margin-top: 18px; display: flex; align-items: center; justify-content: center; gap: 18px; }
+.notebook-pagination button { padding: 9px 12px; border: 2px solid #8f6a58; border-radius: 9px; background: #ffe7bd; color: var(--ink); cursor: pointer; font-size: var(--hud-text-size); }
+.notebook-pagination button:disabled { cursor: default; opacity: .38; }
+.notebook-pagination span { color: var(--muted); font-size: var(--hud-text-size); }
 
 .quest-window .window-heading small,
 .quest-window .window-heading p,
@@ -299,6 +310,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
   .game-window { width: 100%; max-height: 100%; padding: 20px 14px; border-width: 3px; border-radius: 17px; }
   .window-heading { margin-bottom: 15px; }
   .window-heading h1 { font-size: 18px; }
+  .notebook-page { min-height: 0; grid-template-columns: 1fr; }
+  .notebook-page > :nth-child(2) { padding: 22px 0 0; border-top: 1px dashed #c7aa90; border-left: 0; }
+  .notebook-entry textarea { min-height: 125px; }
   .backpack-layout { grid-template-columns: 1fr; }
   .inventory-grid { grid-template-columns: repeat(3, 1fr); }
   .inventory-grid button { min-height: 118px; }
