@@ -143,6 +143,8 @@ const actionSequences = {
 };
 
 const WAKE_SEQUENCE_LENGTH = actionSequences.yawn.length + 3;
+const WALK_FRAME_MS = 90;
+const WALK_CYCLE_MS = WALK_FRAME_MS * 4;
 
 function localDate(date = new Date()) {
   const year = date.getFullYear();
@@ -190,6 +192,7 @@ export default function Home() {
   const [direction, setDirection] = useState<"left" | "right">("right");
   const roomRef = useRef<HTMLDivElement>(null);
   const walkingTimer = useRef<number | undefined>(undefined);
+  const idleTimer = useRef<number | undefined>(undefined);
   const headShakeTimer = useRef<number | undefined>(undefined);
   const sleepInterruptReadyAt = useRef(0);
   const idleCycle = useRef(0);
@@ -367,11 +370,11 @@ export default function Home() {
   useEffect(() => {
     let cancelled = false;
     const frames = pets.flatMap((item) => [item.sleep, item.wake, ...item.wakeYawnFrames, ...item.walkFrames, ...item.groomFrames, ...item.yawnFrames]);
-    Promise.all(frames.map((src) => new Promise<void>((resolve) => {
+    Promise.all(frames.map(async (src) => {
       const image = new Image();
-      image.onload = image.onerror = () => resolve();
       image.src = src;
-    }))).then(() => {
+      try { await image.decode(); } catch { /* A failed frame must not block the remaining animations. */ }
+    })).then(() => {
       if (!cancelled) setActionsReady(true);
     });
     return () => { cancelled = true; };
@@ -382,7 +385,7 @@ export default function Home() {
       setWalkFrame(0);
       return;
     }
-    const timer = window.setInterval(() => setWalkFrame((frame) => (frame + 1) % 4), 90);
+    const timer = window.setInterval(() => setWalkFrame((frame) => (frame + 1) % 4), WALK_FRAME_MS);
     return () => window.clearInterval(timer);
   }, [walking]);
 
@@ -424,13 +427,15 @@ export default function Home() {
   }, [wakingUp]);
 
   useEffect(() => {
-    if (!actionsReady || walking || decorating || resting || wakingUp || idleAction) return;
+    if (!actionsReady || overlay || walking || decorating || resting || wakingUp || idleAction) return;
     const nextAction = getNextIdleAction(idleCycle.current, game.sleepiness);
     const timer = window.setTimeout(() => {
+      idleTimer.current = undefined;
       setIdleAction(nextAction);
     }, nextAction === "groom" ? 3800 : 5400);
+    idleTimer.current = timer;
     return () => window.clearTimeout(timer);
-  }, [actionsReady, decorating, game.sleepiness, idleAction, resting, wakingUp, walking]);
+  }, [actionsReady, decorating, game.sleepiness, idleAction, overlay, resting, wakingUp, walking]);
 
   useEffect(() => {
     if (overlay || decorating) return;
@@ -445,26 +450,9 @@ export default function Home() {
       const move = moves[event.key];
       if (!move) return;
       event.preventDefault();
-      if (wakingUp) {
-        setToast("正在打哈欠起床，请稍等一下");
-        return;
-      }
-      if (resting) {
-        setToast(`正在睡觉，还剩 ${formatSleepRemaining(sleepRemainingMs)}`);
-        return;
-      }
-      if (!canPetMove(game.sleepiness)) {
-        setWalking(false);
-        setIdleAction(null);
-        setIdleFrame(0);
-        setHeadShaking(true);
-        window.clearTimeout(headShakeTimer.current);
-        headShakeTimer.current = window.setTimeout(() => setHeadShaking(false), 650);
-        setToast("困倦值太低，先去猫窝休息吧");
-        return;
-      }
+      if (refuseMovementIfTired()) return;
       if (move.x) setDirection(move.x < 0 ? "left" : "right");
-      setWalkDuration(120);
+      setWalkDuration(WALK_CYCLE_MS);
       setGame((current) => ({
         ...current,
         catPosition: clampCatPosition({
@@ -473,20 +461,15 @@ export default function Home() {
         }),
         catFurniture: null,
       }));
-      setIdleAction(null);
-      setIdleFrame(0);
+      cancelIdleAnimation();
       setResting(false);
       setJumping(false);
       setWalking(true);
-      window.clearTimeout(walkingTimer.current);
-      walkingTimer.current = window.setTimeout(() => {
-        setWalking(false);
-        setJumping(false);
-      }, 180);
+      finishWalkAfter(WALK_CYCLE_MS);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [decorating, game.sleepiness, overlay, resting, sleepRemainingMs, wakingUp]);
+  }, [actionsReady, decorating, game.sleepiness, overlay, resting, sleepRemainingMs, wakingUp]);
 
   useEffect(() => {
     const onEscape = (event: KeyboardEvent) => {
@@ -523,6 +506,7 @@ export default function Home() {
 
   useEffect(() => () => {
     window.clearTimeout(walkingTimer.current);
+    window.clearTimeout(idleTimer.current);
     window.clearTimeout(headShakeTimer.current);
   }, []);
 
@@ -549,11 +533,28 @@ export default function Home() {
 
   function openOverlay(id: Exclude<OverlayId, null>) {
     setDecorating(false);
+    cancelIdleAnimation();
     if (id === "bag") {
       const firstOwned = foodItems.find((item) => game.inventory[item.id] > 0);
       if (firstOwned) setSelectedFood(firstOwned.id);
     }
     setOverlay(id);
+  }
+
+  function cancelIdleAnimation() {
+    window.clearTimeout(idleTimer.current);
+    idleTimer.current = undefined;
+    setIdleAction(null);
+    setIdleFrame(0);
+  }
+
+  function finishWalkAfter(duration: number, onFinished?: () => void) {
+    window.clearTimeout(walkingTimer.current);
+    walkingTimer.current = window.setTimeout(() => {
+      setWalking(false);
+      setJumping(false);
+      onFinished?.();
+    }, duration + 60);
   }
 
   async function saveMood(id: number, mood: string) {
@@ -585,15 +586,18 @@ export default function Home() {
     setInterruptConfirm(false);
     setResting(false);
     setSleepRemainingMs(0);
-    setIdleAction(null);
-    setIdleFrame(0);
+    cancelIdleAnimation();
     setWakeFrame(0);
     setWakingUp(true);
     setGame((current) => ({ ...current, sleepEndsAt: null, sleepRest: 0 }));
     setToast("睡眠已打断，本次没有增加困倦值");
   }
 
-  function refuseMovementIfTired() {
+  function refuseMovementIfTired(allowTired = false) {
+    if (!actionsReady) {
+      setToast("小猫动作正在准备，请稍等一下");
+      return true;
+    }
     if (wakingUp) {
       setToast("正在打哈欠起床，请稍等一下");
       return true;
@@ -602,10 +606,9 @@ export default function Home() {
       setToast(`${pet.name}正在睡觉，还剩 ${formatSleepRemaining(sleepRemainingMs)}`);
       return true;
     }
-    if (canPetMove(game.sleepiness)) return false;
+    if (allowTired || canPetMove(game.sleepiness)) return false;
     setWalking(false);
-    setIdleAction(null);
-    setIdleFrame(0);
+    cancelIdleAnimation();
     setHeadShaking(true);
     window.clearTimeout(headShakeTimer.current);
     headShakeTimer.current = window.setTimeout(() => setHeadShaking(false), 650);
@@ -626,30 +629,22 @@ export default function Home() {
     setDirection(x < game.catPosition.x ? "left" : "right");
     setWalkDuration(duration);
     setGame((current) => ({ ...current, catPosition: { x, y }, catFurniture: null }));
-    setIdleAction(null);
-    setIdleFrame(0);
+    cancelIdleAnimation();
     setResting(false);
     setJumping(false);
     setWalking(true);
-    window.clearTimeout(walkingTimer.current);
-    walkingTimer.current = window.setTimeout(() => {
-      setWalking(false);
-      setJumping(false);
-    }, duration + 60);
+    finishWalkAfter(duration);
     event.currentTarget.focus();
   }
 
   function moveCatToFurniture(item: (typeof furnitureItems)[number], position: Point) {
-    if (wakingUp && refuseMovementIfTired()) return;
-    if (resting && refuseMovementIfTired()) return;
-    if (!item.rest && refuseMovementIfTired()) return;
+    if (refuseMovementIfTired(Boolean(item.rest))) return;
     const target = getFurnitureTarget(position, item.standHeight);
     const distance = Math.hypot(target.x - game.catPosition.x, target.y - game.catPosition.y);
     const duration = Math.round(clamp(distance * 14, 420, 900));
     setDirection(target.x < game.catPosition.x ? "left" : "right");
     setWalkDuration(duration);
-    setIdleAction(null);
-    setIdleFrame(0);
+    cancelIdleAnimation();
     setResting(false);
     setJumping(target.jumping);
     setWalking(true);
@@ -658,10 +653,7 @@ export default function Home() {
       catPosition: { x: target.x, y: target.y },
       catFurniture: target.onTop ? item.id : null,
     }));
-    window.clearTimeout(walkingTimer.current);
-    walkingTimer.current = window.setTimeout(() => {
-      setWalking(false);
-      setJumping(false);
+    finishWalkAfter(duration, () => {
       if (item.rest) {
         const sleepEndsAt = Date.now() + SLEEP_DURATION_MS;
         setResting(true);
@@ -670,7 +662,7 @@ export default function Home() {
         setGame((current) => ({ ...current, sleepEndsAt, sleepRest: item.rest }));
         setToast(`${pet.name}开始在${item.name}睡觉，3小时后恢复困倦值 +${item.rest}`);
       }
-    }, duration + 60);
+    });
   }
 
   async function checkIn(event: React.FormEvent) {
@@ -808,7 +800,7 @@ export default function Home() {
           >
             <i />
             <img className="cat-base" src={catAsset} alt={`${pet.name}正在小屋里`} draggable={false} style={{ transform: `translateY(${baseAdjustment.y}%) scale(${direction === "left" ? -baseAdjustment.scale : baseAdjustment.scale}, ${baseAdjustment.scale})` }} />
-            <img key={actionAsset} className="cat-action" src={actionAsset} alt="" draggable={false} style={{ transform: `translateY(${actionAdjustment.y}%) scale(${direction === "left" ? -actionAdjustment.scale : actionAdjustment.scale}, ${actionAdjustment.scale})` }} />
+            <img className="cat-action" src={actionAsset} alt="" draggable={false} style={{ transform: `translateY(${actionAdjustment.y}%) scale(${direction === "left" ? -actionAdjustment.scale : actionAdjustment.scale}, ${actionAdjustment.scale})` }} />
             <b>{headShaking ? "太困啦…" : wakingUp ? "起床中…" : resting ? `还剩 ${formatSleepRemaining(sleepRemainingMs)}` : pet.name}</b>
           </div>
 
@@ -860,7 +852,7 @@ export default function Home() {
           <button className={overlay === "bag" ? "active" : ""} onClick={() => openOverlay("bag")}><span>🎒</span><b>背包</b><i>{totalFood}</i></button>
           <button className={overlay === "shop" ? "active" : ""} onClick={() => openOverlay("shop")}><span>🛒</span><b>商店</b></button>
           <button className={overlay === "pets" ? "active" : ""} onClick={() => openOverlay("pets")}><span>🐾</span><b>伙伴</b></button>
-          <button className={decorating ? "active" : ""} onClick={() => { setOverlay(null); setDecorating((value) => !value); setJumping(false); }}><span>🪑</span><b>布置</b></button>
+          <button className={decorating ? "active" : ""} onClick={() => { setOverlay(null); setDecorating((value) => !value); setJumping(false); cancelIdleAnimation(); }}><span>🪑</span><b>布置</b></button>
         </nav>
 
         {overlay && (

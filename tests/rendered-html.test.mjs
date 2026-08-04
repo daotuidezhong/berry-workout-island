@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 import { CAT_BOUNDS, clampCatPosition, getFurnitureTarget } from "../app/furniture.ts";
 import { getTimePeriod } from "../app/time-period.ts";
@@ -116,6 +116,19 @@ test("sleep interruption clears the pending reward before the wake-up animation"
   assert.match(source, /cat-orange-wake\.png[\s\S]*cat-cow-wake\.png[\s\S]*cat-white-wake\.png/);
   assert.match(source, /const baseAdjustment = wakingUp \? \{ scale: 1, y: 0 \}/);
   assert.doesNotMatch(css, /walking-cat\.(?:resting|waking-up)[^{]*\{[^}]*\bwidth:/);
+});
+
+test("keeps every cat animation loaded and coordinates transitions", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const assets = await readdir(new URL("../public/game", import.meta.url));
+  for (const cat of ["orange", "cow", "white"]) {
+    assert.equal(assets.filter((name) => new RegExp(`^cat-${cat}-(?:walk-v2|groom|yawn|wake-yawn)-[1-4]\\.png$`).test(name)).length, 16);
+    for (const state of ["idle", "sleep", "wake"]) assert.ok(assets.includes(`cat-${cat}-${state}.png`));
+  }
+  assert.match(source, /await image\.decode\(\)/);
+  assert.match(source, /!actionsReady \|\| overlay \|\| walking/);
+  assert.match(source, /setWalkDuration\(WALK_CYCLE_MS\)/);
+  assert.doesNotMatch(source, /<img key=\{actionAsset\}/);
 });
 
 test("shop discloses distinct food and cat-bed recovery values", async () => {
