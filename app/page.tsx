@@ -142,7 +142,8 @@ const milestones = [
 
 const WAKE_YAWN_SEQUENCE = [0, 1, 2, 3, 3, 2, 1, 0];
 const WAKE_SEQUENCE_LENGTH = WAKE_YAWN_SEQUENCE.length + 3;
-const WALK_FRAME_MS = 90;
+const WAKE_FRAME_MS = 420;
+const WALK_FRAME_MS = 170;
 const WALK_CYCLE_MS = WALK_FRAME_MS * 4;
 
 function localDate(date = new Date()) {
@@ -407,7 +408,7 @@ export default function Home() {
         return;
       }
       setWakeFrame(frame);
-    }, 280);
+    }, WAKE_FRAME_MS);
     return () => window.clearInterval(timer);
   }, [wakingUp]);
 
@@ -638,7 +639,7 @@ export default function Home() {
       y: ((event.clientY - rect.top) / rect.height) * 100,
     });
     const distance = Math.hypot(x - game.catPosition.x, y - game.catPosition.y);
-    const duration = Math.round(clamp(distance * 14, 420, 900));
+    const duration = Math.round(clamp(distance * 18, WALK_CYCLE_MS, 1200));
     setDirection(x < game.catPosition.x ? "left" : "right");
     setWalkDuration(duration);
     setGame((current) => ({ ...current, catPosition: { x, y }, catFurniture: null }));
@@ -654,7 +655,7 @@ export default function Home() {
     if (refuseMovementIfTired(Boolean(item.rest))) return;
     const target = getFurnitureTarget(position, item.standHeight);
     const distance = Math.hypot(target.x - game.catPosition.x, target.y - game.catPosition.y);
-    const duration = Math.round(clamp(distance * 14, 420, 900));
+    const duration = Math.round(clamp(distance * 18, WALK_CYCLE_MS, 1200));
     setDirection(target.x < game.catPosition.x ? "left" : "right");
     setWalkDuration(duration);
     resetStatusAnimation();
@@ -813,7 +814,7 @@ export default function Home() {
             data-active-status={catStatus}
             style={{ left: `${game.catPosition.x}%`, top: `${game.catPosition.y}%`, zIndex: game.catFurniture ? Math.round((game.furniturePositions[game.catFurniture] ?? DEFAULT_FURNITURE_POSITIONS[game.catFurniture]).y) + 2 : Math.round(game.catPosition.y) + 2, transitionDuration: `${walkDuration}ms` }}
           >
-            <img className="cat-base" src={catAsset} alt={`${pet.name}正在小屋里`} draggable={false} style={{ transform: `translateY(${baseAdjustment.y}%) scale(${direction === "left" ? -baseAdjustment.scale : baseAdjustment.scale}, ${baseAdjustment.scale})`, translate: `${motionX}px ${motionY}px` }} />
+            <img className={`cat-base cat-pose-${activePose}`} src={catAsset} alt={`${pet.name}正在小屋里`} draggable={false} style={{ transform: `translateY(${baseAdjustment.y}%) scale(${direction === "left" ? -baseAdjustment.scale : baseAdjustment.scale}, ${baseAdjustment.scale})`, translate: `${motionX}px ${motionY}px` }} />
             <b>{headShaking ? "太困啦…" : wakingUp ? "起床中…" : resting ? `还剩 ${formatSleepRemaining(sleepRemainingMs)}` : pet.name}</b>
           </div>
 

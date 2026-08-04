@@ -94,10 +94,28 @@ test("maps the two pet stats to all nine animation states", () => {
   assert.equal(Object.keys(CAT_STATUS_ANIMATIONS).length, 9);
   for (const animation of Object.values(CAT_STATUS_ANIMATIONS)) {
     assert.ok(animation.frames.length >= 5);
-    assert.ok(animation.frames.every((frame) => frame.duration >= 90 && !("scale" in frame)));
+    assert.ok(animation.frames.every((frame) => frame.duration >= 340 && !("scale" in frame)));
+    assert.ok(animation.frames.reduce((total, frame) => total + frame.duration, 0) >= 6000);
+    assert.equal(new Set(animation.frames.map((frame) => frame.pose)).size, 1);
+    assert.deepEqual(
+      { pose: animation.frames.at(-1).pose, frame: animation.frames.at(-1).frame ?? 0, x: animation.frames.at(-1).x ?? 0, y: animation.frames.at(-1).y ?? 0 },
+      { pose: animation.frames[0].pose, frame: animation.frames[0].frame ?? 0, x: animation.frames[0].x ?? 0, y: animation.frames[0].y ?? 0 },
+    );
   }
-  assert.equal(getCatStatusTransition("high-low", "low-high").at(-1).pose, "sleep");
-  assert.equal(getCatStatusTransition("low-high", "high-low").at(-1).pose, "idle");
+  for (const from of Object.keys(CAT_STATUS_ANIMATIONS)) {
+    for (const to of Object.keys(CAT_STATUS_ANIMATIONS)) {
+      if (from === to) continue;
+      const transition = getCatStatusTransition(from, to);
+      assert.deepEqual(
+        { pose: transition[0].pose, frame: transition[0].frame ?? 0 },
+        { pose: CAT_STATUS_ANIMATIONS[from].frames.at(-1).pose, frame: CAT_STATUS_ANIMATIONS[from].frames.at(-1).frame ?? 0 },
+      );
+      assert.deepEqual(
+        { pose: transition.at(-1).pose, frame: transition.at(-1).frame ?? 0 },
+        { pose: CAT_STATUS_ANIMATIONS[to].frames[0].pose, frame: CAT_STATUS_ANIMATIONS[to].frames[0].frame ?? 0 },
+      );
+    }
+  }
 });
 
 test("drains energy, raises sleepiness, and blocks movement only when extremely sleepy", () => {
@@ -171,7 +189,7 @@ test("server-renders the full-screen game without the old movement hint", async 
   const html = await response.text();
   assert.match(html, /class="game-stage"/);
   assert.match(html, /class="game-room/);
-  assert.match(html, /class="cat-base"/);
+  assert.match(html, /class="cat-base cat-pose-/);
   assert.match(html, /data-cat-status="high-low"/);
   assert.doesNotMatch(html, /class="cat-action"/);
   assert.match(html, /aria-label="游戏菜单"/);

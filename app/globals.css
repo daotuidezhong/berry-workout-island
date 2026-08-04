@@ -80,12 +80,24 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
   user-select: none;
 }
 
-.walking-cat img { display: block; width: 100%; max-height: 185px; object-fit: contain; image-rendering: pixelated; transform-origin: 50% 100%; filter: var(--scene-lighting); transition: filter 1.2s ease, translate .12s ease-out; }
+.walking-cat img { display: block; width: 100%; max-height: 185px; object-fit: contain; image-rendering: pixelated; transform-origin: 50% 100%; filter: var(--scene-lighting); transition: filter 1.2s ease, translate .32s ease-in-out; }
+.walking-cat.status-animation:not(.resting):not(.waking-up) .cat-pose-idle { animation: cat-pose-idle .26s ease-out; }
+.walking-cat.status-animation:not(.resting):not(.waking-up) .cat-pose-walk { animation: cat-pose-walk .26s ease-out; }
+.walking-cat.status-animation:not(.resting):not(.waking-up) .cat-pose-groom { animation: cat-pose-groom .26s ease-out; }
+.walking-cat.status-animation:not(.resting):not(.waking-up) .cat-pose-yawn { animation: cat-pose-yawn .26s ease-out; }
+.walking-cat.status-animation:not(.resting):not(.waking-up) .cat-pose-sleep { animation: cat-pose-sleep .26s ease-out; }
+.walking-cat.status-animation:not(.resting):not(.waking-up) .cat-pose-wake { animation: cat-pose-wake .26s ease-out; }
 .walking-cat.resting .cat-base { animation: cat-rest 2.4s ease-in-out infinite; }
 .walking-cat.head-shaking .cat-base { transform-origin: 58% 48%; animation: cat-head-shake .65s ease-in-out; }
-.walking-cat.jumping { animation: furniture-jump .65s ease-out; }
+.walking-cat.jumping { animation: furniture-jump .9s ease-in-out; }
 .walking-cat b { position: absolute; left: 50%; bottom: -5px; padding: 4px 7px; transform: translateX(-50%); border: 1px solid #75534a; border-radius: 8px; background: rgba(255, 250, 235, .92); font-size: 9px; white-space: nowrap; }
 @keyframes furniture-jump { 48% { transform: translate(-50%, -79%) translateY(-58px); } }
+@keyframes cat-pose-idle { from { opacity: .72; } }
+@keyframes cat-pose-walk { from { opacity: .72; } }
+@keyframes cat-pose-groom { from { opacity: .72; } }
+@keyframes cat-pose-yawn { from { opacity: .72; } }
+@keyframes cat-pose-sleep { from { opacity: .72; } }
+@keyframes cat-pose-wake { from { opacity: .72; } }
 @keyframes cat-rest { 50% { translate: 0 1px; } }
 @keyframes cat-head-shake { 0%, 100% { translate: 0 0; } 20%, 60% { translate: -3px 0; } 40%, 80% { translate: 3px 0; } }
 
