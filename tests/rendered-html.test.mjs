@@ -5,7 +5,7 @@ import { CAT_BOUNDS, clampCatPosition, getFurnitureTarget } from "../app/furnitu
 import { getTimePeriod } from "../app/time-period.ts";
 import { estimateCalories } from "../app/calories.ts";
 import { getRoomAsset, getWeatherKind, ROOM_ASSET_BY_WEATHER } from "../app/weather.ts";
-import { getNextIdleAction } from "../app/cat-actions.ts";
+import { CAT_STATUS_ANIMATIONS, getCatStatus, getCatStatusTransition } from "../app/cat-actions.ts";
 import { canPetMove, decayPetStats, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "../app/pet-stats.ts";
 
 async function render() {
@@ -79,18 +79,33 @@ test("uses the pixel cat paw cursor throughout the game", async () => {
   assert.equal(cursor.readUInt32BE(20), 32);
 });
 
-test("only yawns below 40 sleepiness", () => {
-  assert.equal(getNextIdleAction(1, 39), "yawn");
-  assert.equal(getNextIdleAction(1, 40), "groom");
-  assert.equal(getNextIdleAction(0, 20), "groom");
+test("maps the two pet stats to all nine animation states", () => {
+  assert.deepEqual(
+    [
+      [85, 12], [85, 50], [85, 88],
+      [50, 12], [50, 50], [50, 88],
+      [12, 12], [12, 50], [12, 88],
+    ].map(([energy, sleepiness]) => getCatStatus(energy, sleepiness)),
+    ["high-low", "high-medium", "high-high", "medium-low", "medium-medium", "medium-high", "low-low", "low-medium", "low-high"],
+  );
+  assert.equal(getCatStatus(30, 30), "low-low");
+  assert.equal(getCatStatus(31, 31), "medium-medium");
+  assert.equal(getCatStatus(71, 71), "high-high");
+  assert.equal(Object.keys(CAT_STATUS_ANIMATIONS).length, 9);
+  for (const animation of Object.values(CAT_STATUS_ANIMATIONS)) {
+    assert.ok(animation.frames.length >= 5);
+    assert.ok(animation.frames.every((frame) => frame.duration >= 90 && !("scale" in frame)));
+  }
+  assert.equal(getCatStatusTransition("high-low", "low-high").at(-1).pose, "sleep");
+  assert.equal(getCatStatusTransition("low-high", "high-low").at(-1).pose, "idle");
 });
 
-test("decays pet stats on a fixed cadence and blocks movement below 10 sleepiness", () => {
+test("drains energy, raises sleepiness, and blocks movement only when extremely sleepy", () => {
   assert.equal(PET_STAT_DECAY_MS, 300000);
-  assert.deepEqual(decayPetStats(72, 24), { energy: 71, sleepiness: 23 });
-  assert.deepEqual(decayPetStats(0, 0), { energy: 0, sleepiness: 0 });
-  assert.equal(canPetMove(9), false);
-  assert.equal(canPetMove(10), true);
+  assert.deepEqual(decayPetStats(72, 24), { energy: 71, sleepiness: 25 });
+  assert.deepEqual(decayPetStats(0, 100), { energy: 0, sleepiness: 100 });
+  assert.equal(canPetMove(90), true);
+  assert.equal(canPetMove(91), false);
 });
 
 test("keeps cat-bed sleep active for three hours and formats the countdown", () => {
@@ -114,8 +129,10 @@ test("sleep interruption clears the pending reward before the wake-up animation"
   assert.match(interruptBody, /setWakingUp\(true\)/);
   assert.doesNotMatch(interruptBody, /sleepiness/);
   assert.match(source, /cat-orange-wake\.png[\s\S]*cat-cow-wake\.png[\s\S]*cat-white-wake\.png/);
-  assert.match(source, /const baseAdjustment = wakingUp \? \{ scale: 1, y: 0 \}/);
+  assert.match(source, /const baseAdjustment = activePose === "walk"/);
   assert.doesNotMatch(css, /walking-cat\.(?:resting|waking-up)[^{]*\{[^}]*\bwidth:/);
+  assert.doesNotMatch(css, /@keyframes cat-rest[^\n]*\bscale:/);
+  assert.doesNotMatch(css, /@keyframes cat-head-shake[^\n]*\brotate:/);
 });
 
 test("keeps every cat animation loaded and coordinates transitions", async () => {
@@ -128,13 +145,14 @@ test("keeps every cat animation loaded and coordinates transitions", async () =>
   assert.match(source, /await image\.decode\(\)/);
   assert.match(source, /!actionsReady \|\| overlay \|\| walking/);
   assert.match(source, /setWalkDuration\(WALK_CYCLE_MS\)/);
-  assert.doesNotMatch(source, /<img key=\{actionAsset\}/);
+  assert.match(source, /desiredCatStatus !== catStatus[\s\S]*getCatStatusTransition\(catStatus, desiredCatStatus\)/);
+  assert.doesNotMatch(source, /<img className="cat-base" key=\{/);
 });
 
 test("shop discloses distinct food and cat-bed recovery values", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.match(source, /补充活力 \+\{item\.energy\}/);
-  assert.match(source, /困倦值 \+\$\{item\.rest\}/);
+  assert.match(source, /困倦值 -\$\{item\.rest\}/);
   assert.match(source, /rest: 30[\s\S]*rest: 55[\s\S]*rest: 80/);
 });
 
@@ -154,7 +172,8 @@ test("server-renders the full-screen game without the old movement hint", async 
   assert.match(html, /class="game-stage"/);
   assert.match(html, /class="game-room/);
   assert.match(html, /class="cat-base"/);
-  assert.match(html, /class="cat-action"/);
+  assert.match(html, /data-cat-status="high-low"/);
+  assert.doesNotMatch(html, /class="cat-action"/);
   assert.match(html, /aria-label="游戏菜单"/);
   assert.match(html, /的困倦值/);
   assert.doesNotMatch(html, /weather-chip|天气同步中|room-help|点击地面移动/);

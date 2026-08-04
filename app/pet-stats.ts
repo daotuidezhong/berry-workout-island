@@ -1,16 +1,16 @@
 export const PET_STAT_DECAY_MS = 5 * 60 * 1000;
-export const MIN_SLEEPINESS_TO_MOVE = 10;
+export const MAX_SLEEPINESS_TO_MOVE = 90;
 export const SLEEP_DURATION_MS = 3 * 60 * 60 * 1000;
 
 export function decayPetStats(energy: number, sleepiness: number) {
   return {
     energy: Math.max(0, energy - 1),
-    sleepiness: Math.max(0, sleepiness - 1),
+    sleepiness: Math.min(100, sleepiness + 1),
   };
 }
 
 export function canPetMove(sleepiness: number) {
-  return sleepiness >= MIN_SLEEPINESS_TO_MOVE;
+  return sleepiness <= MAX_SLEEPINESS_TO_MOVE;
 }
 
 export function getSleepRemainingMs(sleepEndsAt: number | null, now = Date.now()) {
