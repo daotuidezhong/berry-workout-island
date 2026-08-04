@@ -10,9 +10,8 @@ export const ROOM_ASSET_BY_WEATHER: Record<WeatherKind, string> = {
 };
 
 export function getRoomAsset(kind: WeatherKind, period: TimePeriod) {
-  const isDry = kind === "clear" || kind === "cloudy";
-  if (period === "morning" && isDry) return "/game/room-morning.png";
-  if (period === "evening" && isDry) return "/game/room-evening.png";
+  if (period === "morning" && kind === "clear") return "/game/room-morning.png";
+  if (period === "evening" && kind === "clear") return "/game/room-evening.png";
   return ROOM_ASSET_BY_WEATHER[kind];
 }
 

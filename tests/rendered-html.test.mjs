@@ -54,10 +54,10 @@ test("maps Foshan weather codes to room weather states", () => {
     "/game/room-thunderstorm-v2.png",
   ]);
   assert.equal(getRoomAsset("clear", "morning"), "/game/room-morning.png");
-  assert.equal(getRoomAsset("cloudy", "morning"), "/game/room-morning.png");
+  assert.equal(getRoomAsset("cloudy", "morning"), "/game/room-cloudy-v2.png");
   assert.equal(getRoomAsset("rain", "morning"), "/game/room-rain.png");
   assert.equal(getRoomAsset("clear", "evening"), "/game/room-evening.png");
-  assert.equal(getRoomAsset("cloudy", "evening"), "/game/room-evening.png");
+  assert.equal(getRoomAsset("cloudy", "evening"), "/game/room-cloudy-v2.png");
   assert.equal(getRoomAsset("rain", "evening"), "/game/room-rain.png");
 });
 
