@@ -753,6 +753,10 @@ export default function Home() {
       inventory: { ...current.inventory, [foodId]: current.inventory[foodId] - 1 },
       energy: Math.min(100, current.energy + item.energy),
     }));
+    if (resting) {
+      setOverlay(null);
+      setInterruptConfirm(true);
+    }
     setToast(`${pet.name} 吃掉了${item.name}，活力 +${item.energy}`);
   }
 

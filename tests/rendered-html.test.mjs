@@ -141,6 +141,14 @@ test("sleep interruption clears the pending reward before the wake-up animation"
   assert.doesNotMatch(css, /@keyframes cat-head-shake[^\n]*\brotate:/);
 });
 
+test("feeding a sleeping cat opens the sleep interruption confirmation", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const start = source.indexOf("function feedPet(");
+  const end = source.indexOf("\n  function", start + 1);
+  const feedBody = source.slice(start, end);
+  assert.match(feedBody, /if \(resting\) \{[\s\S]*setOverlay\(null\);[\s\S]*setInterruptConfirm\(true\);/);
+});
+
 test("keeps every cat animation loaded and coordinates transitions", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const assets = await readdir(new URL("../public/game", import.meta.url));
