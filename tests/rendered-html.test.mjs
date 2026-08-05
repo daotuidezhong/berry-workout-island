@@ -6,7 +6,7 @@ import { getTimePeriod } from "../app/time-period.ts";
 import { estimateCalories } from "../app/calories.ts";
 import { getRoomAsset, getWeatherKind, ROOM_ASSET_BY_WEATHER } from "../app/weather.ts";
 import { CAT_STATUS_ANIMATIONS, getCatStatus, getCatStatusTransition } from "../app/cat-actions.ts";
-import { canPetMove, decayPetStats, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "../app/pet-stats.ts";
+import { canPetMove, decayPetStats, decayPetStatsByTime, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "../app/pet-stats.ts";
 
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -110,6 +110,8 @@ test("drains energy, raises sleepiness, and allows movement while energy remains
   assert.equal(PET_STAT_DECAY_MS, 300000);
   assert.deepEqual(decayPetStats(72, 24), { energy: 71, sleepiness: 25 });
   assert.deepEqual(decayPetStats(0, 100), { energy: 0, sleepiness: 100 });
+  assert.deepEqual(decayPetStatsByTime(72, 24, 1_000_000, 1_900_001), { energy: 69, sleepiness: 27, statsUpdatedAt: 1_900_000 });
+  assert.deepEqual(decayPetStatsByTime(72, 24, 0, 1_000_000), { energy: 72, sleepiness: 24, statsUpdatedAt: 1_000_000 });
   assert.equal(canPetMove(42), true);
   assert.equal(canPetMove(0), false);
 });
@@ -163,8 +165,10 @@ test("keeps every cat animation loaded and coordinates transitions", async () =>
     }
     for (const state of ["idle", "sleep", "wake"]) assert.ok(assets.includes(`cat-${cat}-${state}.png`));
   }
-  assert.match(source, /await image\.decode\(\)/);
-  assert.match(source, /!actionsReady \|\| overlay \|\| walking/);
+  assert.match(source, /animationImages\.current = frames\.map/);
+  assert.match(source, /image\.decode\(\)\.catch/);
+  assert.match(source, /const activePose: CatPose = resting \? "sleep"/);
+  assert.match(source, /const catAsset = resting \? pet\.sleep/);
   assert.match(source, /setWalkDuration\(WALK_CYCLE_MS\)/);
   assert.match(source, /clamp\(distance \* 14, WALK_CYCLE_MS \* 2, 900\)/);
   assert.match(source, /const STATUS_IDLE_MS = 8000/);

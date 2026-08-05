@@ -8,6 +8,16 @@ export function decayPetStats(energy: number, sleepiness: number) {
   };
 }
 
+export function decayPetStatsByTime(energy: number, sleepiness: number, updatedAt: number, now = Date.now()) {
+  if (updatedAt <= 0) return { energy, sleepiness, statsUpdatedAt: now };
+  const steps = Math.floor(Math.max(0, now - updatedAt) / PET_STAT_DECAY_MS);
+  return {
+    energy: Math.max(0, energy - steps),
+    sleepiness: Math.min(100, sleepiness + steps),
+    statsUpdatedAt: updatedAt + steps * PET_STAT_DECAY_MS,
+  };
+}
+
 export function canPetMove(energy: number) {
   return energy > 0;
 }

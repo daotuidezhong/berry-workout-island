@@ -13,7 +13,7 @@ import {
   type CatPose,
   type CatStatusId,
 } from "./cat-actions";
-import { canPetMove, decayPetStats, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "./pet-stats";
+import { canPetMove, decayPetStatsByTime, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "./pet-stats";
 
 type PetId = "mitao" | "doubao" | "xueqiu";
 type OverlayId = "quest" | "history" | "bag" | "pets" | "shop" | null;
@@ -31,6 +31,7 @@ type GameState = {
   inventory: Record<FoodId, number>;
   energy: number;
   sleepiness: number;
+  statsUpdatedAt: number;
   catPosition: Point;
   catFurniture: string | null;
   sleepEndsAt: number | null;
@@ -114,6 +115,7 @@ const INITIAL_GAME: GameState = {
   inventory: INITIAL_INVENTORY,
   energy: 72,
   sleepiness: 24,
+  statsUpdatedAt: 0,
   catPosition: { x: 56, y: 72 },
   catFurniture: null,
   sleepEndsAt: null,
@@ -168,7 +170,6 @@ export default function Home() {
   const [walkDuration, setWalkDuration] = useState(550);
   const [timePeriod, setTimePeriod] = useState<TimePeriod>("noon");
   const [weather, setWeather] = useState<{ kind: WeatherKind; label: string }>({ kind: "clear", label: "晴" });
-  const [actionsReady, setActionsReady] = useState(false);
   const [catStatus, setCatStatus] = useState<CatStatusId>(() => getCatStatus(INITIAL_GAME.energy, INITIAL_GAME.sleepiness));
   const [statusFrame, setStatusFrame] = useState(0);
   const [statusIdle, setStatusIdle] = useState(true);
@@ -185,6 +186,7 @@ export default function Home() {
   const walkingTimer = useRef<number | undefined>(undefined);
   const headShakeTimer = useRef<number | undefined>(undefined);
   const sleepInterruptReadyAt = useRef(0);
+  const animationImages = useRef<HTMLImageElement[]>([]);
   const desiredCatStatus = getCatStatus(game.energy, game.sleepiness);
 
   useEffect(() => {
@@ -225,20 +227,26 @@ export default function Home() {
           if (Math.round((midnight.getTime() - previous.getTime()) / 86400000) > 1) merged.streak = 0;
         }
         if (merged.lastCheckin === current && merged.lastActivity) setActivityText(merged.lastActivity);
-        const sleepRemaining = getSleepRemainingMs(merged.sleepEndsAt, now.getTime());
+        const nowMs = now.getTime();
+        merged.statsUpdatedAt = typeof parsed.statsUpdatedAt === "number" && parsed.statsUpdatedAt > 0 ? parsed.statsUpdatedAt : nowMs;
+        const sleepRemaining = getSleepRemainingMs(merged.sleepEndsAt, nowMs);
         if (merged.sleepEndsAt && sleepRemaining === 0) {
           merged.sleepiness = Math.max(0, merged.sleepiness - merged.sleepRest);
           merged.sleepEndsAt = null;
           merged.sleepRest = 0;
+          merged.statsUpdatedAt = nowMs;
         } else if (sleepRemaining > 0) {
+          merged.statsUpdatedAt = nowMs;
           setResting(true);
           setSleepRemainingMs(sleepRemaining);
+        } else {
+          Object.assign(merged, decayPetStatsByTime(merged.energy, merged.sleepiness, merged.statsUpdatedAt, nowMs));
         }
         setGame(merged);
       } catch {
         setGame(INITIAL_GAME);
       }
-    }
+    } else setGame({ ...INITIAL_GAME, statsUpdatedAt: now.getTime() });
     setReady(true);
   }, []);
 
@@ -318,10 +326,20 @@ export default function Home() {
 
   useEffect(() => {
     if (!ready || resting) return;
-    const timer = window.setInterval(() => {
-      setGame((current) => ({ ...current, ...decayPetStats(current.energy, current.sleepiness) }));
-    }, PET_STAT_DECAY_MS);
-    return () => window.clearInterval(timer);
+    const syncStats = () => setGame((current) => ({
+      ...current,
+      ...decayPetStatsByTime(current.energy, current.sleepiness, current.statsUpdatedAt),
+    }));
+    syncStats();
+    const timer = window.setInterval(syncStats, PET_STAT_DECAY_MS);
+    const syncVisibleStats = () => { if (document.visibilityState === "visible") syncStats(); };
+    window.addEventListener("focus", syncStats);
+    document.addEventListener("visibilitychange", syncVisibleStats);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", syncStats);
+      document.removeEventListener("visibilitychange", syncVisibleStats);
+    };
   }, [ready, resting]);
 
   useEffect(() => {
@@ -344,6 +362,7 @@ export default function Home() {
         return {
           ...current,
           sleepiness: Math.max(0, current.sleepiness - current.sleepRest),
+          statsUpdatedAt: Date.now(),
           sleepEndsAt: null,
           sleepRest: 0,
         };
@@ -362,16 +381,14 @@ export default function Home() {
   }, [toast]);
 
   useEffect(() => {
-    let cancelled = false;
-    const frames = pets.flatMap((item) => [item.sleep, item.wake, ...item.wakeYawnFrames, ...item.walkFrames, ...item.groomFrames]);
-    Promise.all(frames.map(async (src) => {
+    const frames = pets.flatMap((item) => [item.idle, item.sleep, item.wake, ...item.wakeYawnFrames, ...item.walkFrames, ...item.groomFrames]);
+    animationImages.current = frames.map((src) => {
       const image = new Image();
       image.src = src;
-      try { await image.decode(); } catch { /* A failed frame must not block the remaining animations. */ }
-    })).then(() => {
-      if (!cancelled) setActionsReady(true);
+      image.decode().catch(() => undefined);
+      return image;
     });
-    return () => { cancelled = true; };
+    return () => { animationImages.current = []; };
   }, []);
 
   useEffect(() => {
@@ -403,7 +420,7 @@ export default function Home() {
   }, [wakingUp]);
 
   useEffect(() => {
-    if (!actionsReady || overlay || walking || decorating || resting || wakingUp) return;
+    if (overlay || walking || decorating || resting || wakingUp) return;
     if (statusIdle) {
       const timer = window.setTimeout(() => {
         if (desiredCatStatus !== catStatus) {
@@ -434,7 +451,7 @@ export default function Home() {
       setStatusIdle(true);
     }, currentFrame.duration);
     return () => window.clearTimeout(timer);
-  }, [actionsReady, catStatus, decorating, desiredCatStatus, overlay, resting, statusFrame, statusIdle, statusTransition, statusTransitionTarget, wakingUp, walking]);
+  }, [catStatus, decorating, desiredCatStatus, overlay, resting, statusFrame, statusIdle, statusTransition, statusTransitionTarget, wakingUp, walking]);
 
   useEffect(() => {
     if (overlay || decorating) return;
@@ -468,7 +485,7 @@ export default function Home() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [actionsReady, decorating, game.energy, overlay, resting, sleepRemainingMs, wakingUp]);
+  }, [decorating, game.energy, overlay, resting, sleepRemainingMs, wakingUp]);
 
   useEffect(() => {
     const onEscape = (event: KeyboardEvent) => {
@@ -537,8 +554,8 @@ export default function Home() {
             ? pet.wake
             : pet.idle;
   const wakeSequenceAssets = [pet.sleep, pet.wake, ...WAKE_YAWN_SEQUENCE.map((frame) => pet.wakeYawnFrames[frame]), pet.idle];
-  const activePose: CatPose = walking ? "walk" : resting ? "sleep" : wakingUp ? "wake" : currentStatusFrame.pose;
-  const catAsset = wakingUp ? wakeSequenceAssets[wakeFrame] : resting ? pet.sleep : walking ? pet.walkFrames[walkFrame] : statusAsset;
+  const activePose: CatPose = resting ? "sleep" : wakingUp ? "wake" : walking ? "walk" : currentStatusFrame.pose;
+  const catAsset = resting ? pet.sleep : wakingUp ? wakeSequenceAssets[wakeFrame] : walking ? pet.walkFrames[walkFrame] : statusAsset;
   const motionX = walking || resting || wakingUp ? 0 : (currentStatusFrame.x ?? 0) * (direction === "left" ? -1 : 1);
   const motionY = walking || resting || wakingUp ? 0 : currentStatusFrame.y ?? 0;
 
@@ -600,15 +617,11 @@ export default function Home() {
     resetStatusAnimation();
     setWakeFrame(0);
     setWakingUp(true);
-    setGame((current) => ({ ...current, sleepEndsAt: null, sleepRest: 0 }));
+    setGame((current) => ({ ...current, statsUpdatedAt: Date.now(), sleepEndsAt: null, sleepRest: 0 }));
     setToast("睡眠已打断，本次不会降低困倦值");
   }
 
   function refuseMovement(allowNoEnergy = false) {
-    if (!actionsReady) {
-      setToast("小猫动作正在准备，请稍等一下");
-      return true;
-    }
     if (wakingUp) {
       setToast("正在打哈欠起床，请稍等一下");
       return true;
@@ -670,7 +683,7 @@ export default function Home() {
         setResting(true);
         setSleepRemainingMs(SLEEP_DURATION_MS);
         sleepInterruptReadyAt.current = Date.now() + 900;
-        setGame((current) => ({ ...current, sleepEndsAt, sleepRest: item.rest }));
+        setGame((current) => ({ ...current, statsUpdatedAt: Date.now(), sleepEndsAt, sleepRest: item.rest }));
         setToast(`${pet.name}开始在${item.name}睡觉，3小时后困倦值降低 ${item.rest}`);
       }
     });
