@@ -449,7 +449,7 @@ export default function Home() {
       const move = moves[event.key];
       if (!move) return;
       event.preventDefault();
-      if (refuseMovementIfTired()) return;
+      if (refuseMovement()) return;
       if (move.x) setDirection(move.x < 0 ? "left" : "right");
       setWalkDuration(WALK_CYCLE_MS);
       setGame((current) => ({
@@ -468,7 +468,7 @@ export default function Home() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [actionsReady, decorating, game.sleepiness, overlay, resting, sleepRemainingMs, wakingUp]);
+  }, [actionsReady, decorating, game.energy, overlay, resting, sleepRemainingMs, wakingUp]);
 
   useEffect(() => {
     const onEscape = (event: KeyboardEvent) => {
@@ -604,7 +604,7 @@ export default function Home() {
     setToast("睡眠已打断，本次不会降低困倦值");
   }
 
-  function refuseMovementIfTired(allowTired = false) {
+  function refuseMovement(allowNoEnergy = false) {
     if (!actionsReady) {
       setToast("小猫动作正在准备，请稍等一下");
       return true;
@@ -617,19 +617,19 @@ export default function Home() {
       setToast(`${pet.name}正在睡觉，还剩 ${formatSleepRemaining(sleepRemainingMs)}`);
       return true;
     }
-    if (allowTired || canPetMove(game.sleepiness)) return false;
+    if (allowNoEnergy || canPetMove(game.energy)) return false;
     setWalking(false);
     resetStatusAnimation();
     setHeadShaking(true);
     window.clearTimeout(headShakeTimer.current);
     headShakeTimer.current = window.setTimeout(() => setHeadShaking(false), 650);
-    setToast(`${pet.name}太困了，先去猫窝休息吧`);
+    setToast(`${pet.name}没有活力了，先喂点食物吧`);
     return true;
   }
 
   function moveCat(event: React.PointerEvent<HTMLDivElement>) {
     if (decorating || overlay || (event.target as HTMLElement).closest("[data-furniture]")) return;
-    if (refuseMovementIfTired()) return;
+    if (refuseMovement()) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const { x, y } = clampCatPosition({
       x: ((event.clientX - rect.left) / rect.width) * 100,
@@ -649,7 +649,7 @@ export default function Home() {
   }
 
   function moveCatToFurniture(item: (typeof furnitureItems)[number], position: Point) {
-    if (refuseMovementIfTired(Boolean(item.rest))) return;
+    if (refuseMovement(Boolean(item.rest))) return;
     const target = getFurnitureTarget(position, item.standHeight);
     const distance = Math.hypot(target.x - game.catPosition.x, target.y - game.catPosition.y);
     const duration = Math.round(clamp(distance * 14, WALK_CYCLE_MS * 2, 900));

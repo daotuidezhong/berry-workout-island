@@ -106,12 +106,12 @@ test("maps the two pet stats to all nine animation states", () => {
   assert.ok(getCatStatusTransition("low-high", "high-low").some((frame) => frame.pose === "wake"));
 });
 
-test("drains energy, raises sleepiness, and blocks movement only when extremely sleepy", () => {
+test("drains energy, raises sleepiness, and allows movement while energy remains", () => {
   assert.equal(PET_STAT_DECAY_MS, 300000);
   assert.deepEqual(decayPetStats(72, 24), { energy: 71, sleepiness: 25 });
   assert.deepEqual(decayPetStats(0, 100), { energy: 0, sleepiness: 100 });
-  assert.equal(canPetMove(90), true);
-  assert.equal(canPetMove(91), false);
+  assert.equal(canPetMove(42), true);
+  assert.equal(canPetMove(0), false);
 });
 
 test("keeps cat-bed sleep active for three hours and formats the countdown", () => {
