@@ -143,7 +143,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .game-dock button { position: relative; min-width: 67px; height: 58px; padding: 5px 8px; display: grid; place-items: center; align-content: center; gap: 4px; border: 2px solid transparent; border-radius: 12px; background: transparent; cursor: pointer; }
 .game-dock button:hover, .game-dock button.active { border-color: #9a675b; background: #ffe4b4; transform: translateY(-2px); }
 .game-dock span { font-size: 20px; line-height: 1; }
-.game-dock b { font-size: var(--hud-text-size); line-height: 1; }
+.game-dock b { font-size: 16px; line-height: 1; }
 .game-dock i { position: absolute; top: -4px; right: -3px; min-width: 20px; height: 20px; padding: 0 4px; display: grid; place-items: center; border: 2px solid #713d42; border-radius: 10px; background: var(--berry); color: #fff; font-size: 9px; font-style: normal; }
 
 .decorate-tools { position: absolute; z-index: 53; top: 88px; right: 18px; padding: 8px; display: flex; align-items: center; gap: 7px; border-radius: 14px; }
