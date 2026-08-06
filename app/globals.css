@@ -294,7 +294,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .shop-tabs button,
 .store-art i,
 .store-grid :is(small, p),
-.pet-grid :is(span, small) { font-size: 14px; }
+.pet-grid :is(span, small) { font-size: 18px; }
 
 .window-heading.with-wallet > b,
 .feed-card h2,
@@ -302,7 +302,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .store-grid h2,
 .store-grid article > button,
 .pet-grid h2,
-.pet-grid article > button { font-size: 16px; }
+.pet-grid article > button { font-size: 20px; }
 
 .toast { position: fixed; z-index: 250; left: 50%; bottom: 101px; max-width: calc(100vw - 30px); padding: 12px 17px; transform: translate(-50%, 20px); border: 2px solid #3f5b46; border-radius: 12px; background: rgba(66, 102, 76, .96); color: #fff; box-shadow: 0 5px 0 rgba(45, 72, 52, .65); opacity: 0; pointer-events: none; transition: .18s ease; font-size: 10px; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
