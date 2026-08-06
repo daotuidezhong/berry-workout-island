@@ -292,9 +292,10 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .feed-card :is(small, p),
 .bag-furniture > b,
 .shop-tabs button,
-.store-art i,
 .store-grid :is(small, p),
 .pet-grid :is(span, small) { font-size: 18px; }
+
+.store-art i { font-size: 14px; }
 
 .window-heading.with-wallet > b,
 .feed-card h2,
