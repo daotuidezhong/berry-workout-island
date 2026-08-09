@@ -186,23 +186,25 @@ test("shop discloses distinct food and cat-bed recovery values", async () => {
   assert.match(source, /rest: 30[\s\S]*rest: 55[\s\S]*rest: 80/);
 });
 
-test("opens a two-day notebook and saves mood notes with each check-in", async () => {
+test("keeps desktop records local and shows release notes after an update", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const schema = await readFile(new URL("../db/schema.ts", import.meta.url), "utf8");
   const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
   const api = await readFile(new URL("../app/api/checkins/route.ts", import.meta.url), "utf8");
-  const admin = await readFile(new URL("../app/admin/page.tsx", import.meta.url), "utf8");
+  const electronMain = await readFile(new URL("../electron/main.cjs", import.meta.url), "utf8");
+  const preload = await readFile(new URL("../electron/preload.cjs", import.meta.url), "utf8");
   assert.match(source, /history\.slice\(historyPage \* 2, historyPage \* 2 \+ 2\)/);
   assert.match(css, /\.notebook-page \{[^}]*height: 430px/);
   assert.match(css, /\.notebook-entry textarea \{[^}]*height: 150px;[^}]*resize: none/);
   assert.match(source, /CHECK-IN HISTORY[\s\S]*运动手账[\s\S]*写下运动后的心情/);
   assert.match(source, /method: "PATCH"/);
-  assert.match(source, /berry-workout-backup-consent[\s\S]*我知道并同意开启/);
-  const releaseNotes = source.match(/<section className="release-notes"[\s\S]*?<\/section>/)?.[0] ?? "";
-  assert.match(releaseNotes, /v0\.2\.1 更新说明[\s\S]*手账[\s\S]*无面部像素草莓/);
-  assert.doesNotMatch(releaseNotes, /备份/);
-  assert.match(api, /access-control-allow-origin": "\*"/);
-  assert.match(admin, /requireChatGPTUser\("\/admin"\)[\s\S]*OWNER_EMAIL[\s\S]*listAllCheckins/);
+  assert.doesNotMatch(source, /backup-consent|syncDesktopRecord|BACKUP_ORIGIN|云备份/);
+  assert.match(source, /release-modal-layer[\s\S]*v0\.2\.2 更新说明[\s\S]*仅保存在本机[\s\S]*知道了/);
+  assert.match(source, /berry-workout-release-notes-seen/);
+  assert.doesNotMatch(source, /className="release-notes"/);
+  assert.doesNotMatch(api, /access-control-allow-origin|export function OPTIONS/);
+  assert.match(electronMain, /app:version[\s\S]*app\.getVersion\(\)[\s\S]*checkForUpdates/);
+  assert.match(preload, /version: \(\) => ipcRenderer\.invoke\("app:version"\)/);
   assert.match(schema, /mood: text\("mood"\)/);
 });
 

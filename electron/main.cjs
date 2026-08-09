@@ -40,6 +40,7 @@ app.whenReady().then(() => {
   autoUpdater.on("update-downloaded", (info) => sendUpdate({ phase: "downloaded", name: `v${info.version} 已下载`, message: "点击按钮安装，新版本会自动重新打开。" }));
   autoUpdater.on("error", () => sendUpdate({ phase: "error", message: "暂时无法获取更新，请稍后再试。" }));
   ipcMain.handle("update:download", () => autoUpdater.downloadUpdate());
+  ipcMain.handle("app:version", () => app.getVersion());
   ipcMain.on("update:install", () => autoUpdater.quitAndInstall());
   window.webContents.setUserAgent(`${window.webContents.getUserAgent()} BerryWorkoutDesktop`);
   window.webContents.once("did-finish-load", () => { if (app.isPackaged) autoUpdater.checkForUpdates().catch(() => {}); });

@@ -8,4 +8,5 @@ contextBridge.exposeInMainWorld("gameUpdater", {
   },
   download: () => ipcRenderer.invoke("update:download"),
   install: () => ipcRenderer.send("update:install"),
+  version: () => ipcRenderer.invoke("app:version"),
 });

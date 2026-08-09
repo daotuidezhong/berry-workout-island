@@ -41,27 +41,7 @@ type GameState = {
   furniturePositions: Record<string, Point>;
 };
 
-const BACKUP_ORIGIN = "https://berry-workout-island.light-gnat-9329.chatgpt.site";
-
-async function syncDesktopRecord(deviceId: string, record: CheckinRecord) {
-  const response = await fetch(`${BACKUP_ORIGIN}/api/checkins`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ deviceId, date: record.date, activity: record.activity, minutes: record.minutes }),
-  });
-  if (!response.ok) throw new Error();
-  let synced = (await response.json() as { record: CheckinRecord }).record;
-  if (record.mood) {
-    const moodResponse = await fetch(`${BACKUP_ORIGIN}/api/checkins`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ deviceId, id: synced.id, mood: record.mood }),
-    });
-    if (!moodResponse.ok) throw new Error();
-    synced = (await moodResponse.json() as { record: CheckinRecord }).record;
-  }
-  return synced;
-}
+const RELEASE_VERSION = "0.2.2";
 
 declare global {
   interface Window {
@@ -69,6 +49,7 @@ declare global {
       onStatus: (callback: (status: DesktopUpdate) => void) => () => void;
       download: () => void;
       install: () => void;
+      version: () => Promise<string>;
     };
   }
 }
@@ -217,8 +198,7 @@ export default function Home() {
   const [wakeFrame, setWakeFrame] = useState(0);
   const [headShaking, setHeadShaking] = useState(false);
   const [desktopUpdate, setDesktopUpdate] = useState<DesktopUpdate | null>(null);
-  const [desktopApp, setDesktopApp] = useState(false);
-  const [desktopBackupAccepted, setDesktopBackupAccepted] = useState(false);
+  const [showReleaseNotes, setShowReleaseNotes] = useState(false);
   const [direction, setDirection] = useState<"left" | "right">("right");
   const roomRef = useRef<HTMLDivElement>(null);
   const walkingTimer = useRef<number | undefined>(undefined);
@@ -232,8 +212,6 @@ export default function Home() {
     const current = localDate(now);
     setToday(current);
     setDateLabel(now.toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "short" }));
-    setDesktopApp(navigator.userAgent.includes("BerryWorkoutDesktop"));
-    setDesktopBackupAccepted(window.localStorage.getItem("berry-workout-backup-consent") === "accepted");
 
     const saved = window.localStorage.getItem("berry-workout-game");
     let savedDeviceId = window.localStorage.getItem("berry-workout-device");
@@ -298,17 +276,6 @@ export default function Home() {
       if (navigator.userAgent.includes("BerryWorkoutDesktop")) {
         const records = JSON.parse(window.localStorage.getItem("berry-workout-history") ?? "[]") as CheckinRecord[];
         if (!cancelled) setHistory(records);
-        if (window.localStorage.getItem("berry-workout-backup-consent") === "accepted") {
-          try {
-            const synced = await Promise.all(records.map((record) => syncDesktopRecord(deviceId, record)));
-            if (!cancelled) {
-              window.localStorage.setItem("berry-workout-history", JSON.stringify(synced));
-              setHistory(synced);
-            }
-          } catch {
-            if (!cancelled) setToast("本机记录已保留，云备份会稍后重试");
-          }
-        }
         return;
       }
       try {
@@ -381,7 +348,15 @@ export default function Home() {
     if (ready) window.localStorage.setItem("berry-workout-game", JSON.stringify(game));
   }, [game, ready]);
 
-  useEffect(() => window.gameUpdater?.onStatus(setDesktopUpdate), []);
+  useEffect(() => {
+    const updater = window.gameUpdater;
+    if (!updater) return;
+    const unsubscribe = updater.onStatus(setDesktopUpdate);
+    void updater.version().then((version) => {
+      if (version === RELEASE_VERSION && window.localStorage.getItem("berry-workout-release-notes-seen") !== version) setShowReleaseNotes(true);
+    });
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     if (!ready || resting) return;
@@ -651,18 +626,7 @@ export default function Home() {
       const updated = history.map((record) => record.id === id ? { ...record, mood } : record);
       window.localStorage.setItem("berry-workout-history", JSON.stringify(updated));
       setHistory(updated);
-      try {
-        const record = updated.find((item) => item.id === id);
-        if (desktopBackupAccepted && record) {
-          const synced = await syncDesktopRecord(deviceId, record);
-          const backedUp = updated.map((item) => item.id === id ? synced : item);
-          window.localStorage.setItem("berry-workout-history", JSON.stringify(backedUp));
-          setHistory(backedUp);
-        }
-        setToast(desktopBackupAccepted ? "心情已经写进手账并备份" : "心情已经写进本机手账");
-      } catch {
-        setToast("心情已保存在本机，云备份会稍后重试");
-      }
+      setToast("心情已经写进本机手账");
       return;
     }
     try {
@@ -770,11 +734,10 @@ export default function Home() {
   async function checkIn(event: React.FormEvent) {
     event.preventDefault();
     const completedActivity = activityText.trim();
-    if (!ready || checkedToday || !completedActivity || !deviceId || savingCheckin || (desktopApp && !desktopBackupAccepted)) return;
+    if (!ready || checkedToday || !completedActivity || !deviceId || savingCheckin) return;
     const next = game.streak + 1;
     const bonus = milestones.find((item) => item.day === next)?.bonus ?? 0;
     const reward = 8 + bonus;
-    let backupPending = false;
     setSavingCheckin(true);
     try {
       let record: CheckinRecord;
@@ -782,12 +745,6 @@ export default function Home() {
         record = { id: Date.now(), date: today, activity: completedActivity, minutes: durationMinutes, calories: estimatedCalories, mood: null };
         const records = [record, ...history.filter((item) => item.date !== record.date)];
         window.localStorage.setItem("berry-workout-history", JSON.stringify(records));
-        try {
-          record = await syncDesktopRecord(deviceId, record);
-          window.localStorage.setItem("berry-workout-history", JSON.stringify([record, ...records.filter((item) => item.date !== record.date)]));
-        } catch {
-          backupPending = true;
-        }
       } else {
         const response = await fetch("/api/checkins", {
           method: "POST",
@@ -807,7 +764,7 @@ export default function Home() {
         energy: Math.min(100, current.energy + 8),
         sleepiness: Math.max(0, current.sleepiness - 8),
       }));
-      setToast(backupPending ? "记录已保存在本机，云备份会稍后重试" : bonus ? `连续 ${next} 天！获得 ${reward} 颗草莓` : `记录成功！获得 ${reward} 颗草莓`);
+      setToast(bonus ? `连续 ${next} 天！获得 ${reward} 颗草莓` : `记录成功！获得 ${reward} 颗草莓`);
     } catch {
       setToast("记录保存失败，请稍后再试");
     } finally {
@@ -865,19 +822,6 @@ export default function Home() {
     setToast(`${pet.name} 吃掉了${item.name}，活力 +${item.energy}`);
   }
 
-  async function enableDesktopBackup() {
-    window.localStorage.setItem("berry-workout-backup-consent", "accepted");
-    setDesktopBackupAccepted(true);
-    try {
-      const synced = await Promise.all(history.map((record) => syncDesktopRecord(deviceId, record)));
-      window.localStorage.setItem("berry-workout-history", JSON.stringify(synced));
-      setHistory(synced);
-      setToast("云备份已开启，原有记录也已备份");
-    } catch {
-      setToast("云备份已开启，记录会在联网后自动重试");
-    }
-  }
-
   function adoptPet(id: PetId) {
     const chosen = pets.find((item) => item.id === id)!;
     setGame((current) => ({ ...current, pet: id }));
@@ -900,6 +844,19 @@ export default function Home() {
           {desktopUpdate.phase === "available" && <button onClick={() => window.gameUpdater?.download()}>在游戏内下载</button>}
           {desktopUpdate.phase === "downloaded" && <button onClick={() => window.gameUpdater?.install()}>安装并重启游戏</button>}
         </aside>
+      )}
+      {showReleaseNotes && (
+        <div className="release-modal-layer" role="dialog" aria-modal="true" aria-labelledby="release-title">
+          <section className="release-modal">
+            <small>UPDATE LOG</small>
+            <h1 id="release-title">v0.2.2 更新说明</h1>
+            <ul>
+              <li>桌面版运动记录与心情改为仅保存在本机</li>
+              <li>更新完成后首次启动会直接弹出版本说明</li>
+            </ul>
+            <button onClick={() => { window.localStorage.setItem("berry-workout-release-notes-seen", RELEASE_VERSION); setShowReleaseNotes(false); }}>知道了</button>
+          </section>
+        </div>
       )}
       <section className="game-stage" aria-label="莓好运动岛全屏游戏">
         <div
@@ -1016,8 +973,7 @@ export default function Home() {
                     <div className="calorie-estimate"><span>✨ 智能估算消耗</span><b>{estimatedCalories || "—"} 千卡</b><small>按运动项目、时长和 50–55 kg 参考区间估算，仅供参考</small></div>
                     {checkedToday && game.lastActivity && <p>✓ 今天完成：{game.lastActivity}</p>}
                     <div className="reward-line"><span>{checkedToday ? "今天已收获" : "记录即可获得"}</span><b>🍓 +{checkinReward}</b></div>
-                    {desktopApp && <div className="backup-consent"><p>桌面版会把运动记录和心情备份给屋主。你只能看到自己的记录，屋主可以查看所有下载者的备份。</p>{desktopBackupAccepted ? <b>✓ 已知情并开启云备份</b> : <button type="button" onClick={enableDesktopBackup}>我知道并同意开启</button>}</div>}
-                    <button className="primary-button" type="submit" disabled={!ready || checkedToday || !activityText.trim() || savingCheckin || (desktopApp && !desktopBackupAccepted)}>{checkedToday ? "✓ 今天已完成" : savingCheckin ? "正在保存……" : "记录运动，领取草莓"}</button>
+                    <button className="primary-button" type="submit" disabled={!ready || checkedToday || !activityText.trim() || savingCheckin}>{checkedToday ? "✓ 今天已完成" : savingCheckin ? "正在保存……" : "记录运动，领取草莓"}</button>
                   </form>
                   <div className="streak-card">
                     <div><span><small>连续记录</small><b>{game.streak} 天</b></span><em>下一份奖励</em></div>
@@ -1027,14 +983,6 @@ export default function Home() {
                   <button className="history-link" type="button" onClick={() => { setHistoryPage(0); setOverlay("history"); }}>
                     <span>CHECK-IN HISTORY</span><b>{history.length} 次　→</b>
                   </button>
-                  <section className="release-notes" aria-label="v0.2.1 更新说明">
-                    <b>v0.2.1 更新说明</b>
-                    <ul>
-                      <li>修复运动手账翻回前一页时尺寸变大的问题</li>
-                      <li>桌面与安装图标更换为无面部像素草莓</li>
-                      <li>新增游戏内版本更新说明</li>
-                    </ul>
-                  </section>
                 </>
               )}
 
