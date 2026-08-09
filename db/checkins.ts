@@ -9,6 +9,8 @@ export type CheckinRecord = {
   mood: string | null;
 };
 
+export type BackedUpCheckin = CheckinRecord & { deviceId: string };
+
 async function prepareCheckins() {
   await env.DB.prepare(`CREATE TABLE IF NOT EXISTS checkins (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,6 +30,14 @@ export async function listCheckins(deviceId: string) {
   const result = await env.DB.prepare(
     "SELECT id, date, activity, minutes, calories, mood FROM checkins WHERE device_id = ? ORDER BY date DESC LIMIT 100",
   ).bind(deviceId).all<CheckinRecord>();
+  return result.results;
+}
+
+export async function listAllCheckins() {
+  await prepareCheckins();
+  const result = await env.DB.prepare(
+    "SELECT device_id AS deviceId, id, date, activity, minutes, calories, mood FROM checkins ORDER BY date DESC, id DESC LIMIT 500",
+  ).all<BackedUpCheckin>();
   return result.results;
 }
 

@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { clampCatPosition, getFurnitureTarget, type Point } from "./furniture";
-import { getTimePeriod, type TimePeriod } from "./time-period";
-import { estimateCalories } from "./calories";
-import { getRoomAsset, getWeatherKind, type WeatherKind } from "./weather";
+import { clampCatPosition, getFurnitureTarget, type Point } from "./game/furniture";
+import { getTimePeriod, type TimePeriod } from "./game/time-period";
+import { estimateCalories } from "./game/calories";
+import { getRoomAsset, getWeatherKind, type WeatherKind } from "./game/weather";
 import {
   CAT_STATUS_ANIMATIONS,
   getCatStatus,
@@ -12,13 +12,14 @@ import {
   type CatAnimationFrame,
   type CatPose,
   type CatStatusId,
-} from "./cat-actions";
-import { canPetMove, decayPetStatsByTime, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "./pet-stats";
+} from "./game/cat-actions";
+import { canPetMove, decayPetStatsByTime, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "./game/pet-stats";
 
 type PetId = "mitao" | "doubao" | "xueqiu";
 type OverlayId = "quest" | "history" | "bag" | "pets" | "shop" | null;
 type ShopCategory = "food" | "furniture";
 type CheckinRecord = { id: number; date: string; activity: string; minutes: number | null; calories: number | null; mood: string | null };
+type DesktopUpdate = { phase: "available" | "downloading" | "downloaded" | "error"; name?: string; notes?: string; percent?: number; message?: string };
 type FoodId = "driedFish" | "chickenCan" | "salmonMousse" | "tunaRice" | "chickenCubes" | "catnipBiscuits";
 type GameState = {
   statModelVersion: 2;
@@ -27,6 +28,7 @@ type GameState = {
   lastCheckin: string | null;
   lastActivity: string | null;
   pet: PetId;
+  petNames: Record<PetId, string>;
   purchased: string[];
   inventory: Record<FoodId, number>;
   energy: number;
@@ -38,6 +40,38 @@ type GameState = {
   sleepRest: number;
   furniturePositions: Record<string, Point>;
 };
+
+const BACKUP_ORIGIN = "https://berry-workout-island.light-gnat-9329.chatgpt.site";
+
+async function syncDesktopRecord(deviceId: string, record: CheckinRecord) {
+  const response = await fetch(`${BACKUP_ORIGIN}/api/checkins`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ deviceId, date: record.date, activity: record.activity, minutes: record.minutes }),
+  });
+  if (!response.ok) throw new Error();
+  let synced = (await response.json() as { record: CheckinRecord }).record;
+  if (record.mood) {
+    const moodResponse = await fetch(`${BACKUP_ORIGIN}/api/checkins`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ deviceId, id: synced.id, mood: record.mood }),
+    });
+    if (!moodResponse.ok) throw new Error();
+    synced = (await moodResponse.json() as { record: CheckinRecord }).record;
+  }
+  return synced;
+}
+
+declare global {
+  interface Window {
+    gameUpdater?: {
+      onStatus: (callback: (status: DesktopUpdate) => void) => () => void;
+      download: () => void;
+      install: () => void;
+    };
+  }
+}
 
 const DEFAULT_FURNITURE_POSITIONS: Record<string, Point> = {
   rug: { x: 48, y: 78 },
@@ -111,6 +145,7 @@ const INITIAL_GAME: GameState = {
   lastCheckin: null,
   lastActivity: null,
   pet: "mitao",
+  petNames: { mitao: "蜜桃", doubao: "豆包", xueqiu: "雪球" },
   purchased: [],
   inventory: INITIAL_INVENTORY,
   energy: 72,
@@ -181,6 +216,9 @@ export default function Home() {
   const [wakingUp, setWakingUp] = useState(false);
   const [wakeFrame, setWakeFrame] = useState(0);
   const [headShaking, setHeadShaking] = useState(false);
+  const [desktopUpdate, setDesktopUpdate] = useState<DesktopUpdate | null>(null);
+  const [desktopApp, setDesktopApp] = useState(false);
+  const [desktopBackupAccepted, setDesktopBackupAccepted] = useState(false);
   const [direction, setDirection] = useState<"left" | "right">("right");
   const roomRef = useRef<HTMLDivElement>(null);
   const walkingTimer = useRef<number | undefined>(undefined);
@@ -194,6 +232,8 @@ export default function Home() {
     const current = localDate(now);
     setToday(current);
     setDateLabel(now.toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "short" }));
+    setDesktopApp(navigator.userAgent.includes("BerryWorkoutDesktop"));
+    setDesktopBackupAccepted(window.localStorage.getItem("berry-workout-backup-consent") === "accepted");
 
     const saved = window.localStorage.getItem("berry-workout-game");
     let savedDeviceId = window.localStorage.getItem("berry-workout-device");
@@ -213,6 +253,7 @@ export default function Home() {
           ...parsed,
           inventory,
           purchased: Array.isArray(parsed.purchased) ? parsed.purchased : [],
+          petNames: { ...INITIAL_GAME.petNames, ...(parsed.petNames ?? {}) },
           catPosition: clampCatPosition(parsed.catPosition ?? INITIAL_GAME.catPosition),
           furniturePositions: { ...DEFAULT_FURNITURE_POSITIONS, ...(parsed.furniturePositions ?? {}) },
         };
@@ -254,6 +295,22 @@ export default function Home() {
     if (!ready || !deviceId) return;
     let cancelled = false;
     const loadHistory = async () => {
+      if (navigator.userAgent.includes("BerryWorkoutDesktop")) {
+        const records = JSON.parse(window.localStorage.getItem("berry-workout-history") ?? "[]") as CheckinRecord[];
+        if (!cancelled) setHistory(records);
+        if (window.localStorage.getItem("berry-workout-backup-consent") === "accepted") {
+          try {
+            const synced = await Promise.all(records.map((record) => syncDesktopRecord(deviceId, record)));
+            if (!cancelled) {
+              window.localStorage.setItem("berry-workout-history", JSON.stringify(synced));
+              setHistory(synced);
+            }
+          } catch {
+            if (!cancelled) setToast("本机记录已保留，云备份会稍后重试");
+          }
+        }
+        return;
+      }
       try {
         const response = await fetch(`/api/checkins?device=${encodeURIComponent(deviceId)}`);
         if (!response.ok) throw new Error();
@@ -323,6 +380,8 @@ export default function Home() {
   useEffect(() => {
     if (ready) window.localStorage.setItem("berry-workout-game", JSON.stringify(game));
   }, [game, ready]);
+
+  useEffect(() => window.gameUpdater?.onStatus(setDesktopUpdate), []);
 
   useEffect(() => {
     if (!ready || resting) return;
@@ -526,7 +585,8 @@ export default function Home() {
   }, []);
 
   const checkedToday = Boolean(today && game.lastCheckin === today);
-  const pet = pets.find((item) => item.id === game.pet) ?? pets[0];
+  const basePet = pets.find((item) => item.id === game.pet) ?? pets[0];
+  const pet = { ...basePet, name: game.petNames[basePet.id] };
   const nextStreak = game.streak + (checkedToday ? 0 : 1);
   const streakBonus = milestones.find((item) => item.day === nextStreak)?.bonus ?? 0;
   const checkinReward = 8 + streakBonus;
@@ -587,6 +647,24 @@ export default function Home() {
 
   async function saveMood(id: number, mood: string) {
     if (!deviceId) return;
+    if (navigator.userAgent.includes("BerryWorkoutDesktop")) {
+      const updated = history.map((record) => record.id === id ? { ...record, mood } : record);
+      window.localStorage.setItem("berry-workout-history", JSON.stringify(updated));
+      setHistory(updated);
+      try {
+        const record = updated.find((item) => item.id === id);
+        if (desktopBackupAccepted && record) {
+          const synced = await syncDesktopRecord(deviceId, record);
+          const backedUp = updated.map((item) => item.id === id ? synced : item);
+          window.localStorage.setItem("berry-workout-history", JSON.stringify(backedUp));
+          setHistory(backedUp);
+        }
+        setToast(desktopBackupAccepted ? "心情已经写进手账并备份" : "心情已经写进本机手账");
+      } catch {
+        setToast("心情已保存在本机，云备份会稍后重试");
+      }
+      return;
+    }
     try {
       const response = await fetch("/api/checkins", {
         method: "PATCH",
@@ -692,19 +770,33 @@ export default function Home() {
   async function checkIn(event: React.FormEvent) {
     event.preventDefault();
     const completedActivity = activityText.trim();
-    if (!ready || checkedToday || !completedActivity || !deviceId || savingCheckin) return;
+    if (!ready || checkedToday || !completedActivity || !deviceId || savingCheckin || (desktopApp && !desktopBackupAccepted)) return;
     const next = game.streak + 1;
     const bonus = milestones.find((item) => item.day === next)?.bonus ?? 0;
     const reward = 8 + bonus;
+    let backupPending = false;
     setSavingCheckin(true);
     try {
-      const response = await fetch("/api/checkins", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ deviceId, date: today, activity: completedActivity, minutes: durationMinutes }),
-      });
-      if (!response.ok) throw new Error();
-      const record = (await response.json() as { record: CheckinRecord }).record;
+      let record: CheckinRecord;
+      if (navigator.userAgent.includes("BerryWorkoutDesktop")) {
+        record = { id: Date.now(), date: today, activity: completedActivity, minutes: durationMinutes, calories: estimatedCalories, mood: null };
+        const records = [record, ...history.filter((item) => item.date !== record.date)];
+        window.localStorage.setItem("berry-workout-history", JSON.stringify(records));
+        try {
+          record = await syncDesktopRecord(deviceId, record);
+          window.localStorage.setItem("berry-workout-history", JSON.stringify([record, ...records.filter((item) => item.date !== record.date)]));
+        } catch {
+          backupPending = true;
+        }
+      } else {
+        const response = await fetch("/api/checkins", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ deviceId, date: today, activity: completedActivity, minutes: durationMinutes }),
+        });
+        if (!response.ok) throw new Error();
+        record = (await response.json() as { record: CheckinRecord }).record;
+      }
       setHistory((records) => [record, ...records.filter((item) => item.date !== record.date)]);
       setGame((current) => ({
         ...current,
@@ -715,7 +807,7 @@ export default function Home() {
         energy: Math.min(100, current.energy + 8),
         sleepiness: Math.max(0, current.sleepiness - 8),
       }));
-      setToast(bonus ? `连续 ${next} 天！获得 ${reward} 颗草莓` : `记录成功！获得 ${reward} 颗草莓`);
+      setToast(backupPending ? "记录已保存在本机，云备份会稍后重试" : bonus ? `连续 ${next} 天！获得 ${reward} 颗草莓` : `记录成功！获得 ${reward} 颗草莓`);
     } catch {
       setToast("记录保存失败，请稍后再试");
     } finally {
@@ -773,6 +865,19 @@ export default function Home() {
     setToast(`${pet.name} 吃掉了${item.name}，活力 +${item.energy}`);
   }
 
+  async function enableDesktopBackup() {
+    window.localStorage.setItem("berry-workout-backup-consent", "accepted");
+    setDesktopBackupAccepted(true);
+    try {
+      const synced = await Promise.all(history.map((record) => syncDesktopRecord(deviceId, record)));
+      window.localStorage.setItem("berry-workout-history", JSON.stringify(synced));
+      setHistory(synced);
+      setToast("云备份已开启，原有记录也已备份");
+    } catch {
+      setToast("云备份已开启，记录会在联网后自动重试");
+    }
+  }
+
   function adoptPet(id: PetId) {
     const chosen = pets.find((item) => item.id === id)!;
     setGame((current) => ({ ...current, pet: id }));
@@ -786,6 +891,16 @@ export default function Home() {
 
   return (
     <main className="game-page">
+      {desktopUpdate && (
+        <aside className="update-notice" role="status">
+          {desktopUpdate.phase !== "downloading" && <button className="update-close" onClick={() => setDesktopUpdate(null)} aria-label="关闭更新提示">×</button>}
+          <small>GAME UPDATE</small>
+          <b>{desktopUpdate.name ?? (desktopUpdate.phase === "error" ? "更新失败" : "正在下载新版")}</b>
+          <p>{desktopUpdate.phase === "downloading" ? `下载进度 ${Math.round(desktopUpdate.percent ?? 0)}%` : desktopUpdate.message ?? desktopUpdate.notes}</p>
+          {desktopUpdate.phase === "available" && <button onClick={() => window.gameUpdater?.download()}>在游戏内下载</button>}
+          {desktopUpdate.phase === "downloaded" && <button onClick={() => window.gameUpdater?.install()}>安装并重启游戏</button>}
+        </aside>
+      )}
       <section className="game-stage" aria-label="莓好运动岛全屏游戏">
         <div
           className={`game-room ${decorating ? "decorating" : ""}`}
@@ -901,7 +1016,8 @@ export default function Home() {
                     <div className="calorie-estimate"><span>✨ 智能估算消耗</span><b>{estimatedCalories || "—"} 千卡</b><small>按运动项目、时长和 50–55 kg 参考区间估算，仅供参考</small></div>
                     {checkedToday && game.lastActivity && <p>✓ 今天完成：{game.lastActivity}</p>}
                     <div className="reward-line"><span>{checkedToday ? "今天已收获" : "记录即可获得"}</span><b>🍓 +{checkinReward}</b></div>
-                    <button className="primary-button" type="submit" disabled={!ready || checkedToday || !activityText.trim() || savingCheckin}>{checkedToday ? "✓ 今天已完成" : savingCheckin ? "正在保存……" : "记录运动，领取草莓"}</button>
+                    {desktopApp && <div className="backup-consent"><p>桌面版会把运动记录和心情备份给屋主。你只能看到自己的记录，屋主可以查看所有下载者的备份。</p>{desktopBackupAccepted ? <b>✓ 已知情并开启云备份</b> : <button type="button" onClick={enableDesktopBackup}>我知道并同意开启</button>}</div>}
+                    <button className="primary-button" type="submit" disabled={!ready || checkedToday || !activityText.trim() || savingCheckin || (desktopApp && !desktopBackupAccepted)}>{checkedToday ? "✓ 今天已完成" : savingCheckin ? "正在保存……" : "记录运动，领取草莓"}</button>
                   </form>
                   <div className="streak-card">
                     <div><span><small>连续记录</small><b>{game.streak} 天</b></span><em>下一份奖励</em></div>
@@ -1015,8 +1131,9 @@ export default function Home() {
                   <div className="pet-grid">
                     {pets.map((item) => (
                       <article key={item.id} className={game.pet === item.id ? "chosen" : ""}>
-                        <div><span>{item.kind}</span><img src={item.idle} alt={`${item.name}，${item.kind}`} /></div>
-                        <small>{item.nature}</small><h2>{item.name}</h2>
+                        <div><span>{item.kind}</span><img src={item.idle} alt={`${game.petNames[item.id]}，${item.kind}`} /></div>
+                        <small>{item.nature}</small><h2>{game.petNames[item.id]}</h2>
+                        <label className="pet-name-field">名字<input value={game.petNames[item.id]} maxLength={12} onChange={(event) => setGame((current) => ({ ...current, petNames: { ...current.petNames, [item.id]: event.target.value } }))} onBlur={() => setGame((current) => ({ ...current, petNames: { ...current.petNames, [item.id]: current.petNames[item.id].trim() || INITIAL_GAME.petNames[item.id] } }))} /></label>
                         <button onClick={() => adoptPet(item.id)} disabled={game.pet === item.id}>{game.pet === item.id ? "✓ 正在陪伴你" : "带它回家"}</button>
                       </article>
                     ))}

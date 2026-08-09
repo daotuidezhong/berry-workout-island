@@ -1,20 +1,22 @@
 {
   "name": "berry-workout-island",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev",
-    "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
-    "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
+    "dev": "vinext dev",
+    "build": "vinext build",
+    "start": "vinext start",
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "desktop:build": "vite build --config desktop/vite.config.ts && electron-builder --win nsis"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
+    "electron-updater": "^6.6.2",
     "next": "16.2.6",
     "react": "19.2.6",
     "react-dom": "19.2.6"
@@ -28,6 +30,8 @@
     "@vitejs/plugin-react": "6.0.2",
     "@vitejs/plugin-rsc": "0.5.26",
     "drizzle-kit": "0.31.10",
+    "electron": "37.2.6",
+    "electron-builder": "26.0.12",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
     "react-server-dom-webpack": "19.2.6",
@@ -37,5 +41,41 @@
     "vite": "8.0.13",
     "wrangler": "4.92.0"
   },
-  "type": "module"
+  "type": "module",
+  "main": "electron/main.cjs",
+  "build": {
+    "appId": "com.berryworkout.island",
+    "productName": "草莓打卡屋",
+    "artifactName": "Berry-Workout-Island-Setup-${version}.exe",
+    "directories": {
+      "output": "outputs"
+    },
+    "files": [
+      "electron/*.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "desktop-dist",
+        "to": "desktop-dist"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "草莓打卡屋"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "daotuidezhong",
+      "repo": "berry-workout-island"
+    }
+  }
 }

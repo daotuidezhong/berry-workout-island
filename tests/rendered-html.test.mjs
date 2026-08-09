@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
-import { CAT_BOUNDS, clampCatPosition, getFurnitureTarget } from "../app/furniture.ts";
-import { getTimePeriod } from "../app/time-period.ts";
-import { estimateCalories } from "../app/calories.ts";
-import { getRoomAsset, getWeatherKind, ROOM_ASSET_BY_WEATHER } from "../app/weather.ts";
-import { CAT_STATUS_ANIMATIONS, getCatStatus, getCatStatusTransition } from "../app/cat-actions.ts";
-import { canPetMove, decayPetStats, decayPetStatsByTime, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "../app/pet-stats.ts";
+import { CAT_BOUNDS, clampCatPosition, getFurnitureTarget } from "../app/game/furniture.ts";
+import { getTimePeriod } from "../app/game/time-period.ts";
+import { estimateCalories } from "../app/game/calories.ts";
+import { getRoomAsset, getWeatherKind, ROOM_ASSET_BY_WEATHER } from "../app/game/weather.ts";
+import { CAT_STATUS_ANIMATIONS, getCatStatus, getCatStatusTransition } from "../app/game/cat-actions.ts";
+import { canPetMove, decayPetStats, decayPetStatsByTime, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "../app/game/pet-stats.ts";
 
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -189,9 +189,17 @@ test("shop discloses distinct food and cat-bed recovery values", async () => {
 test("opens a two-day notebook and saves mood notes with each check-in", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const schema = await readFile(new URL("../db/schema.ts", import.meta.url), "utf8");
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  const api = await readFile(new URL("../app/api/checkins/route.ts", import.meta.url), "utf8");
+  const admin = await readFile(new URL("../app/admin/page.tsx", import.meta.url), "utf8");
   assert.match(source, /history\.slice\(historyPage \* 2, historyPage \* 2 \+ 2\)/);
+  assert.match(css, /\.notebook-page \{[^}]*height: 430px/);
+  assert.match(css, /\.notebook-entry textarea \{[^}]*height: 150px;[^}]*resize: none/);
   assert.match(source, /CHECK-IN HISTORY[\s\S]*运动手账[\s\S]*写下运动后的心情/);
   assert.match(source, /method: "PATCH"/);
+  assert.match(source, /berry-workout-backup-consent[\s\S]*我知道并同意开启/);
+  assert.match(api, /access-control-allow-origin": "\*"/);
+  assert.match(admin, /requireChatGPTUser\("\/admin"\)[\s\S]*OWNER_EMAIL[\s\S]*listAllCheckins/);
   assert.match(schema, /mood: text\("mood"\)/);
 });
 
