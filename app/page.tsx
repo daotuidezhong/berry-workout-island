@@ -42,6 +42,10 @@ type GameState = {
 };
 
 const RELEASE_VERSION = "0.2.2";
+const RELEASE_NOTES = [
+  { version: "0.2.2", items: ["桌面版运动记录与心情改为仅保存在本机", "更新完成后首次启动会直接弹出累计版本说明"] },
+  { version: "0.2.1", items: ["修复运动手账翻回前一页时尺寸变大的问题", "桌面与安装图标更换为无面部像素草莓", "新增游戏内版本更新说明"] },
+];
 
 declare global {
   interface Window {
@@ -849,11 +853,16 @@ export default function Home() {
         <div className="release-modal-layer" role="dialog" aria-modal="true" aria-labelledby="release-title">
           <section className="release-modal">
             <small>UPDATE LOG</small>
-            <h1 id="release-title">v0.2.2 更新说明</h1>
-            <ul>
-              <li>桌面版运动记录与心情改为仅保存在本机</li>
-              <li>更新完成后首次启动会直接弹出版本说明</li>
-            </ul>
+            <h1 id="release-title">已更新至 v{RELEASE_VERSION}</h1>
+            <p>以下是从首个安装版至今的全部更新内容：</p>
+            <div className="release-history">
+              {RELEASE_NOTES.map((release) => (
+                <section key={release.version}>
+                  <b>v{release.version}</b>
+                  <ul>{release.items.map((item) => <li key={item}>{item}</li>)}</ul>
+                </section>
+              ))}
+            </div>
             <button onClick={() => { window.localStorage.setItem("berry-workout-release-notes-seen", RELEASE_VERSION); setShowReleaseNotes(false); }}>知道了</button>
           </section>
         </div>

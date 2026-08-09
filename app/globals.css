@@ -31,7 +31,12 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .release-modal { width: min(560px, 100%); padding: 30px; border: 4px solid #765247; border-radius: 22px; background: #fff8e9; box-shadow: 0 8px 0 #4f352e, inset 0 0 0 3px #f3d7aa; }
 .release-modal small { color: var(--berry-dark); letter-spacing: 2px; }
 .release-modal h1 { margin: 10px 0 20px; color: var(--berry-dark); font-size: clamp(22px, 4vw, 34px); }
+.release-modal > p { margin: -8px 0 18px; color: var(--muted); line-height: 1.6; }
+.release-history { max-height: min(48vh, 420px); overflow: auto; }
+.release-history section + section { margin-top: 18px; padding-top: 16px; border-top: 1px dashed #c7aa90; }
+.release-history b { color: var(--berry-dark); }
 .release-modal ul { margin: 0; padding-left: 24px; color: var(--ink); line-height: 1.9; }
+.release-history ul { margin-top: 8px; }
 .release-modal li::marker { content: "🍓  "; }
 .release-modal button { width: 100%; margin-top: 24px; padding: 12px; border: 2px solid #853f43; border-radius: 12px; background: var(--berry); color: #fff; box-shadow: 0 4px 0 var(--berry-dark); cursor: pointer; }
 

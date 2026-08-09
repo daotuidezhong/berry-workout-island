@@ -199,7 +199,8 @@ test("keeps desktop records local and shows release notes after an update", asyn
   assert.match(source, /CHECK-IN HISTORY[\s\S]*运动手账[\s\S]*写下运动后的心情/);
   assert.match(source, /method: "PATCH"/);
   assert.doesNotMatch(source, /backup-consent|syncDesktopRecord|BACKUP_ORIGIN|云备份/);
-  assert.match(source, /release-modal-layer[\s\S]*v0\.2\.2 更新说明[\s\S]*仅保存在本机[\s\S]*知道了/);
+  assert.match(source, /RELEASE_NOTES[\s\S]*version: "0\.2\.2"[\s\S]*仅保存在本机[\s\S]*version: "0\.2\.1"[\s\S]*手账翻回前一页[\s\S]*无面部像素草莓/);
+  assert.match(source, /release-modal-layer[\s\S]*全部更新内容[\s\S]*RELEASE_NOTES\.map[\s\S]*知道了/);
   assert.match(source, /berry-workout-release-notes-seen/);
   assert.doesNotMatch(source, /className="release-notes"/);
   assert.doesNotMatch(api, /access-control-allow-origin|export function OPTIONS/);
