@@ -198,6 +198,9 @@ test("opens a two-day notebook and saves mood notes with each check-in", async (
   assert.match(source, /CHECK-IN HISTORY[\s\S]*运动手账[\s\S]*写下运动后的心情/);
   assert.match(source, /method: "PATCH"/);
   assert.match(source, /berry-workout-backup-consent[\s\S]*我知道并同意开启/);
+  const releaseNotes = source.match(/<section className="release-notes"[\s\S]*?<\/section>/)?.[0] ?? "";
+  assert.match(releaseNotes, /v0\.2\.1 更新说明[\s\S]*手账[\s\S]*无面部像素草莓/);
+  assert.doesNotMatch(releaseNotes, /备份/);
   assert.match(api, /access-control-allow-origin": "\*"/);
   assert.match(admin, /requireChatGPTUser\("\/admin"\)[\s\S]*OWNER_EMAIL[\s\S]*listAllCheckins/);
   assert.match(schema, /mood: text\("mood"\)/);

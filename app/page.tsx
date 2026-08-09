@@ -1027,6 +1027,14 @@ export default function Home() {
                   <button className="history-link" type="button" onClick={() => { setHistoryPage(0); setOverlay("history"); }}>
                     <span>CHECK-IN HISTORY</span><b>{history.length} 次　→</b>
                   </button>
+                  <section className="release-notes" aria-label="v0.2.1 更新说明">
+                    <b>v0.2.1 更新说明</b>
+                    <ul>
+                      <li>修复运动手账翻回前一页时尺寸变大的问题</li>
+                      <li>桌面与安装图标更换为无面部像素草莓</li>
+                      <li>新增游戏内版本更新说明</li>
+                    </ul>
+                  </section>
                 </>
               )}
 
