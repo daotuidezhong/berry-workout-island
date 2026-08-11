@@ -24,10 +24,10 @@ npm test
 npm run desktop:build
 ```
 
-安装包输出到 `outputs/Berry-Workout-Island-Setup-0.3.0.exe`。桌面版在本机保存游戏进度、日记历史、心情和猫咪名字，并支持检查 GitHub Releases 更新。
+安装包输出到 `outputs/Berry-Workout-Island-Setup-0.4.1.exe`。桌面版在本机保存游戏进度、日记历史、自评分和猫咪名字，并支持检查 GitHub Releases 更新。
 
 ## 数据位置
 
 - 网页版：游戏状态保存在浏览器，打卡记录保存在 Sites D1。
-- Windows 版：游戏状态、打卡记录与心情仅保存在本机，不会上传给屋主。
+- Windows 版：游戏状态、打卡记录与自评分同时写入网页存储和独立本地数据文件，不会上传给屋主。
 - Windows 版更新完成后，首次启动会自动弹出当前版本的更新说明。

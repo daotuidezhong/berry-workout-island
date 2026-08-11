@@ -8,6 +8,7 @@ import { cropItems, formatCookingTime, getCookingProgress, getCropProgress, getC
 import { clampToScene, getWalkPath, YARD_OBSTACLES } from "../app/game/scene.ts";
 import { CAT_STATUS_ANIMATIONS, getCatStatus, getCatStatusTransition } from "../app/game/cat-actions.ts";
 import { canPetMove, decayPetStats, decayPetStatsByTime, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "../app/game/pet-stats.ts";
+import { getJournalReward } from "../app/game/journal-reward.ts";
 
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -264,7 +265,8 @@ test("feeding a sleeping cat opens the sleep interruption confirmation", async (
   const start = source.indexOf("function feedPet(");
   const end = source.indexOf("\n  function", start + 1);
   const feedBody = source.slice(start, end);
-  assert.match(feedBody, /if \(resting\) \{[\s\S]*setOverlay\(null\);[\s\S]*setInterruptConfirm\(true\);/);
+  assert.match(feedBody, /statusPetId === current\.pet[\s\S]*petStats:[\s\S]*\[statusPetId\]/);
+  assert.match(feedBody, /if \(resting && statusPetId === game\.pet\) \{[\s\S]*setOverlay\(null\);[\s\S]*setInterruptConfirm\(true\);/);
 });
 
 test("keeps every cat animation loaded and coordinates transitions", async () => {
@@ -304,7 +306,7 @@ test("shop discloses distinct food and cat-bed recovery values", async () => {
   assert.match(source, /rest: 30[\s\S]*rest: 55[\s\S]*rest: 80/);
 });
 
-test("keeps desktop records local and shows release notes after an update", async () => {
+test("keeps desktop records in update-safe local storage and uses daily ratings", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const schema = await readFile(new URL("../db/schema.ts", import.meta.url), "utf8");
   const checkins = await readFile(new URL("../db/checkins.ts", import.meta.url), "utf8");
@@ -316,7 +318,7 @@ test("keeps desktop records local and shows release notes after an update", asyn
   assert.match(css, /\.notebook-page \{[^}]*min-height: 430px/);
   assert.match(source, /TODAY&apos;S NOTE[\s\S]*今天发生了什么[\s\S]*JOURNAL HISTORY[\s\S]*往日日记/);
   assert.match(source, /maxLength=\{300\}/);
-  assert.match(source, /checkedToday \? 0 : 20 \+ bonus/);
+  assert.match(source, /checkedToday \? 0 : Math\.min\(23, getJournalReward\(rating\) \+ bonus\)/);
   assert.doesNotMatch(source, /calorie|卡路里|千卡|智能估算/i);
   assert.doesNotMatch(api, /calorie|estimateCalories/i);
   assert.doesNotMatch(source, /backup-consent|syncDesktopRecord|BACKUP_ORIGIN|云备份/);
@@ -327,9 +329,34 @@ test("keeps desktop records local and shows release notes after an update", asyn
   assert.doesNotMatch(api, /access-control-allow-origin|export function OPTIONS/);
   assert.match(electronMain, /app:version[\s\S]*app\.getVersion\(\)[\s\S]*checkForUpdates/);
   assert.match(preload, /version: \(\) => ipcRenderer\.invoke\("app:version"\)/);
-  assert.match(schema, /mood: text\("mood"\)/);
+  assert.match(source, /今天给自己打几分/);
+  assert.doesNotMatch(source, /className="duration-field"|className="mood-field"|name: "娱乐"/);
+  assert.match(schema, /rating: integer\("rating"\)[\s\S]*reward: integer\("reward"\)/);
   assert.match(schema, /category: text\("category"\)/);
-  assert.match(checkins, /name === "mood"[\s\S]*ALTER TABLE checkins ADD mood TEXT/);
+  assert.match(checkins, /name === "rating"[\s\S]*ALTER TABLE checkins ADD rating INTEGER[\s\S]*ALTER TABLE checkins ADD reward INTEGER/);
+  assert.match(electronMain, /user-data\.json[\s\S]*storage:load[\s\S]*storage:save/);
+  assert.match(preload, /storage:[\s\S]*sendSync\("storage:load"[\s\S]*send\("storage:save"/);
+});
+
+test("caps the score-based journal reward at 23 strawberries", () => {
+  assert.equal(getJournalReward(1), 5);
+  assert.equal(getJournalReward(5), 13);
+  assert.equal(getJournalReward(10), 23);
+  assert.equal(getJournalReward(99), 23);
+});
+
+test("supports multiple adopted pets and status switching", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(source, /adoptedPets: PetId\[\][\s\S]*petStats: Record<PetId, PetStats>/);
+  assert.match(source, /function cyclePet\(\)[\s\S]*className="roommate-cat"[\s\S]*title="切换宠物状态"/);
+  const cyclePetSource = source.slice(source.indexOf("function cyclePet()"), source.indexOf("function adoptPet"));
+  assert.match(cyclePetSource, /setStatusPetId/);
+  assert.doesNotMatch(cyclePetSource, /switchPet|setGame|resetStatusAnimation|catPosition/);
+  const adoptPetSource = source.slice(source.indexOf("function adoptPet"), source.indexOf("function resetFurniture"));
+  assert.doesNotMatch(adoptPetSource, /switchPet|resetStatusAnimation|catPosition|pet: id/);
+  assert.match(source, /菜品可以喂给 \{statusPet\.name\}[\s\S]*`喂给 \$\{statusPet\.name\}`/);
+  assert.match(css, /\.roommate-cat/);
 });
 
 test("uses OH desktop branding and a stable cat-paw cursor", async () => {
@@ -343,6 +370,9 @@ test("uses OH desktop branding and a stable cat-paw cursor", async () => {
   assert.equal(packageJson.build.nsis.shortcutName, "OH");
   assert.match(desktopHtml, /<title>OH<\/title>/);
   assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*title: "OH"[\s\S]*build\/icon\.png/);
+  assert.equal(packageJson.build.win.signAndEditExecutable, false);
+  assert.equal(packageJson.build.afterPack, "build/after-pack.cjs");
+  assert.ok(packageJson.build.extraResources.some((item) => item.from === "build/icon.png"));
   assert.match(css, /\.game-stage \{[^}]*cursor: url\("\/game\/cursor-cat-paw-native\.cur"\), default !important;/);
 });
 

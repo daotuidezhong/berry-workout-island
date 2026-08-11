@@ -1,6 +1,6 @@
 {
   "name": "berry-workout-island",
-  "version": "0.3.0",
+  "version": "0.4.1",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -46,6 +46,7 @@
   "build": {
     "appId": "com.berryworkout.island",
     "productName": "OH",
+    "afterPack": "build/after-pack.cjs",
     "artifactName": "Berry-Workout-Island-Setup-${version}.exe",
     "directories": {
       "output": "outputs"
@@ -58,6 +59,10 @@
       {
         "from": "desktop-dist",
         "to": "desktop-dist"
+      },
+      {
+        "from": "build/icon.png",
+        "to": "build/icon.png"
       }
     ],
     "win": {

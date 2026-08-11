@@ -1,7 +1,6 @@
 const devicePattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
-const categories = new Set(["运动", "学习", "工作", "饮食", "心情", "睡眠", "娱乐", "其他"]);
-const moods = new Set(["很差", "低落", "平静", "开心", "超棒"]);
+const categories = new Set(["运动", "学习", "工作", "饮食", "睡眠", "其他"]);
 function json(body: unknown, status = 200) {
   return Response.json(body, { status });
 }
@@ -14,7 +13,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  let body: { deviceId?: string; date?: string; content?: string; category?: string; minutes?: number | null; mood?: string | null };
+  let body: { deviceId?: string; date?: string; content?: string; category?: string; rating?: number | null; reward?: number | null };
   try {
     body = await request.json();
   } catch {
@@ -24,12 +23,12 @@ export async function POST(request: Request) {
   const date = body.date ?? "";
   const content = body.content?.trim() ?? "";
   const category = body.category ?? "其他";
-  const mood = body.mood ?? null;
-  const minutes = body.minutes == null ? null : Math.round(body.minutes);
-  if (!devicePattern.test(deviceId) || !datePattern.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00`)) || !content || content.length > 300 || !categories.has(category) || (mood !== null && !moods.has(mood)) || (minutes !== null && (minutes < 1 || minutes > 600))) {
+  const rating = body.rating == null ? null : Math.round(body.rating);
+  const reward = body.reward == null ? null : Math.round(body.reward);
+  if (!devicePattern.test(deviceId) || !datePattern.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00`)) || !content || content.length > 300 || !categories.has(category) || (rating !== null && (rating < 1 || rating > 10)) || (reward !== null && (reward < 0 || reward > 23))) {
     return json({ error: "记录内容无效" }, 400);
   }
   const { saveCheckin } = await import("@/db/checkins");
-  const record = await saveCheckin(deviceId, date, content, category, minutes, mood);
+  const record = await saveCheckin(deviceId, date, content, category, rating, reward);
   return record ? json({ record }) : json({ error: "保存失败" }, 500);
 }

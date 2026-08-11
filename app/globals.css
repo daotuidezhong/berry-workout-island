@@ -147,6 +147,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 }
 
 .walking-cat img { display: block; width: 100%; max-height: 185px; object-fit: contain; image-rendering: pixelated; transform-origin: 50% 100%; filter: var(--scene-lighting); transition: filter 1.2s ease, translate .12s ease-out; }
+.roommate-cat { position: absolute; width: clamp(90px, 11vw, 160px); transform: translate(-50%, -100%); text-align: center; pointer-events: none; }
+.roommate-cat img { width: 100%; max-height: 150px; object-fit: contain; image-rendering: pixelated; filter: var(--scene-lighting); }
+.roommate-cat b { display: block; margin-top: -12px; color: #fff8e9; text-shadow: 0 2px 0 #5b4034; font-size: var(--hud-text-size); }
 .walking-cat.walking .cat-base { animation: cat-pose-walk-in .18s ease-out both; }
 .walking-cat.status-animation:not(.resting):not(.waking-up) .cat-base.cat-pose-idle { animation: cat-pose-idle-in .18s ease-out both; }
 .walking-cat.status-animation:not(.resting):not(.waking-up) .cat-base.cat-pose-walk { animation: cat-pose-status-walk-in .18s ease-out both; }
@@ -234,6 +237,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .energy i { display: block; height: 100%; border-radius: 5px; background: linear-gradient(90deg, #71a679, #b2d57e); }
 .sleepiness i { display: block; height: 100%; border-radius: 5px; background: linear-gradient(90deg, #8cb3d9, #9d83c8); }
 .pet-status button { padding: 10px 12px; border: 2px solid #654e44; border-radius: 10px; background: #91c7ce; box-shadow: 0 3px 0 #6598a0; cursor: pointer; font-size: var(--hud-text-size); }
+.pet-status-actions { display: grid; gap: 6px; }
 
 .game-dock { position: absolute; z-index: 52; left: 50%; bottom: 18px; padding: 7px; display: flex; gap: 6px; transform: translateX(-50%); border-radius: 19px; }
 .game-dock button { position: relative; min-width: 67px; height: 58px; padding: 5px 8px; display: grid; place-items: center; align-content: center; gap: 4px; border: 2px solid transparent; border-radius: 12px; background: transparent; cursor: pointer; }
@@ -271,19 +275,15 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .activity-entry textarea:disabled { background: #edf3e8; color: #5d745f; opacity: 1; }
 .activity-entry > div:first-of-type > small { position: absolute; right: 10px; bottom: 9px; color: #9a8174; font-size: 9px; }
 .activity-entry > p { margin: 0; color: var(--sage-dark); font-size: 10px; line-height: 1.5; }
-.journal-options, .mood-field { min-width: 0; padding: 0; border: 0; }
-.journal-options legend, .mood-field legend { margin-bottom: 8px; font-size: 11px; }
+.journal-options { min-width: 0; padding: 0; border: 0; }
+.journal-options legend { margin-bottom: 8px; font-size: 11px; }
 .category-options { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
-.category-options button, .mood-field button { padding: 7px 5px; display: flex; align-items: center; justify-content: center; gap: 4px; border: 2px solid #b39278; border-radius: 9px; background: #fff6e5; color: var(--ink); box-shadow: 0 2px 0 #d4b99a; cursor: pointer; font-size: 9px; }
-.category-options button.selected, .mood-field button.selected { border-color: #b7545a; background: #ffe0df; box-shadow: 0 2px 0 #c67678; color: #873b42; }
-.category-options span, .mood-field span { font-size: 13px; }
-.optional-fields { padding: 11px; display: grid; gap: 11px; border: 2px dashed #c5a88e; border-radius: 12px; background: #fff8e9; }
-.duration-field { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.duration-field span { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 10px; }
-.duration-field input { width: 86px; padding: 9px; border: 2px solid #aa8a73; border-radius: 10px; background: #fffaf0; color: var(--ink); text-align: center; }
-.duration-field input:disabled { background: #edf3e8; color: #5d745f; }
-.mood-field > div { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
-.mood-field button { display: grid; gap: 3px; }
+.category-options button { padding: 7px 5px; display: flex; align-items: center; justify-content: center; gap: 4px; border: 2px solid #b39278; border-radius: 9px; background: #fff6e5; color: var(--ink); box-shadow: 0 2px 0 #d4b99a; cursor: pointer; font-size: 9px; }
+.category-options button.selected { border-color: #b7545a; background: #ffe0df; box-shadow: 0 2px 0 #c67678; color: #873b42; }
+.category-options span { font-size: 13px; }
+.rating-field { padding: 11px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 2px dashed #c5a88e; border-radius: 12px; background: #fff8e9; }
+.rating-field span { display: flex; align-items: center; gap: 9px; color: var(--berry-dark); }
+.rating-field input { width: min(190px, 30vw); accent-color: var(--berry-dark); }
 .reward-line { margin-top: 2px; display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 10px; }
 .reward-line b { color: var(--berry-dark); font-size: 13px; }
 .primary-button { width: 100%; padding: 12px; border: 2px solid var(--sage-dark); border-radius: 12px; background: var(--sage); color: #fff; box-shadow: 0 4px 0 var(--sage-dark); cursor: pointer; font-size: 10px; }
@@ -330,12 +330,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .quest-window .activity-entry textarea,
 .quest-window .activity-entry > div:first-of-type > small,
 .quest-window .activity-entry > p,
-.quest-window .duration-field span,
-.quest-window .duration-field input,
 .quest-window .journal-options legend,
-.quest-window .mood-field legend,
 .quest-window .category-options button,
-.quest-window .mood-field button,
+.quest-window .rating-field,
 .quest-window .reward-line,
 .quest-window .primary-button,
 .quest-window .streak-card small,
@@ -448,7 +445,8 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
   .hud-counters span, .hud-counters small { display: none; }
   .pet-status { left: 9px; bottom: 78px; min-width: 250px; padding: 6px; grid-template-columns: 42px 1fr auto; border-width: 2px; }
   .pet-status > img { width: 42px; height: 42px; }
-  .pet-status button { grid-column: 3; grid-row: 1; padding: 8px; }
+  .pet-status-actions { grid-column: 3; grid-row: 1; }
+  .pet-status button { padding: 8px; }
   .game-dock { left: 8px; right: 8px; bottom: 8px; padding: 5px; justify-content: space-around; transform: none; border-width: 2px; }
   .game-dock button { min-width: 0; width: 19%; height: 56px; padding: 4px; }
   .game-dock span { font-size: 18px; }

@@ -6,7 +6,7 @@ export const checkins = sqliteTable("checkins", {
   date: text("date").notNull(),
   activity: text("activity").notNull(),
   category: text("category").notNull().default("其他"),
-  minutes: integer("minutes"),
-  mood: text("mood"),
+  rating: integer("rating"),
+  reward: integer("reward"),
   createdAt: text("created_at").notNull(),
 });

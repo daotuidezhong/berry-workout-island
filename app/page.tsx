@@ -15,25 +15,29 @@ import {
   type CatStatusId,
 } from "./game/cat-actions";
 import { canPetMove, decayPetStatsByTime, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "./game/pet-stats";
+import { getJournalReward } from "./game/journal-reward";
 
 type PetId = "mitao" | "doubao" | "xueqiu";
 type OverlayId = "quest" | "history" | "bag" | "pets" | "shop" | "kitchen" | null;
 type ShopCategory = "food" | "furniture";
-type JournalCategory = "运动" | "学习" | "工作" | "饮食" | "心情" | "睡眠" | "娱乐" | "其他";
-type CheckinRecord = { id: number; date: string; content: string; category: JournalCategory; minutes: number | null; mood: string | null; createdAt: string };
+type JournalCategory = "运动" | "学习" | "工作" | "饮食" | "睡眠" | "其他";
+type CheckinRecord = { id: number; date: string; content: string; category: JournalCategory; rating: number | null; reward: number | null; createdAt: string };
 type DesktopUpdate = { phase: "available" | "downloading" | "downloaded" | "error"; name?: string; notes?: string; percent?: number; message?: string };
 type StoreFoodId = "driedFish" | "chickenCan" | "salmonMousse" | "tunaRice" | "chickenCubes" | "catnipBiscuits";
 type CookedFoodId = "strawberryPuree" | "carrotSoup" | "tomatoSoup" | "catnipCookies" | "sunflowerRice" | "pumpkinPuree";
 type FoodId = StoreFoodId | CookedFoodId;
+type PetStats = { energy: number; sleepiness: number; statsUpdatedAt: number };
 type GameState = {
-  gameSchemaVersion: 4;
+  gameSchemaVersion: 5;
   statModelVersion: 2;
   berries: number;
   streak: number;
   lastCheckin: string | null;
   lastActivity: string | null;
   pet: PetId;
+  adoptedPets: PetId[];
   petNames: Record<PetId, string>;
+  petStats: Record<PetId, PetStats>;
   purchased: string[];
   inventory: Record<FoodId, number>;
   energy: number;
@@ -51,8 +55,10 @@ type GameState = {
   cooking: { dishId: CookedFoodId; startedAt: number; endsAt: number } | null;
 };
 
-const RELEASE_VERSION = "0.3.0";
+const RELEASE_VERSION = "0.4.1";
 const RELEASE_NOTES = [
+  { version: "0.4.1", items: ["修复切换状态时猫咪换位和动画被打断的问题", "伙伴页查看状态与喂食目标现在始终对应左下角选中的猫咪"] },
+  { version: "0.4.0", items: ["桌面数据新增独立持久化备份，更新后自动恢复旧数据", "修复程序窗口左上角未显示草莓图标", "支持多只猫咪同时入住，并可在左下角切换独立状态", "记录改为每日自评分与智能草莓奖励，单次最高 23 颗"] },
   { version: "0.3.0", items: ["今日运动任务升级为温暖的每日生活日记，支持分类、时长、心情和同日多篇记录", "每日首次记录奖励调整为 20 颗草莓，并修正连续记录的点亮方向", "新增院子种植、厨房烹饪进度和离线计时，丰富家具与猫咪互动", "更新房间、院子与天气场景，优化移动、浇水和收获体验"] },
   { version: "0.2.2", items: ["桌面版生活记录与心情改为仅保存在本机", "更新完成后首次启动会直接弹出累计版本说明"] },
   { version: "0.2.1", items: ["修复手账翻回前一页时尺寸变大的问题", "桌面与安装图标更换为无面部像素草莓", "新增游戏内版本更新说明"] },
@@ -65,6 +71,7 @@ declare global {
       download: () => void;
       install: () => void;
       version: () => Promise<string>;
+      storage: { load: (key: string) => string | null; save: (key: string, value: string) => void };
     };
   }
 }
@@ -174,14 +181,20 @@ const INITIAL_INVENTORY: Record<FoodId, number> = {
 };
 
 const INITIAL_GAME: GameState = {
-  gameSchemaVersion: 4,
+  gameSchemaVersion: 5,
   statModelVersion: 2,
   berries: 48,
   streak: 0,
   lastCheckin: null,
   lastActivity: null,
   pet: "mitao",
+  adoptedPets: ["mitao"],
   petNames: { mitao: "蜜桃", doubao: "豆包", xueqiu: "雪球" },
+  petStats: {
+    mitao: { energy: 72, sleepiness: 24, statsUpdatedAt: 0 },
+    doubao: { energy: 68, sleepiness: 18, statsUpdatedAt: 0 },
+    xueqiu: { energy: 76, sleepiness: 30, statsUpdatedAt: 0 },
+  },
   purchased: [],
   inventory: INITIAL_INVENTORY,
   energy: 72,
@@ -206,13 +219,27 @@ const milestones = [
   { day: 30, bonus: 100 },
 ];
 
+const ROOMMATE_POSITIONS: Record<PetId, Point> = {
+  mitao: { x: 38, y: 76 }, doubao: { x: 62, y: 73 }, xueqiu: { x: 78, y: 77 },
+};
+
 const journalCategories: { name: JournalCategory; icon: string }[] = [
   { name: "运动", icon: "🏃" }, { name: "学习", icon: "📖" }, { name: "工作", icon: "💼" }, { name: "饮食", icon: "🍙" },
-  { name: "心情", icon: "💗" }, { name: "睡眠", icon: "🌙" }, { name: "娱乐", icon: "🎮" }, { name: "其他", icon: "✨" },
+  { name: "睡眠", icon: "🌙" }, { name: "其他", icon: "✨" },
 ];
-const journalMoods = [
-  { name: "很差", icon: "😣" }, { name: "低落", icon: "😔" }, { name: "平静", icon: "😌" }, { name: "开心", icon: "😊" }, { name: "超棒", icon: "🤩" },
-];
+
+function readPersisted(key: string) {
+  const desktopValue = window.gameUpdater?.storage.load(key);
+  if (desktopValue !== undefined && desktopValue !== null) return desktopValue;
+  const browserValue = window.localStorage.getItem(key);
+  if (browserValue !== null) window.gameUpdater?.storage.save(key, browserValue);
+  return browserValue;
+}
+
+function writePersisted(key: string, value: string) {
+  window.localStorage.setItem(key, value);
+  window.gameUpdater?.storage.save(key, value);
+}
 
 const PLOT_POSITIONS = [
   { x: 38, y: 45, width: 9.5, height: 8.8 }, { x: 48, y: 45, width: 9.5, height: 8.8 }, { x: 58, y: 45, width: 9.5, height: 8.8 }, { x: 68, y: 45, width: 9.5, height: 8.8 },
@@ -249,13 +276,13 @@ export default function Home() {
   const [selectedFood, setSelectedFood] = useState<FoodId>("driedFish");
   const [noteText, setNoteText] = useState("");
   const [category, setCategory] = useState<JournalCategory>("其他");
-  const [durationMinutes, setDurationMinutes] = useState("");
-  const [mood, setMood] = useState("");
+  const [rating, setRating] = useState(5);
   const [deviceId, setDeviceId] = useState("");
   const [history, setHistory] = useState<CheckinRecord[]>([]);
   const [historyPage, setHistoryPage] = useState(0);
   const [savingCheckin, setSavingCheckin] = useState(false);
   const [game, setGame] = useState<GameState>(INITIAL_GAME);
+  const [statusPetId, setStatusPetId] = useState<PetId>("mitao");
   const [ready, setReady] = useState(false);
   const [today, setToday] = useState("");
   const [dateLabel, setDateLabel] = useState("");
@@ -306,14 +333,14 @@ export default function Home() {
     const current = localDate(now);
     setToday(current);
     setDateLabel(now.toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "short" }));
-    const savedCategory = window.localStorage.getItem("berry-journal-category") as JournalCategory | null;
+    const savedCategory = readPersisted("berry-journal-category") as JournalCategory | null;
     if (journalCategories.some((item) => item.name === savedCategory)) setCategory(savedCategory!);
 
-    const saved = window.localStorage.getItem("berry-workout-game");
-    let savedDeviceId = window.localStorage.getItem("berry-workout-device");
+    const saved = readPersisted("berry-workout-game");
+    let savedDeviceId = readPersisted("berry-workout-device");
     if (!savedDeviceId) {
       savedDeviceId = crypto.randomUUID();
-      window.localStorage.setItem("berry-workout-device", savedDeviceId);
+      writePersisted("berry-workout-device", savedDeviceId);
     }
     setDeviceId(savedDeviceId);
     if (saved) {
@@ -327,9 +354,11 @@ export default function Home() {
           ...INITIAL_GAME,
           ...parsed,
           inventory,
-          gameSchemaVersion: 4,
+          gameSchemaVersion: 5,
           purchased: Array.isArray(parsed.purchased) ? parsed.purchased : [],
+          adoptedPets: Array.isArray(parsed.adoptedPets) && parsed.adoptedPets.length ? parsed.adoptedPets : [parsed.pet ?? "mitao"],
           petNames: { ...INITIAL_GAME.petNames, ...(parsed.petNames ?? {}) },
+          petStats: { ...INITIAL_GAME.petStats, ...(parsed.petStats ?? {}) },
           catPosition: clampToScene(parsed.catPosition ?? INITIAL_GAME.catPosition, scene, scene === "yard" ? YARD_OBSTACLES : []),
           furniturePositions: { ...DEFAULT_FURNITURE_POSITIONS, ...(parsed.furniturePositions ?? {}) },
           scene,
@@ -362,7 +391,9 @@ export default function Home() {
         } else {
           Object.assign(merged, decayPetStatsByTime(merged.energy, merged.sleepiness, merged.statsUpdatedAt, nowMs));
         }
+        merged.petStats[merged.pet] = { energy: merged.energy, sleepiness: merged.sleepiness, statsUpdatedAt: merged.statsUpdatedAt };
         setGame(merged);
+        setStatusPetId(merged.pet);
       } catch {
         setGame(INITIAL_GAME);
       }
@@ -375,10 +406,12 @@ export default function Home() {
     let cancelled = false;
     const loadHistory = async () => {
       if (navigator.userAgent.includes("BerryWorkoutDesktop")) {
-        const records = (JSON.parse(window.localStorage.getItem("berry-workout-history") ?? "[]") as (CheckinRecord & { activity?: string })[]).map((record) => ({
+        const records = (JSON.parse(readPersisted("berry-workout-history") ?? "[]") as (CheckinRecord & { activity?: string })[]).map((record) => ({
           ...record,
           content: record.content ?? record.activity ?? "",
           category: record.category ?? "其他",
+          rating: record.rating ?? null,
+          reward: record.reward ?? null,
           createdAt: record.createdAt ?? `${record.date}T00:00:00`,
         }));
         if (!cancelled) setHistory(records);
@@ -393,7 +426,7 @@ export default function Home() {
           const migrated = await fetch("/api/checkins", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ deviceId, date: game.lastCheckin, content: game.lastActivity, category: "其他", minutes: null, mood: null }),
+            body: JSON.stringify({ deviceId, date: game.lastCheckin, content: game.lastActivity, category: "其他", rating: null, reward: null }),
           });
           if (migrated.ok) records = [(await migrated.json() as { record: CheckinRecord }).record];
         }
@@ -455,7 +488,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (ready) window.localStorage.setItem("berry-workout-game", JSON.stringify(game));
+    if (ready) writePersisted("berry-workout-game", JSON.stringify(game));
   }, [game, ready]);
 
   useEffect(() => {
@@ -498,7 +531,7 @@ export default function Home() {
     if (!updater) return;
     const unsubscribe = updater.onStatus(setDesktopUpdate);
     void updater.version().then((version) => {
-      if (version === RELEASE_VERSION && window.localStorage.getItem("berry-workout-release-notes-seen") !== version) setShowReleaseNotes(true);
+      if (version === RELEASE_VERSION && readPersisted("berry-workout-release-notes-seen") !== version) setShowReleaseNotes(true);
     });
     return unsubscribe;
   }, []);
@@ -742,6 +775,9 @@ export default function Home() {
   const checkedToday = Boolean(today && game.lastCheckin === today);
   const basePet = pets.find((item) => item.id === game.pet) ?? pets[0];
   const pet = { ...basePet, name: game.petNames[basePet.id] };
+  const statusPetBase = pets.find((item) => item.id === statusPetId) ?? basePet;
+  const statusPet = { ...statusPetBase, name: game.petNames[statusPetBase.id] };
+  const statusPetStats = statusPetId === game.pet ? game : game.petStats[statusPetId];
   const nextMilestone = milestones.find((item) => item.day > game.streak);
   const ownedFurniture = furnitureItems.filter((item) => game.purchased.includes(item.id));
   const totalFood = foodItems.reduce((total, item) => total + game.inventory[item.id], 0);
@@ -920,20 +956,19 @@ export default function Home() {
     if (!ready || !content || !deviceId || savingCheckin) return;
     const next = game.streak + 1;
     const bonus = milestones.find((item) => item.day === next)?.bonus ?? 0;
-    const reward = checkedToday ? 0 : 20 + bonus;
-    const minutes = durationMinutes ? Number(durationMinutes) : null;
+    const reward = checkedToday ? 0 : Math.min(23, getJournalReward(rating) + bonus);
     setSavingCheckin(true);
     try {
       let record: CheckinRecord;
       if (navigator.userAgent.includes("BerryWorkoutDesktop")) {
-        record = { id: Date.now(), date: today, content, category, minutes, mood: mood || null, createdAt: new Date().toISOString() };
+        record = { id: Date.now(), date: today, content, category, rating, reward, createdAt: new Date().toISOString() };
         const records = [record, ...history];
-        window.localStorage.setItem("berry-workout-history", JSON.stringify(records));
+        writePersisted("berry-workout-history", JSON.stringify(records));
       } else {
         const response = await fetch("/api/checkins", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ deviceId, date: today, content, category, minutes, mood: mood || null }),
+          body: JSON.stringify({ deviceId, date: today, content, category, rating, reward }),
         });
         if (!response.ok) throw new Error();
         record = (await response.json() as { record: CheckinRecord }).record;
@@ -941,9 +976,7 @@ export default function Home() {
       setHistory((records) => [record, ...records]);
       if (!checkedToday) setGame((current) => ({ ...current, berries: current.berries + reward, streak: next, lastCheckin: today, lastActivity: content }));
       setNoteText("");
-      setDurationMinutes("");
-      setMood("");
-      window.localStorage.setItem("berry-journal-category", category);
+      writePersisted("berry-journal-category", category);
       setToast("今天的记忆已经收好啦 🍓");
     } catch {
       setToast("记录保存失败，请稍后再试");
@@ -986,20 +1019,24 @@ export default function Home() {
       setToast("背包里没有这种食物了");
       return;
     }
-    if (game.energy >= 100) {
-      setToast(`${pet.name} 现在精神满满！`);
+    if (statusPetStats.energy >= 100) {
+      setToast(`${statusPet.name} 现在精神满满！`);
       return;
     }
-    setGame((current) => ({
+    setGame((current) => statusPetId === current.pet ? {
       ...current,
       inventory: { ...current.inventory, [foodId]: current.inventory[foodId] - 1 },
       energy: Math.min(100, current.energy + item.energy),
-    }));
-    if (resting) {
+    } : {
+      ...current,
+      inventory: { ...current.inventory, [foodId]: current.inventory[foodId] - 1 },
+      petStats: { ...current.petStats, [statusPetId]: { ...current.petStats[statusPetId], energy: Math.min(100, current.petStats[statusPetId].energy + item.energy), statsUpdatedAt: Date.now() } },
+    });
+    if (resting && statusPetId === game.pet) {
       setOverlay(null);
       setInterruptConfirm(true);
     }
-    setToast(`${pet.name} 吃掉了${item.name}，活力 +${item.energy}`);
+    setToast(`${statusPet.name} 吃掉了${item.name}，活力 +${item.energy}`);
   }
 
   function cookDish(dish: (typeof cookedDishes)[number]) {
@@ -1021,9 +1058,20 @@ export default function Home() {
     setToast(`${dish.name}开始烹饪，${dish.cookMinutes} 分钟后完成`);
   }
 
+  function cyclePet() {
+    const index = game.adoptedPets.indexOf(statusPetId);
+    setStatusPetId(game.adoptedPets[(index + 1) % game.adoptedPets.length]);
+  }
+
   function adoptPet(id: PetId) {
     const chosen = pets.find((item) => item.id === id)!;
-    setGame((current) => ({ ...current, pet: id }));
+    if (game.adoptedPets.includes(id)) {
+      setStatusPetId(id);
+      setToast(`已切换查看 ${game.petNames[id]} 的状态`);
+      return;
+    }
+    setGame((current) => ({ ...current, adoptedPets: [...current.adoptedPets, id] }));
+    setStatusPetId(id);
     setToast(`${chosen.name} 已经住进你的小屋啦！`);
   }
 
@@ -1167,7 +1215,7 @@ export default function Home() {
                 </section>
               ))}
             </div>
-            <button onClick={() => { window.localStorage.setItem("berry-workout-release-notes-seen", RELEASE_VERSION); setShowReleaseNotes(false); }}>知道了</button>
+            <button onClick={() => { writePersisted("berry-workout-release-notes-seen", RELEASE_VERSION); setShowReleaseNotes(false); }}>知道了</button>
           </section>
         </div>
       )}
@@ -1245,6 +1293,13 @@ export default function Home() {
             );
           })}
 
+          {game.scene === "room" && game.adoptedPets.filter((id) => id !== game.pet).map((id) => {
+            const roommate = pets.find((item) => item.id === id)!;
+            const position = ROOMMATE_POSITIONS[id];
+            return <div className="roommate-cat" key={id} style={{ left: `${position.x}%`, top: `${position.y}%`, zIndex: Math.round(position.y) + 1 }}>
+              <img src={roommate.idle} alt={`${game.petNames[id]}正在房间里休息`} /><b>{game.petNames[id]}</b>
+            </div>;
+          })}
           {game.scene === "room" && <div
             className={`walking-cat ${walking ? "walking" : "status-animation"} ${jumping ? "jumping" : ""} ${resting ? "resting" : ""} ${lounging ? "lounging" : ""} ${scratching ? "scratching" : ""} ${wakingUp ? "waking-up" : ""} ${headShaking ? "head-shaking" : ""} ${direction === "left" ? "facing-left" : ""}`}
             data-cat-status={desiredCatStatus}
@@ -1298,12 +1353,15 @@ export default function Home() {
         </header>
 
         <aside className="pet-status">
-          <img src={pet.idle} alt="" />
+          <img src={statusPet.idle} alt="" />
           <div className="pet-meters">
-            <div><small><span>{pet.name}的活力</span><b>{game.energy}</b></small><div className="energy"><i style={{ width: `${game.energy}%` }} /></div></div>
-            <div><small><span>{pet.name}的困倦值</span><b>{game.sleepiness}</b></small><div className="sleepiness"><i style={{ width: `${game.sleepiness}%` }} /></div></div>
+            <div><small><span>{statusPet.name}的活力</span><b>{statusPetStats.energy}</b></small><div className="energy"><i style={{ width: `${statusPetStats.energy}%` }} /></div></div>
+            <div><small><span>{statusPet.name}的困倦值</span><b>{statusPetStats.sleepiness}</b></small><div className="sleepiness"><i style={{ width: `${statusPetStats.sleepiness}%` }} /></div></div>
           </div>
-          <button onClick={() => openOverlay("bag")}>喂食</button>
+          <div className="pet-status-actions">
+            {game.adoptedPets.length > 1 && <button onClick={cyclePet} disabled={resting} title="切换宠物状态">切换</button>}
+            <button onClick={() => openOverlay("bag")}>喂食</button>
+          </div>
         </aside>
 
         {decorating && (
@@ -1337,11 +1395,8 @@ export default function Home() {
                       <small>{noteText.length}/300</small>
                     </div>
                     <fieldset className="journal-options"><legend>记录分类</legend><div className="category-options">{journalCategories.map((item) => <button key={item.name} className={category === item.name ? "selected" : ""} type="button" onClick={() => setCategory(item.name)}><span>{item.icon}</span>{item.name}</button>)}</div></fieldset>
-                    <div className="optional-fields">
-                      <label className="duration-field">时长（选填）<span><input type="number" min="1" max="600" value={durationMinutes} onChange={(event) => setDurationMinutes(event.target.value)} placeholder="—" /> 分钟</span></label>
-                      <fieldset className="mood-field"><legend>心情（选填）</legend><div>{journalMoods.map((item) => <button key={item.name} className={mood === item.name ? "selected" : ""} type="button" onClick={() => setMood(mood === item.name ? "" : item.name)} title={item.name}><span>{item.icon}</span>{item.name}</button>)}</div></fieldset>
-                    </div>
-                    <div className="reward-line"><span>{checkedToday ? "今日首条奖励已领取" : "完成今日记录可获得"}</span><b>🍓 +20</b></div>
+                    <label className="rating-field">今天给自己打几分？<span><input type="range" min="1" max="10" value={rating} onChange={(event) => setRating(Number(event.target.value))} /><b>{rating} 分</b></span></label>
+                    <div className="reward-line"><span>{checkedToday ? "今日首条奖励已领取" : "智能换算今日奖励（最高 23）"}</span><b>🍓 +{checkedToday ? 0 : Math.min(23, getJournalReward(rating) + (milestones.find((item) => item.day === game.streak + 1)?.bonus ?? 0))}</b></div>
                     <button className="primary-button" type="submit" disabled={!ready || !noteText.trim() || savingCheckin}>{savingCheckin ? "正在保存……" : "保存今日记录"}</button>
                   </form>
                   <div className="streak-card">
@@ -1368,11 +1423,10 @@ export default function Home() {
                           <time dateTime={date}>{date.replaceAll("-", ".")}</time>
                           {history.filter((record) => record.date === date).map((record) => {
                             const categoryInfo = journalCategories.find((item) => item.name === record.category) ?? journalCategories.at(-1)!;
-                            const moodInfo = journalMoods.find((item) => item.name === record.mood);
                             return <div className="notebook-entry" key={record.id}>
                               <div className="entry-meta"><span>{categoryInfo.icon} {categoryInfo.name}</span><time dateTime={record.createdAt}>{new Date(record.createdAt || `${record.date}T00:00:00`).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time></div>
                               <p>{record.content}</p>
-                              {(record.minutes || moodInfo) && <small>{record.minutes ? `⏱ ${record.minutes} 分钟` : ""}{record.minutes && moodInfo ? "　" : ""}{moodInfo ? `${moodInfo.icon} ${moodInfo.name}` : ""}</small>}
+                              {record.rating && <small>⭐ 今日自评分：{record.rating}/10{record.reward ? `　🍓 +${record.reward}` : ""}</small>}
                             </div>;
                           })}
                         </article>)}
@@ -1410,7 +1464,7 @@ export default function Home() {
 
               {overlay === "bag" && (
                 <>
-                  <div className="window-heading"><small>MY BACKPACK</small><h1>我的背包</h1><p>收获的作物可以带去厨房烹饪，菜品可以喂给 {pet.name}</p></div>
+                  <div className="window-heading"><small>MY BACKPACK</small><h1>我的背包</h1><p>收获的作物可以带去厨房烹饪，菜品可以喂给 {statusPet.name}</p></div>
                   <div className="produce-strip">
                     <b>新鲜作物</b>
                     {cropItems.map((crop) => <span key={crop.id} className={game.produce[crop.id] ? "" : "empty"}><img src={`/game/crop-${crop.id}-mature.png`} alt="" /><em>{crop.name}</em><i>×{game.produce[crop.id]}</i></span>)}
@@ -1427,8 +1481,8 @@ export default function Home() {
                     <div className="feed-card">
                       <img src={selectedFoodItem.asset} alt={selectedFoodItem.name} />
                       <small>已选择</small><h2>{selectedFoodItem.name}</h2><p>{selectedFoodItem.detail} · 活力 +{selectedFoodItem.energy}</p>
-                      <button className="primary-button" onClick={() => feedPet(selectedFoodItem.id)} disabled={!game.inventory[selectedFoodItem.id] || game.energy >= 100}>
-                        {game.energy >= 100 ? "活力已经满啦" : game.inventory[selectedFoodItem.id] ? `喂给 ${pet.name}` : "背包里没有了"}
+                      <button className="primary-button" onClick={() => feedPet(selectedFoodItem.id)} disabled={!game.inventory[selectedFoodItem.id] || statusPetStats.energy >= 100}>
+                        {statusPetStats.energy >= 100 ? "活力已经满啦" : game.inventory[selectedFoodItem.id] ? `喂给 ${statusPet.name}` : "背包里没有了"}
                       </button>
                       {!totalFood && <button className="text-button" onClick={() => { setShopCategory("food"); setOverlay("shop"); }}>去商店买食物 →</button>}
                     </div>
@@ -1474,7 +1528,7 @@ export default function Home() {
                         <div><span>{item.kind}</span><img src={item.idle} alt={`${game.petNames[item.id]}，${item.kind}`} /></div>
                         <small>{item.nature}</small><h2>{game.petNames[item.id]}</h2>
                         <label className="pet-name-field">名字<input value={game.petNames[item.id]} maxLength={12} onChange={(event) => setGame((current) => ({ ...current, petNames: { ...current.petNames, [item.id]: event.target.value } }))} onBlur={() => setGame((current) => ({ ...current, petNames: { ...current.petNames, [item.id]: current.petNames[item.id].trim() || INITIAL_GAME.petNames[item.id] } }))} /></label>
-                        <button onClick={() => adoptPet(item.id)} disabled={game.pet === item.id}>{game.pet === item.id ? "✓ 正在陪伴你" : "带它回家"}</button>
+                        <button onClick={() => adoptPet(item.id)} disabled={statusPetId === item.id}>{statusPetId === item.id ? "✓ 正在查看状态" : game.adoptedPets.includes(item.id) ? "查看状态" : "带它回家"}</button>
                       </article>
                     ))}
                   </div>
