@@ -3,8 +3,9 @@ import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 import { CAT_BOUNDS, clampCatPosition, getFurnitureTarget } from "../app/game/furniture.ts";
 import { getTimePeriod } from "../app/game/time-period.ts";
-import { estimateCalories } from "../app/game/calories.ts";
-import { getRoomAsset, getWeatherKind, ROOM_ASSET_BY_WEATHER } from "../app/game/weather.ts";
+import { getRoomAsset, getWeatherKind, getYardAsset, ROOM_ASSET_BY_WEATHER } from "../app/game/weather.ts";
+import { cropItems, formatCookingTime, getCookingProgress, getCropProgress, getCropStage, INITIAL_PRODUCE, waterUnwateredPlots } from "../app/game/farm.ts";
+import { clampToScene, getWalkPath, YARD_OBSTACLES } from "../app/game/scene.ts";
 import { CAT_STATUS_ANIMATIONS, getCatStatus, getCatStatusTransition } from "../app/game/cat-actions.ts";
 import { canPetMove, decayPetStats, decayPetStatsByTime, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "../app/game/pet-stats.ts";
 
@@ -27,12 +28,6 @@ test("maps local hours to four room lighting periods", () => {
   );
 });
 
-test("estimates calories from activity and duration", () => {
-  assert.equal(estimateCalories("跳绳", 20), 184);
-  assert.equal(estimateCalories("瑜伽", 30), 83);
-  assert.equal(estimateCalories("", 30), 0);
-});
-
 test("uses furniture height to choose walking or jumping", () => {
   assert.equal(CAT_BOUNDS.minY, 43);
   assert.deepEqual(clampCatPosition({ x: 50, y: 24 }), { x: 50, y: 43 });
@@ -48,17 +43,132 @@ test("maps Foshan weather codes to room weather states", () => {
   assert.equal(getWeatherKind(61, 0.4, 95), "rain");
   assert.equal(getWeatherKind(95, 2.2, 100), "thunderstorm");
   assert.deepEqual(Object.values(ROOM_ASSET_BY_WEATHER), [
-    "/game/room-v2.png",
-    "/game/room-cloudy-v2.png",
-    "/game/room-rain.png",
-    "/game/room-thunderstorm-v2.png",
+    "/game/room-kitchen-v3.png",
+    "/game/room-kitchen-cloudy.png",
+    "/game/room-kitchen-rain.png",
+    "/game/room-kitchen-thunderstorm.png",
   ]);
-  assert.equal(getRoomAsset("clear", "morning"), "/game/room-morning.png");
-  assert.equal(getRoomAsset("cloudy", "morning"), "/game/room-cloudy-v2.png");
-  assert.equal(getRoomAsset("rain", "morning"), "/game/room-rain.png");
-  assert.equal(getRoomAsset("clear", "evening"), "/game/room-evening.png");
-  assert.equal(getRoomAsset("cloudy", "evening"), "/game/room-cloudy-v2.png");
-  assert.equal(getRoomAsset("rain", "evening"), "/game/room-rain.png");
+  assert.equal(getRoomAsset("clear", "morning"), "/game/room-kitchen-morning.png");
+  assert.equal(getRoomAsset("cloudy", "morning"), "/game/room-kitchen-cloudy.png");
+  assert.equal(getRoomAsset("rain", "morning"), "/game/room-kitchen-rain.png");
+  assert.equal(getRoomAsset("clear", "evening"), "/game/room-kitchen-evening.png");
+  assert.equal(getRoomAsset("cloudy", "evening"), "/game/room-kitchen-cloudy.png");
+  assert.equal(getRoomAsset("rain", "evening"), "/game/room-kitchen-rain.png");
+  assert.equal(getYardAsset("thunderstorm", "night"), "/game/yard-thunderstorm-night.png");
+});
+
+test("grows crops only after watering and preserves offline progress", () => {
+  const crop = cropItems.find((item) => item.id === "strawberry");
+  const plantedAt = 1_000_000;
+  assert.equal(getCropStage({ cropId: crop.id, plantedAt, wateredAt: null }, plantedAt + crop.growMs), "seed");
+  assert.equal(getCropStage({ cropId: crop.id, plantedAt, wateredAt: plantedAt }, plantedAt + crop.growMs * .25), "seedling");
+  assert.equal(getCropStage({ cropId: crop.id, plantedAt, wateredAt: plantedAt }, plantedAt + crop.growMs * .6), "growing");
+  assert.equal(getCropStage({ cropId: crop.id, plantedAt, wateredAt: plantedAt }, plantedAt + crop.growMs), "mature");
+  assert.equal(getCropProgress({ cropId: crop.id, plantedAt, wateredAt: plantedAt }, plantedAt + crop.growMs * .5), .5);
+  assert.equal(getCropProgress({ cropId: crop.id, plantedAt, wateredAt: plantedAt }, plantedAt + crop.growMs * 2), 1);
+  const watered = waterUnwateredPlots([{ cropId: crop.id, plantedAt, wateredAt: null }, null], plantedAt + 20);
+  assert.equal(watered[0].wateredAt, plantedAt + 20);
+  assert.equal(watered[1], null);
+});
+
+test("harvests produce into the backpack and cooks one crop into one dish", async () => {
+  assert.deepEqual(INITIAL_PRODUCE, { strawberry: 0, carrot: 0, tomato: 0, catnip: 0, sunflower: 0, pumpkin: 0 });
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(source, /produce: \{ \.\.\.current\.produce, \[plot\.cropId\]: current\.produce\[plot\.cropId\] \+ 1 \}/);
+  assert.match(source, /produce: \{ \.\.\.current\.produce, \[dish\.cropId\]: current\.produce\[dish\.cropId\] - 1 \}/);
+  assert.match(source, /inventory: \{ \.\.\.current\.inventory, \[dish\.id\]: current\.inventory\[dish\.id\] \+ 1 \}/);
+  assert.doesNotMatch(source, /berries: current\.berries \+ crop\.reward/);
+  assert.match(source, /className="kitchen-hotspot"/);
+  assert.match(source, /className="recipe-grid"/);
+});
+
+test("tracks cooking progress up to the twenty minute recipe", () => {
+  assert.equal(getCookingProgress(0, 20 * 60_000, 10 * 60_000), .5);
+  assert.equal(formatCookingTime(20 * 60_000, 0), "20:00");
+});
+
+test("keeps yard movement out of large obstacles", () => {
+  assert.deepEqual(clampToScene({ x: 10, y: 45 }, "yard", YARD_OBSTACLES), { x: 10, y: 51 });
+  const path = getWalkPath({ x: 30, y: 76 }, { x: 92, y: 60 }, "yard", YARD_OBSTACLES);
+  assert.ok(path.length >= 1 && path.length <= 2);
+  assert.ok(path.every((point) => point.x >= 7 && point.x <= 94 && point.y >= 45 && point.y <= 89));
+});
+
+test("keeps the cat and movement controls indoors", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(source, /game\.scene !== "room" \|\| overlay/);
+  assert.match(source, /onPointerDown=\{game\.scene === "room" \? moveCat : undefined\}/);
+  assert.match(source, /\{game\.scene === "room" && <div[\s\S]*className=\{`walking-cat/);
+  assert.match(source, /全屏像素院子。点击田地进行种植，或使用导航栏。/);
+});
+
+test("selects seeds from the yard storage before planting a chosen plot", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(source, /aria-label="打开种子仓库"/);
+  assert.match(source, /else if \(selectedSeed\) plantCrop\(index, selectedSeed\)/);
+  assert.match(source, /className="seed-cursor"[\s\S]*crop-\$\{selectedSeed\}-seed\.png/);
+  assert.match(source, /setSelectedSeed\(crop\.id\)[\s\S]*点击空田播种/);
+  assert.match(source, /className="seed-storage"[\s\S]{0,300}setSelectedSeed\(null\)/);
+  assert.doesNotMatch(source, /selectedPlot|setSelectedPlot/);
+  assert.match(css, /\.seed-storage \{[^}]*left: 91%/);
+  assert.match(css, /\.game-room:is\(\.seed-selected, \.watering-selected\)[^{]*\{ cursor: none !important; \}/);
+});
+
+test("moves the watering can with the pointer and tips it over the selected plot", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(source, /const \[wateringPlot, setWateringPlot\] = useState<number \| null>\(null\)/);
+  assert.match(source, /className="watering-cursor" src="\/game\/watering-can-matched\.png"/);
+  assert.match(source, /className="watering-animation"[\s\S]*className="water-spray"[\s\S]*<i \/><i \/><i \/><i \/><i \/>[\s\S]*className="water-impact"/);
+  assert.match(source, /setWateringPlot\(index\)[\s\S]*setWateringPlot\(null\)/);
+  assert.match(css, /@keyframes watering-pour[^{]*\{[\s\S]*rotate\(-28deg\)/);
+  assert.match(css, /\.water-spray i[^{]*\{[^}]*animation: water-drop/);
+  assert.match(css, /\.water-impact[^{]*\{[^}]*top: 127px[^}]*animation: water-impact/);
+  assert.match(css, /\.watering-can \{[^}]*outline: 0/);
+  assert.match(css, /\.watering-cursor \{[^}]*brightness\(\.84\) saturate\(\.86\) contrast\(1\.12\)/);
+  assert.doesNotMatch(css, /water-stream|water-flow|water-drops/);
+  assert.match(source, /className=\{`crop-progress[\s\S]*<progress max=\{1\} value=\{progress\}/);
+  assert.match(css, /\.crop-progress \{[^}]*bottom: 4%;[^}]*width: 96px/);
+  assert.match(css, /\.crop-progress b \{[^}]*font-size: 11px/);
+  assert.match(css, /\.farm-plot \.crop-sprite \{[^}]*z-index: 1;[^}]*inset: auto 4% 2%;[^}]*height: 145%/);
+  assert.doesNotMatch(css, /\.farm-plot:has\(\.crop-sprite\)::after/);
+  assert.doesNotMatch(css, /crop-ready|farm-plot\.mature \.crop-sprite/);
+});
+
+test("ships complete base scenes without duplicate door or field layers", async () => {
+  const periods = ["morning", "noon", "evening", "night"];
+  for (const weather of ["clear", "cloudy", "rain", "thunderstorm"]) {
+    for (const period of periods) {
+      const png = await readFile(new URL(`../public/game/yard-${weather}-${period}.png`, import.meta.url));
+      assert.equal(png.readUInt32BE(16), 1672);
+      assert.equal(png.readUInt32BE(20), 941);
+    }
+  }
+  for (const name of ["room-kitchen-v3.png", "room-kitchen-morning.png", "room-kitchen-evening.png", "room-kitchen-cloudy.png", "room-kitchen-rain.png", "room-kitchen-thunderstorm.png"]) {
+    const png = await readFile(new URL(`../public/game/${name}`, import.meta.url));
+    assert.equal(png.readUInt32BE(16), 1672);
+    assert.equal(png.readUInt32BE(20), 941);
+  }
+  const furniture = ["strawberry-sofa", "cat-tree", "fish-fireplace", "wicker-rocker", "cream-vanity", "grandfather-clock", "fish-scratcher", "flower-stool", "tea-cart", "yarn-basket"];
+  const transparent = [
+    ...furniture.map((name) => `furniture-${name}.png`),
+    "furniture-fish-fireplace-overlay.png", "furniture-grandfather-clock-overlay.png", "furniture-yarn-basket-overlay.png",
+    "effect-seed.png", "effect-water.png", "effect-harvest.png", "watering-can-matched.png",
+    ...["strawberry-puree", "carrot-soup", "tomato-soup", "catnip-biscuits", "sunflower-rice", "pumpkin-puree"].map((name) => `dish-${name}.png`),
+    ...cropItems.flatMap((crop) => ["seed", "seedling", "growing", "mature"].map((stage) => `crop-${crop.id}-${stage}.png`)),
+    ...["orange", "cow", "white"].flatMap((cat) => [1, 2, 3, 4].map((frame) => `cat-${cat}-scratch-${frame}.png`)),
+  ];
+  for (const name of transparent) {
+    const png = await readFile(new URL(`../public/game/${name}`, import.meta.url));
+    assert.equal(png.subarray(1, 4).toString(), "PNG", name);
+    assert.ok([4, 6].includes(png[25]), `${name} must contain alpha`);
+  }
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /door-(?:room|yard)-(?:handle|open-[12])\.png|plot-(?:dry|wet)\.png/);
+  assert.match(css, /\.scene-door-room[^}]*clip-path|\.scene-door[^}]*clip-path/);
+  assert.match(css, /\.farm-plot[^}]*clip-path/);
 });
 
 test("weather and time preserve the interior colors", async () => {
@@ -70,13 +180,19 @@ test("weather and time preserve the interior colors", async () => {
 });
 
 test("uses the pixel cat paw cursor throughout the game", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
-  const cursor = await readFile(new URL("../public/game/cursor-cat-paw.png", import.meta.url));
-  assert.match(css, /\.game-stage \{[^}]*cursor: url\("\/game\/cursor-cat-paw\.png"\) 15 15, auto;/);
+  const cursor = await readFile(new URL("../public/game/cursor-cat-paw-native.cur", import.meta.url));
+  assert.doesNotMatch(source, /--paw-[xy]|cat-paw-cursor/);
+  assert.match(css, /\.game-stage \{[^}]*cursor: url\("\/game\/cursor-cat-paw-native\.cur"\), default !important;/);
   assert.match(css, /\.game-stage \* \{ cursor: inherit !important; \}/);
-  assert.equal(cursor.subarray(1, 4).toString(), "PNG");
-  assert.equal(cursor.readUInt32BE(16), 32);
-  assert.equal(cursor.readUInt32BE(20), 32);
+  assert.equal(cursor.readUInt16LE(2), 2);
+  assert.equal(cursor.readUInt16LE(10), 15);
+  assert.equal(cursor.readUInt16LE(12), 15);
+  assert.equal(cursor.readUInt32LE(22), 40);
+  assert.equal(cursor.readInt32LE(26), 32);
+  assert.equal(cursor.readInt32LE(30), 64);
+  assert.equal(cursor.readUInt16LE(36), 32);
 });
 
 test("maps the two pet stats to all nine animation states", () => {
@@ -131,7 +247,7 @@ test("sleep interruption clears the pending reward before the wake-up animation"
   const start = source.indexOf("function interruptSleep()");
   const end = source.indexOf("\n  function", start + 1);
   const interruptBody = source.slice(start, end);
-  assert.match(source, /onPointerMove=\{requestSleepInterrupt\}/);
+  assert.match(source, /onPointerMove=\{\(event\) => \{[\s\S]*requestSleepInterrupt\(\)/);
   assert.match(source, /是否要打断睡眠？/);
   assert.match(interruptBody, /sleepEndsAt: null, sleepRest: 0/);
   assert.match(interruptBody, /setWakingUp\(true\)/);
@@ -158,7 +274,9 @@ test("keeps every cat animation loaded and coordinates transitions", async () =>
     assert.equal(assets.filter((name) => new RegExp(`^cat-${cat}-(?:walk-v2|groom|yawn|wake-yawn)-[1-4]\\.png$`).test(name)).length, 16);
     const fixedFrames = assets.filter((name) => new RegExp(`^cat-${cat}-(?:walk|groom)-fixed-[1-4]\\.png$`).test(name));
     assert.equal(fixedFrames.length, 8);
-    for (const frame of fixedFrames) {
+    const scratchFrames = assets.filter((name) => new RegExp(`^cat-${cat}-scratch-[1-4]\\.png$`).test(name));
+    assert.equal(scratchFrames.length, 4);
+    for (const frame of [...fixedFrames, ...scratchFrames]) {
       const png = await readFile(new URL(`../public/game/${frame}`, import.meta.url));
       assert.equal(png.readUInt32BE(16), 418);
       assert.equal(png.readUInt32BE(20), 418);
@@ -167,10 +285,10 @@ test("keeps every cat animation loaded and coordinates transitions", async () =>
   }
   assert.match(source, /animationImages\.current = frames\.map/);
   assert.match(source, /image\.decode\(\)\.catch/);
-  assert.match(source, /const activePose: CatPose = resting \? "sleep"/);
-  assert.match(source, /const catAsset = resting \? pet\.sleep/);
+  assert.match(source, /const activePose: CatPose = resting \|\| lounging \? "sleep"/);
+  assert.match(source, /const catAsset = scratching \? pet\.scratchFrames/);
   assert.match(source, /setWalkDuration\(WALK_CYCLE_MS\)/);
-  assert.match(source, /clamp\(distance \* 14, WALK_CYCLE_MS \* 2, 900\)/);
+  assert.match(source, /Math\.hypot\(point\.x - from\.x, point\.y - from\.y\) \* 14/);
   assert.match(source, /const STATUS_IDLE_MS = 8000/);
   assert.match(source, /className=\{`cat-base cat-pose-\$\{activePose\}`\}[\s\S]*decoding="sync"/);
   assert.match(source, /const \[statusIdle, setStatusIdle\] = useState\(true\)/);
@@ -189,15 +307,18 @@ test("shop discloses distinct food and cat-bed recovery values", async () => {
 test("keeps desktop records local and shows release notes after an update", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const schema = await readFile(new URL("../db/schema.ts", import.meta.url), "utf8");
+  const checkins = await readFile(new URL("../db/checkins.ts", import.meta.url), "utf8");
   const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
   const api = await readFile(new URL("../app/api/checkins/route.ts", import.meta.url), "utf8");
   const electronMain = await readFile(new URL("../electron/main.cjs", import.meta.url), "utf8");
   const preload = await readFile(new URL("../electron/preload.cjs", import.meta.url), "utf8");
-  assert.match(source, /history\.slice\(historyPage \* 2, historyPage \* 2 \+ 2\)/);
-  assert.match(css, /\.notebook-page \{[^}]*height: 430px/);
-  assert.match(css, /\.notebook-entry textarea \{[^}]*height: 150px;[^}]*resize: none/);
-  assert.match(source, /CHECK-IN HISTORY[\s\S]*运动手账[\s\S]*写下运动后的心情/);
-  assert.match(source, /method: "PATCH"/);
+  assert.match(source, /historyDates\.slice\(historyPage \* 2, historyPage \* 2 \+ 2\)/);
+  assert.match(css, /\.notebook-page \{[^}]*min-height: 430px/);
+  assert.match(source, /TODAY&apos;S NOTE[\s\S]*今天发生了什么[\s\S]*JOURNAL HISTORY[\s\S]*往日日记/);
+  assert.match(source, /maxLength=\{300\}/);
+  assert.match(source, /checkedToday \? 0 : 20 \+ bonus/);
+  assert.doesNotMatch(source, /calorie|卡路里|千卡|智能估算/i);
+  assert.doesNotMatch(api, /calorie|estimateCalories/i);
   assert.doesNotMatch(source, /backup-consent|syncDesktopRecord|BACKUP_ORIGIN|云备份/);
   assert.match(source, /RELEASE_NOTES[\s\S]*version: "0\.2\.2"[\s\S]*仅保存在本机[\s\S]*version: "0\.2\.1"[\s\S]*手账翻回前一页[\s\S]*无面部像素草莓/);
   assert.match(source, /release-modal-layer[\s\S]*全部更新内容[\s\S]*RELEASE_NOTES\.map[\s\S]*知道了/);
@@ -207,6 +328,22 @@ test("keeps desktop records local and shows release notes after an update", asyn
   assert.match(electronMain, /app:version[\s\S]*app\.getVersion\(\)[\s\S]*checkForUpdates/);
   assert.match(preload, /version: \(\) => ipcRenderer\.invoke\("app:version"\)/);
   assert.match(schema, /mood: text\("mood"\)/);
+  assert.match(schema, /category: text\("category"\)/);
+  assert.match(checkins, /name === "mood"[\s\S]*ALTER TABLE checkins ADD mood TEXT/);
+});
+
+test("uses OH desktop branding and a stable cat-paw cursor", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  const desktopHtml = await readFile(new URL("../desktop/index.html", import.meta.url), "utf8");
+  const electronMain = await readFile(new URL("../electron/main.cjs", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /game-logo|关闭窗口回到小屋/);
+  assert.equal(packageJson.build.productName, "OH");
+  assert.equal(packageJson.build.nsis.shortcutName, "OH");
+  assert.match(desktopHtml, /<title>OH<\/title>/);
+  assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*title: "OH"[\s\S]*build\/icon\.png/);
+  assert.match(css, /\.game-stage \{[^}]*cursor: url\("\/game\/cursor-cat-paw-native\.cur"\), default !important;/);
 });
 
 test("server-renders the full-screen game without the old movement hint", async () => {

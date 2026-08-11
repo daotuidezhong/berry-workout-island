@@ -9,18 +9,18 @@ export async function generateMetadata(): Promise<Metadata> {
   const image = `${protocol}://${host}/og-v4.png`;
 
   return {
-    title: "莓好运动岛｜像素运动打卡游戏",
-    description: "在全屏 2D 小屋里自由记录运动、布置家具，用背包选择食物喂猫，并欣赏更自然的多帧猫咪动画。",
+    title: "OH｜像素生活日记小屋",
+    description: "在温暖的像素小屋里记录每日生活、照顾猫咪、布置房间，在院子种植并为伙伴烹饪食物。",
     openGraph: {
-      title: "莓好运动岛",
-      description: "全屏小屋、多帧猫咪、背包喂食、自由装扮。",
+      title: "OH 像素生活日记小屋",
+      description: "每日生活日记、猫咪陪伴、院子种植、厨房烹饪与自由装扮。",
       type: "website",
-      images: [{ url: image, width: 1730, height: 909, alt: "莓好运动岛 2D 游戏封面" }],
+      images: [{ url: image, width: 1730, height: 909, alt: "OH 像素生活日记小屋封面" }],
     },
     twitter: {
       card: "summary_large_image",
-      title: "莓好运动岛",
-      description: "全屏小屋、多帧猫咪、背包喂食、自由装扮。",
+      title: "OH 像素生活日记小屋",
+      description: "每日生活日记、猫咪陪伴、院子种植、厨房烹饪与自由装扮。",
       images: [image],
     },
   };

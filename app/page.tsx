@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { clampCatPosition, getFurnitureTarget, type Point } from "./game/furniture";
+import { getFurnitureTarget, type Point } from "./game/furniture";
 import { getTimePeriod, type TimePeriod } from "./game/time-period";
-import { estimateCalories } from "./game/calories";
-import { getRoomAsset, getWeatherKind, type WeatherKind } from "./game/weather";
+import { getSceneAsset, getWeatherKind, type WeatherKind } from "./game/weather";
+import { cropItems, EMPTY_FARM, formatCookingTime, formatGrowTime, getCookingProgress, getCropProgress, getCropStage, INITIAL_PRODUCE, INITIAL_SEEDS, waterUnwateredPlots, type CropId, type CropPlotState, type ProduceInventory, type SeedInventory } from "./game/farm";
+import { clampToScene, getWalkPath, YARD_OBSTACLES, type Rect, type SceneId } from "./game/scene";
 import {
   CAT_STATUS_ANIMATIONS,
   getCatStatus,
@@ -16,12 +17,16 @@ import {
 import { canPetMove, decayPetStatsByTime, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "./game/pet-stats";
 
 type PetId = "mitao" | "doubao" | "xueqiu";
-type OverlayId = "quest" | "history" | "bag" | "pets" | "shop" | null;
+type OverlayId = "quest" | "history" | "bag" | "pets" | "shop" | "kitchen" | null;
 type ShopCategory = "food" | "furniture";
-type CheckinRecord = { id: number; date: string; activity: string; minutes: number | null; calories: number | null; mood: string | null };
+type JournalCategory = "运动" | "学习" | "工作" | "饮食" | "心情" | "睡眠" | "娱乐" | "其他";
+type CheckinRecord = { id: number; date: string; content: string; category: JournalCategory; minutes: number | null; mood: string | null; createdAt: string };
 type DesktopUpdate = { phase: "available" | "downloading" | "downloaded" | "error"; name?: string; notes?: string; percent?: number; message?: string };
-type FoodId = "driedFish" | "chickenCan" | "salmonMousse" | "tunaRice" | "chickenCubes" | "catnipBiscuits";
+type StoreFoodId = "driedFish" | "chickenCan" | "salmonMousse" | "tunaRice" | "chickenCubes" | "catnipBiscuits";
+type CookedFoodId = "strawberryPuree" | "carrotSoup" | "tomatoSoup" | "catnipCookies" | "sunflowerRice" | "pumpkinPuree";
+type FoodId = StoreFoodId | CookedFoodId;
 type GameState = {
+  gameSchemaVersion: 4;
   statModelVersion: 2;
   berries: number;
   streak: number;
@@ -39,12 +44,18 @@ type GameState = {
   sleepEndsAt: number | null;
   sleepRest: number;
   furniturePositions: Record<string, Point>;
+  scene: SceneId;
+  farmPlots: CropPlotState[];
+  seeds: SeedInventory;
+  produce: ProduceInventory;
+  cooking: { dishId: CookedFoodId; startedAt: number; endsAt: number } | null;
 };
 
-const RELEASE_VERSION = "0.2.2";
+const RELEASE_VERSION = "0.3.0";
 const RELEASE_NOTES = [
-  { version: "0.2.2", items: ["桌面版运动记录与心情改为仅保存在本机", "更新完成后首次启动会直接弹出累计版本说明"] },
-  { version: "0.2.1", items: ["修复运动手账翻回前一页时尺寸变大的问题", "桌面与安装图标更换为无面部像素草莓", "新增游戏内版本更新说明"] },
+  { version: "0.3.0", items: ["今日运动任务升级为温暖的每日生活日记，支持分类、时长、心情和同日多篇记录", "每日首次记录奖励调整为 20 颗草莓，并修正连续记录的点亮方向", "新增院子种植、厨房烹饪进度和离线计时，丰富家具与猫咪互动", "更新房间、院子与天气场景，优化移动、浇水和收获体验"] },
+  { version: "0.2.2", items: ["桌面版生活记录与心情改为仅保存在本机", "更新完成后首次启动会直接弹出累计版本说明"] },
+  { version: "0.2.1", items: ["修复手账翻回前一页时尺寸变大的问题", "桌面与安装图标更换为无面部像素草莓", "新增游戏内版本更新说明"] },
 ];
 
 declare global {
@@ -69,16 +80,36 @@ const DEFAULT_FURNITURE_POSITIONS: Record<string, Point> = {
   table: { x: 61, y: 77 },
   cushion: { x: 78, y: 81 },
   chest: { x: 90, y: 78 },
+  strawberrySofa: { x: 44, y: 76 },
+  catTree: { x: 16, y: 70 },
+  fishFireplace: { x: 88, y: 66 },
+  wickerRocker: { x: 63, y: 76 },
+  creamVanity: { x: 27, y: 66 },
+  grandfatherClock: { x: 92, y: 64 },
+  fishScratcher: { x: 74, y: 82 },
+  flowerStool: { x: 56, y: 82 },
+  teaCart: { x: 37, y: 78 },
+  yarnBasket: { x: 84, y: 82 },
 };
 
-const foodItems = [
-  { id: "driedFish" as FoodId, name: "蝴蝶结小鱼干", detail: "香香脆脆", price: 12, energy: 14, asset: "/game/food-dried-fish.png" },
-  { id: "chickenCan" as FoodId, name: "鸡肉肉酱罐头", detail: "软乎乎的肉酱", price: 18, energy: 20, asset: "/game/food-chicken-can.png" },
-  { id: "salmonMousse" as FoodId, name: "三文鱼慕斯", detail: "细腻的鱼肉慕斯", price: 24, energy: 26, asset: "/game/food-salmon-mousse.png" },
-  { id: "tunaRice" as FoodId, name: "金枪鱼拌饭", detail: "满满的鱼肉碎", price: 28, energy: 30, asset: "/game/food-tuna-rice.png" },
-  { id: "chickenCubes" as FoodId, name: "冻干鸡肉粒", detail: "一口一个咔嚓脆", price: 22, energy: 24, asset: "/game/food-chicken-cubes.png" },
-  { id: "catnipBiscuits" as FoodId, name: "猫薄荷饼干", detail: "快乐的小爪饼干", price: 16, energy: 17, asset: "/game/food-catnip-biscuits.png" },
+const storeFoodItems = [
+  { id: "driedFish" as StoreFoodId, name: "蝴蝶结小鱼干", detail: "香香脆脆", price: 12, energy: 14, asset: "/game/food-dried-fish.png" },
+  { id: "chickenCan" as StoreFoodId, name: "鸡肉肉酱罐头", detail: "软乎乎的肉酱", price: 18, energy: 20, asset: "/game/food-chicken-can.png" },
+  { id: "salmonMousse" as StoreFoodId, name: "三文鱼慕斯", detail: "细腻的鱼肉慕斯", price: 24, energy: 26, asset: "/game/food-salmon-mousse.png" },
+  { id: "tunaRice" as StoreFoodId, name: "金枪鱼拌饭", detail: "满满的鱼肉碎", price: 28, energy: 30, asset: "/game/food-tuna-rice.png" },
+  { id: "chickenCubes" as StoreFoodId, name: "冻干鸡肉粒", detail: "一口一个咔嚓脆", price: 22, energy: 24, asset: "/game/food-chicken-cubes.png" },
+  { id: "catnipBiscuits" as StoreFoodId, name: "猫薄荷饼干", detail: "快乐的小爪饼干", price: 16, energy: 17, asset: "/game/food-catnip-biscuits.png" },
 ];
+
+const cookedDishes = [
+  { id: "strawberryPuree" as CookedFoodId, cropId: "strawberry" as CropId, name: "草莓鲜果泥", detail: "新鲜草莓细细打成泥", energy: 18, cookMinutes: 5, asset: "/game/dish-strawberry-puree.png" },
+  { id: "carrotSoup" as CookedFoodId, cropId: "carrot" as CropId, name: "胡萝卜浓汤", detail: "暖乎乎的橙色浓汤", energy: 20, cookMinutes: 8, asset: "/game/dish-carrot-soup.png" },
+  { id: "tomatoSoup" as CookedFoodId, cropId: "tomato" as CropId, name: "番茄鲜汤", detail: "小番茄煮出的鲜甜汤", energy: 22, cookMinutes: 10, asset: "/game/dish-tomato-soup.png" },
+  { id: "catnipCookies" as CookedFoodId, cropId: "catnip" as CropId, name: "猫薄荷鱼饼", detail: "烤成小鱼形的香脆饼", energy: 24, cookMinutes: 12, asset: "/game/dish-catnip-biscuits.png" },
+  { id: "sunflowerRice" as CookedFoodId, cropId: "sunflower" as CropId, name: "葵花籽拌饭", detail: "颗粒饱满的营养拌饭", energy: 27, cookMinutes: 15, asset: "/game/dish-sunflower-rice.png" },
+  { id: "pumpkinPuree" as CookedFoodId, cropId: "pumpkin" as CropId, name: "金黄南瓜泥", detail: "绵软香甜的南瓜泥", energy: 30, cookMinutes: 20, asset: "/game/dish-pumpkin-puree.png" },
+];
+const foodItems = [...storeFoodItems, ...cookedDishes];
 
 const furnitureItems = [
   { id: "rug", name: "草莓地毯", detail: "柔软的大地毯", price: 35, asset: "/game/furniture-rug.png", standHeight: 0 },
@@ -91,6 +122,16 @@ const furnitureItems = [
   { id: "table", name: "莓果小圆桌", detail: "一起坐下吃点心", price: 58, asset: "/game/furniture-table.png", standHeight: 8 },
   { id: "cushion", name: "爱心软垫", detail: "软绵绵的休息角", price: 42, asset: "/game/furniture-cushion.png", standHeight: 2 },
   { id: "chest", name: "木制玩具箱", detail: "收好猫咪的小玩具", price: 68, asset: "/game/furniture-chest.png", standHeight: 5 },
+  { id: "strawberrySofa", name: "草莓双人沙发", detail: "和草莓抱枕一起陷进软绵绵里。", price: 105, asset: "/game/furniture-strawberry-sofa.png", standHeight: 7, lounge: true },
+  { id: "catTree", name: "原木猫爬架", detail: "沿着原木台阶，一层层看更远。", price: 130, asset: "/game/furniture-cat-tree.png", standHeight: 11, platformHeights: [11, 22] },
+  { id: "fishFireplace", name: "小鱼壁炉", detail: "小鱼守着火光，雨夜也暖呼呼。", price: 120, asset: "/game/furniture-fish-fireplace.png", overlay: "/game/furniture-fish-fireplace-overlay.png", standHeight: null },
+  { id: "wickerRocker", name: "藤编摇椅", detail: "轻轻摇一摇，把困意晃成好梦。", price: 85, asset: "/game/furniture-wicker-rocker.png", standHeight: 8, lounge: true },
+  { id: "creamVanity", name: "奶油梳妆台", detail: "圆镜旁，梳好今天软乎乎的毛。", price: 95, asset: "/game/furniture-cream-vanity.png", standHeight: null },
+  { id: "grandfatherClock", name: "复古落地钟", detail: "滴答声慢慢走，屋子也安静下来。", price: 110, asset: "/game/furniture-grandfather-clock.png", overlay: "/game/furniture-grandfather-clock-overlay.png", standHeight: null },
+  { id: "fishScratcher", name: "鱼形抓板", detail: "小鱼肚皮正适合磨磨小爪。", price: 55, asset: "/game/furniture-fish-scratcher.png", standHeight: null, action: "scratch" as const },
+  { id: "flowerStool", name: "花朵矮凳", detail: "踩上一朵花，歇一会儿再出发。", price: 45, asset: "/game/furniture-flower-stool.png", standHeight: 5 },
+  { id: "teaCart", name: "茶点餐车", detail: "蛋糕与热茶，等一个悠闲下午。", price: 88, asset: "/game/furniture-tea-cart.png", standHeight: null },
+  { id: "yarnBasket", name: "毛线玩具篮", detail: "彩色毛线滚呀滚，快乐藏在篮子里。", price: 60, asset: "/game/furniture-yarn-basket.png", overlay: "/game/furniture-yarn-basket-overlay.png", standHeight: null, action: "scratch" as const },
 ];
 
 const pets = [
@@ -99,18 +140,21 @@ const pets = [
     walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-walk-fixed-${frame}.png`), idle: "/game/cat-orange-idle.png", sleep: "/game/cat-orange-sleep.png", wake: "/game/cat-orange-wake.png",
     wakeYawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-wake-yawn-${frame}.png`),
     groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-groom-fixed-${frame}.png`),
+    scratchFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-scratch-${frame}.png`),
   },
   {
     id: "doubao" as PetId, name: "豆包", kind: "奶牛猫", nature: "安静的陪跑员",
     walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-walk-fixed-${frame}.png`), idle: "/game/cat-cow-idle.png", sleep: "/game/cat-cow-sleep.png", wake: "/game/cat-cow-wake.png",
     wakeYawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-wake-yawn-${frame}.png`),
     groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-groom-fixed-${frame}.png`),
+    scratchFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-scratch-${frame}.png`),
   },
   {
     id: "xueqiu" as PetId, name: "雪球", kind: "白绒猫", nature: "爱撒娇的鼓励师",
     walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-walk-fixed-${frame}.png`), idle: "/game/cat-white-idle.png", sleep: "/game/cat-white-sleep.png", wake: "/game/cat-white-wake.png",
     wakeYawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-wake-yawn-${frame}.png`),
     groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-groom-fixed-${frame}.png`),
+    scratchFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-scratch-${frame}.png`),
   },
 ];
 
@@ -121,9 +165,16 @@ const INITIAL_INVENTORY: Record<FoodId, number> = {
   tunaRice: 0,
   chickenCubes: 0,
   catnipBiscuits: 0,
+  strawberryPuree: 0,
+  carrotSoup: 0,
+  tomatoSoup: 0,
+  catnipCookies: 0,
+  sunflowerRice: 0,
+  pumpkinPuree: 0,
 };
 
 const INITIAL_GAME: GameState = {
+  gameSchemaVersion: 4,
   statModelVersion: 2,
   berries: 48,
   streak: 0,
@@ -141,6 +192,11 @@ const INITIAL_GAME: GameState = {
   sleepEndsAt: null,
   sleepRest: 0,
   furniturePositions: DEFAULT_FURNITURE_POSITIONS,
+  scene: "room",
+  farmPlots: EMPTY_FARM,
+  seeds: INITIAL_SEEDS,
+  produce: INITIAL_PRODUCE,
+  cooking: null,
 };
 
 const milestones = [
@@ -149,6 +205,26 @@ const milestones = [
   { day: 14, bonus: 40 },
   { day: 30, bonus: 100 },
 ];
+
+const journalCategories: { name: JournalCategory; icon: string }[] = [
+  { name: "运动", icon: "🏃" }, { name: "学习", icon: "📖" }, { name: "工作", icon: "💼" }, { name: "饮食", icon: "🍙" },
+  { name: "心情", icon: "💗" }, { name: "睡眠", icon: "🌙" }, { name: "娱乐", icon: "🎮" }, { name: "其他", icon: "✨" },
+];
+const journalMoods = [
+  { name: "很差", icon: "😣" }, { name: "低落", icon: "😔" }, { name: "平静", icon: "😌" }, { name: "开心", icon: "😊" }, { name: "超棒", icon: "🤩" },
+];
+
+const PLOT_POSITIONS = [
+  { x: 38, y: 45, width: 9.5, height: 8.8 }, { x: 48, y: 45, width: 9.5, height: 8.8 }, { x: 58, y: 45, width: 9.5, height: 8.8 }, { x: 68, y: 45, width: 9.5, height: 8.8 },
+  { x: 36, y: 56, width: 10, height: 9.5 }, { x: 46, y: 56, width: 10, height: 9.5 }, { x: 56, y: 56, width: 10, height: 9.5 }, { x: 67, y: 56, width: 10, height: 9.5 },
+  { x: 34, y: 70, width: 10.5, height: 10 }, { x: 45, y: 70, width: 10.5, height: 10 }, { x: 56, y: 70, width: 10.5, height: 10 }, { x: 68, y: 70, width: 10.5, height: 10 },
+];
+
+const FURNITURE_FOOTPRINTS: Record<string, { halfWidth: number; height: number }> = {
+  bookcase: { halfWidth: 5, height: 11 }, table: { halfWidth: 7, height: 6 }, chest: { halfWidth: 5, height: 6 },
+  strawberrySofa: { halfWidth: 9, height: 7 }, catTree: { halfWidth: 6, height: 15 }, fishFireplace: { halfWidth: 7, height: 11 },
+  wickerRocker: { halfWidth: 6, height: 9 }, creamVanity: { halfWidth: 7, height: 11 }, grandfatherClock: { halfWidth: 4, height: 14 }, teaCart: { halfWidth: 6, height: 8 },
+};
 
 const WAKE_YAWN_SEQUENCE = [0, 1, 2, 3, 3, 2, 1, 0];
 const WAKE_SEQUENCE_LENGTH = WAKE_YAWN_SEQUENCE.length + 3;
@@ -171,8 +247,10 @@ export default function Home() {
   const [overlay, setOverlay] = useState<OverlayId>(null);
   const [shopCategory, setShopCategory] = useState<ShopCategory>("food");
   const [selectedFood, setSelectedFood] = useState<FoodId>("driedFish");
-  const [activityText, setActivityText] = useState("");
-  const [durationMinutes, setDurationMinutes] = useState(30);
+  const [noteText, setNoteText] = useState("");
+  const [category, setCategory] = useState<JournalCategory>("其他");
+  const [durationMinutes, setDurationMinutes] = useState("");
+  const [mood, setMood] = useState("");
   const [deviceId, setDeviceId] = useState("");
   const [history, setHistory] = useState<CheckinRecord[]>([]);
   const [historyPage, setHistoryPage] = useState(0);
@@ -204,11 +282,23 @@ export default function Home() {
   const [desktopUpdate, setDesktopUpdate] = useState<DesktopUpdate | null>(null);
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
   const [direction, setDirection] = useState<"left" | "right">("right");
+  const [seedStorageOpen, setSeedStorageOpen] = useState(false);
+  const [selectedSeed, setSelectedSeed] = useState<CropId | null>(null);
+  const [watering, setWatering] = useState(false);
+  const [wateringPlot, setWateringPlot] = useState<number | null>(null);
+  const [farmNow, setFarmNow] = useState(Date.now());
+  const [kitchenNow, setKitchenNow] = useState(Date.now());
+  const [sceneTransition, setSceneTransition] = useState(false);
+  const [lounging, setLounging] = useState(false);
+  const [scratching, setScratching] = useState(false);
+  const [scratchFrame, setScratchFrame] = useState(0);
+  const [plotEffect, setPlotEffect] = useState<{ index: number; type: "seed" | "water" | "harvest" } | null>(null);
   const roomRef = useRef<HTMLDivElement>(null);
   const walkingTimer = useRef<number | undefined>(undefined);
   const headShakeTimer = useRef<number | undefined>(undefined);
   const sleepInterruptReadyAt = useRef(0);
   const animationImages = useRef<HTMLImageElement[]>([]);
+  const scratchTimer = useRef<number | undefined>(undefined);
   const desiredCatStatus = getCatStatus(game.energy, game.sleepiness);
 
   useEffect(() => {
@@ -216,6 +306,8 @@ export default function Home() {
     const current = localDate(now);
     setToday(current);
     setDateLabel(now.toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "short" }));
+    const savedCategory = window.localStorage.getItem("berry-journal-category") as JournalCategory | null;
+    if (journalCategories.some((item) => item.name === savedCategory)) setCategory(savedCategory!);
 
     const saved = window.localStorage.getItem("berry-workout-game");
     let savedDeviceId = window.localStorage.getItem("berry-workout-device");
@@ -229,15 +321,21 @@ export default function Home() {
         const parsed = JSON.parse(saved) as Partial<GameState> & { food?: number };
         const legacyFood = typeof parsed.food === "number" ? parsed.food : INITIAL_INVENTORY.driedFish;
         const inventory = { ...INITIAL_INVENTORY, ...(parsed.inventory ?? {}) };
+        const scene: SceneId = parsed.scene === "yard" ? "yard" : "room";
         if (!parsed.inventory) inventory.driedFish = legacyFood;
         const merged: GameState = {
           ...INITIAL_GAME,
           ...parsed,
           inventory,
+          gameSchemaVersion: 4,
           purchased: Array.isArray(parsed.purchased) ? parsed.purchased : [],
           petNames: { ...INITIAL_GAME.petNames, ...(parsed.petNames ?? {}) },
-          catPosition: clampCatPosition(parsed.catPosition ?? INITIAL_GAME.catPosition),
+          catPosition: clampToScene(parsed.catPosition ?? INITIAL_GAME.catPosition, scene, scene === "yard" ? YARD_OBSTACLES : []),
           furniturePositions: { ...DEFAULT_FURNITURE_POSITIONS, ...(parsed.furniturePositions ?? {}) },
+          scene,
+          farmPlots: Array.from({ length: 12 }, (_, index) => parsed.farmPlots?.[index] ?? null),
+          seeds: { ...INITIAL_SEEDS, ...(parsed.seeds ?? {}) },
+          produce: { ...INITIAL_PRODUCE, ...(parsed.produce ?? {}) },
         };
         if (parsed.statModelVersion !== 2) {
           merged.sleepiness = 100 - clamp(merged.sleepiness, 0, 100);
@@ -249,7 +347,6 @@ export default function Home() {
           midnight.setHours(0, 0, 0, 0);
           if (Math.round((midnight.getTime() - previous.getTime()) / 86400000) > 1) merged.streak = 0;
         }
-        if (merged.lastCheckin === current && merged.lastActivity) setActivityText(merged.lastActivity);
         const nowMs = now.getTime();
         merged.statsUpdatedAt = typeof parsed.statsUpdatedAt === "number" && parsed.statsUpdatedAt > 0 ? parsed.statsUpdatedAt : nowMs;
         const sleepRemaining = getSleepRemainingMs(merged.sleepEndsAt, nowMs);
@@ -278,7 +375,12 @@ export default function Home() {
     let cancelled = false;
     const loadHistory = async () => {
       if (navigator.userAgent.includes("BerryWorkoutDesktop")) {
-        const records = JSON.parse(window.localStorage.getItem("berry-workout-history") ?? "[]") as CheckinRecord[];
+        const records = (JSON.parse(window.localStorage.getItem("berry-workout-history") ?? "[]") as (CheckinRecord & { activity?: string })[]).map((record) => ({
+          ...record,
+          content: record.content ?? record.activity ?? "",
+          category: record.category ?? "其他",
+          createdAt: record.createdAt ?? `${record.date}T00:00:00`,
+        }));
         if (!cancelled) setHistory(records);
         return;
       }
@@ -291,14 +393,12 @@ export default function Home() {
           const migrated = await fetch("/api/checkins", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ deviceId, date: game.lastCheckin, activity: game.lastActivity, minutes: null }),
+            body: JSON.stringify({ deviceId, date: game.lastCheckin, content: game.lastActivity, category: "其他", minutes: null, mood: null }),
           });
           if (migrated.ok) records = [(await migrated.json() as { record: CheckinRecord }).record];
         }
         if (!cancelled) {
           setHistory(records);
-          const todayRecord = records.find((record) => record.date === today);
-          if (todayRecord?.minutes) setDurationMinutes(todayRecord.minutes);
         }
       } catch {
         if (!cancelled) setToast("历史记录暂时无法载入");
@@ -324,7 +424,10 @@ export default function Home() {
         if (!response.ok) throw new Error();
         const data = await response.json() as { current: { weather_code: number; cloud_cover: number; precipitation: number } };
         const kind = getWeatherKind(data.current.weather_code, data.current.precipitation, data.current.cloud_cover);
-        if (!cancelled) setWeather({ kind, label: labels[kind] });
+        if (!cancelled) {
+          setWeather({ kind, label: labels[kind] });
+          if (kind === "rain" || kind === "thunderstorm") setGame((current) => ({ ...current, farmPlots: waterUnwateredPlots(current.farmPlots) }));
+        }
       } catch {
         try {
           const response = await fetch("https://wttr.in/Foshan?format=j1");
@@ -334,7 +437,10 @@ export default function Home() {
           const description = current.weatherDesc[0]?.value.toLowerCase() ?? "";
           const code = description.includes("thunder") ? 95 : description.includes("rain") || description.includes("drizzle") || description.includes("shower") ? 61 : description.includes("cloud") || description.includes("overcast") ? 3 : 0;
           const kind = getWeatherKind(code, Number(current.precipMM), Number(current.cloudcover));
-          if (!cancelled) setWeather({ kind, label: labels[kind] });
+          if (!cancelled) {
+            setWeather({ kind, label: labels[kind] });
+            if (kind === "rain" || kind === "thunderstorm") setGame((current) => ({ ...current, farmPlots: waterUnwateredPlots(current.farmPlots) }));
+          }
         } catch {
           if (!cancelled) setWeather((current) => ({ ...current, label: "天气暂时无法同步" }));
         }
@@ -351,6 +457,41 @@ export default function Home() {
   useEffect(() => {
     if (ready) window.localStorage.setItem("berry-workout-game", JSON.stringify(game));
   }, [game, ready]);
+
+  useEffect(() => {
+    const updateFarm = () => setFarmNow(Date.now());
+    const timer = window.setInterval(updateFarm, 60_000);
+    window.addEventListener("focus", updateFarm);
+    document.addEventListener("visibilitychange", updateFarm);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", updateFarm);
+      document.removeEventListener("visibilitychange", updateFarm);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!game.cooking) return;
+    const updateCooking = () => setKitchenNow(Date.now());
+    updateCooking();
+    const timer = window.setInterval(updateCooking, 1000);
+    return () => window.clearInterval(timer);
+  }, [game.cooking]);
+
+  useEffect(() => {
+    if (!ready || !game.cooking || kitchenNow < game.cooking.endsAt) return;
+    const dish = cookedDishes.find((item) => item.id === game.cooking?.dishId);
+    if (!dish) return;
+    const timer = window.setTimeout(() => {
+      setGame((current) => current.cooking?.dishId === dish.id ? {
+        ...current,
+        cooking: null,
+        inventory: { ...current.inventory, [dish.id]: current.inventory[dish.id] + 1 },
+      } : current);
+      setToast(`${dish.name}做好啦，成品已放进背包`);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [game.cooking, kitchenNow, ready]);
 
   useEffect(() => {
     const updater = window.gameUpdater;
@@ -419,7 +560,7 @@ export default function Home() {
   }, [toast]);
 
   useEffect(() => {
-    const frames = pets.flatMap((item) => [item.idle, item.sleep, item.wake, ...item.wakeYawnFrames, ...item.walkFrames, ...item.groomFrames]);
+    const frames = pets.flatMap((item) => [item.idle, item.sleep, item.wake, ...item.wakeYawnFrames, ...item.walkFrames, ...item.groomFrames, ...item.scratchFrames]);
     animationImages.current = frames.map((src) => {
       const image = new Image();
       image.src = src;
@@ -430,6 +571,12 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    const image = new Image();
+    image.src = getSceneAsset(game.scene === "room" ? "yard" : "room", weather.kind, timePeriod);
+    image.decode().catch(() => undefined);
+  }, [game.scene, timePeriod, weather.kind]);
+
+  useEffect(() => {
     if (!walking) {
       setWalkFrame(0);
       return;
@@ -437,6 +584,32 @@ export default function Home() {
     const timer = window.setInterval(() => setWalkFrame((frame) => (frame + 1) % 4), WALK_FRAME_MS);
     return () => window.clearInterval(timer);
   }, [walking]);
+
+  useEffect(() => {
+    if (!scratching) return;
+    let frame = 0;
+    scratchTimer.current = window.setInterval(() => {
+      frame += 1;
+      if (frame >= 8) {
+        window.clearInterval(scratchTimer.current);
+        setScratchFrame(0);
+        setScratching(false);
+        return;
+      }
+      setScratchFrame(frame % 4);
+    }, 180);
+    return () => window.clearInterval(scratchTimer.current);
+  }, [scratching]);
+
+  useEffect(() => {
+    if (game.scene !== "room" || !game.purchased.includes("yarnBasket") || overlay || decorating || walking || resting || lounging || wakingUp || scratching) return;
+    const timer = window.setInterval(() => {
+      if (Math.random() >= .2) return;
+      const item = furnitureItems.find((furniture) => furniture.id === "yarnBasket")!;
+      moveCatToFurniture(item, game.furniturePositions.yarnBasket ?? DEFAULT_FURNITURE_POSITIONS.yarnBasket);
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [decorating, game.catFurniture, game.catPosition.x, game.catPosition.y, game.energy, game.furniturePositions.yarnBasket, game.pet, game.purchased, game.scene, lounging, overlay, resting, scratching, wakingUp, walking]);
 
   useEffect(() => {
     if (!wakingUp) return;
@@ -458,7 +631,7 @@ export default function Home() {
   }, [wakingUp]);
 
   useEffect(() => {
-    if (overlay || walking || decorating || resting || wakingUp) return;
+    if (overlay || walking || decorating || resting || lounging || scratching || wakingUp) return;
     if (statusIdle) {
       const timer = window.setTimeout(() => {
         if (desiredCatStatus !== catStatus) {
@@ -489,10 +662,10 @@ export default function Home() {
       setStatusIdle(true);
     }, currentFrame.duration);
     return () => window.clearTimeout(timer);
-  }, [catStatus, decorating, desiredCatStatus, overlay, resting, statusFrame, statusIdle, statusTransition, statusTransitionTarget, wakingUp, walking]);
+  }, [catStatus, decorating, desiredCatStatus, lounging, overlay, resting, scratching, statusFrame, statusIdle, statusTransition, statusTransitionTarget, wakingUp, walking]);
 
   useEffect(() => {
-    if (overlay || decorating) return;
+    if (game.scene !== "room" || overlay || decorating || sceneTransition) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.target instanceof HTMLElement && event.target.closest("input, textarea, [contenteditable='true']")) return;
       const moves: Record<string, Point> = {
@@ -507,23 +680,26 @@ export default function Home() {
       if (refuseMovement()) return;
       if (move.x) setDirection(move.x < 0 ? "left" : "right");
       setWalkDuration(WALK_CYCLE_MS);
+      const obstacles = getSceneObstacles();
       setGame((current) => ({
         ...current,
-        catPosition: clampCatPosition({
+        catPosition: clampToScene({
           x: current.catPosition.x + move.x,
           y: current.catPosition.y + move.y,
-        }),
+        }, current.scene, obstacles),
         catFurniture: null,
       }));
       resetStatusAnimation();
       setResting(false);
+      setLounging(false);
+      setScratching(false);
       setJumping(false);
       setWalking(true);
       finishWalkAfter(WALK_CYCLE_MS);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [decorating, game.energy, overlay, resting, sleepRemainingMs, wakingUp]);
+  }, [decorating, game.energy, game.scene, overlay, resting, sceneTransition, sleepRemainingMs, wakingUp]);
 
   useEffect(() => {
     const onEscape = (event: KeyboardEvent) => {
@@ -566,16 +742,14 @@ export default function Home() {
   const checkedToday = Boolean(today && game.lastCheckin === today);
   const basePet = pets.find((item) => item.id === game.pet) ?? pets[0];
   const pet = { ...basePet, name: game.petNames[basePet.id] };
-  const nextStreak = game.streak + (checkedToday ? 0 : 1);
-  const streakBonus = milestones.find((item) => item.day === nextStreak)?.bonus ?? 0;
-  const checkinReward = 8 + streakBonus;
-  const estimatedCalories = estimateCalories(activityText, durationMinutes);
   const nextMilestone = milestones.find((item) => item.day > game.streak);
   const ownedFurniture = furnitureItems.filter((item) => game.purchased.includes(item.id));
   const totalFood = foodItems.reduce((total, item) => total + game.inventory[item.id], 0);
+  const totalProduce = cropItems.reduce((total, crop) => total + game.produce[crop.id], 0);
   const selectedFoodItem = foodItems.find((item) => item.id === selectedFood) ?? foodItems[0];
-  const historyPageCount = Math.max(1, Math.ceil(history.length / 2));
-  const historyPageRecords = history.slice(historyPage * 2, historyPage * 2 + 2);
+  const historyDates = [...new Set(history.map((record) => record.date))];
+  const historyPageCount = Math.max(1, Math.ceil(historyDates.length / 2));
+  const historyPageDates = historyDates.slice(historyPage * 2, historyPage * 2 + 2);
   const statusFrames = statusTransition ?? CAT_STATUS_ANIMATIONS[catStatus].frames;
   const currentStatusFrame: CatAnimationFrame = statusIdle
     ? { pose: catStatus === "low-high" ? "sleep" : "idle", duration: STATUS_IDLE_MS }
@@ -593,10 +767,10 @@ export default function Home() {
             ? pet.wake
             : pet.idle;
   const wakeSequenceAssets = [pet.sleep, pet.wake, ...WAKE_YAWN_SEQUENCE.map((frame) => pet.wakeYawnFrames[frame]), pet.idle];
-  const activePose: CatPose = resting ? "sleep" : wakingUp ? "wake" : walking ? "walk" : currentStatusFrame.pose;
-  const catAsset = resting ? pet.sleep : wakingUp ? wakeSequenceAssets[wakeFrame] : walking ? pet.walkFrames[walkFrame] : statusAsset;
-  const motionX = walking || resting || wakingUp ? 0 : (currentStatusFrame.x ?? 0) * (direction === "left" ? -1 : 1);
-  const motionY = walking || resting || wakingUp ? 0 : currentStatusFrame.y ?? 0;
+  const activePose: CatPose = resting || lounging ? "sleep" : wakingUp ? "wake" : walking ? "walk" : currentStatusFrame.pose;
+  const catAsset = scratching ? pet.scratchFrames[scratchFrame] : resting || lounging ? pet.sleep : wakingUp ? wakeSequenceAssets[wakeFrame] : walking ? pet.walkFrames[walkFrame] : statusAsset;
+  const motionX = walking || resting || lounging || wakingUp || scratching ? 0 : (currentStatusFrame.x ?? 0) * (direction === "left" ? -1 : 1);
+  const motionY = walking || resting || lounging || wakingUp || scratching ? 0 : currentStatusFrame.y ?? 0;
 
   function openOverlay(id: Exclude<OverlayId, null>) {
     setDecorating(false);
@@ -622,28 +796,6 @@ export default function Home() {
       setJumping(false);
       onFinished?.();
     }, duration + 60);
-  }
-
-  async function saveMood(id: number, mood: string) {
-    if (!deviceId) return;
-    if (navigator.userAgent.includes("BerryWorkoutDesktop")) {
-      const updated = history.map((record) => record.id === id ? { ...record, mood } : record);
-      window.localStorage.setItem("berry-workout-history", JSON.stringify(updated));
-      setHistory(updated);
-      setToast("心情已经写进本机手账");
-      return;
-    }
-    try {
-      const response = await fetch("/api/checkins", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ deviceId, id, mood }),
-      });
-      if (!response.ok) throw new Error();
-      setToast("心情已经写进手账");
-    } catch {
-      setToast("心情暂时无法保存");
-    }
   }
 
   function requestSleepInterrupt() {
@@ -686,44 +838,65 @@ export default function Home() {
     return true;
   }
 
+  function getSceneObstacles(excludeFurniture?: string): Rect[] {
+    if (game.scene === "yard") return YARD_OBSTACLES;
+    return ownedFurniture.flatMap((item) => {
+      if (item.id === excludeFurniture || item.id === game.catFurniture) return [];
+      const footprint = FURNITURE_FOOTPRINTS[item.id];
+      if (!footprint) return [];
+      const position = game.furniturePositions[item.id] ?? DEFAULT_FURNITURE_POSITIONS[item.id];
+      return [{ left: position.x - footprint.halfWidth, right: position.x + footprint.halfWidth, top: position.y - footprint.height, bottom: position.y + 2 }];
+    });
+  }
+
   function moveCat(event: React.PointerEvent<HTMLDivElement>) {
-    if (decorating || overlay || (event.target as HTMLElement).closest("[data-furniture]")) return;
+    if (game.scene !== "room" || decorating || overlay || sceneTransition || (event.target as HTMLElement).closest("[data-interactive], [data-furniture]")) return;
     if (refuseMovement()) return;
     const rect = event.currentTarget.getBoundingClientRect();
-    const { x, y } = clampCatPosition({
+    const obstacles = getSceneObstacles();
+    const target = clampToScene({
       x: ((event.clientX - rect.left) / rect.width) * 100,
       y: ((event.clientY - rect.top) / rect.height) * 100,
-    });
-    const distance = Math.hypot(x - game.catPosition.x, y - game.catPosition.y);
-    const duration = Math.round(clamp(distance * 14, WALK_CYCLE_MS * 2, 900));
-    setDirection(x < game.catPosition.x ? "left" : "right");
-    setWalkDuration(duration);
-    setGame((current) => ({ ...current, catPosition: { x, y }, catFurniture: null }));
-    resetStatusAnimation();
-    setResting(false);
-    setJumping(false);
-    setWalking(true);
-    finishWalkAfter(duration);
+    }, game.scene, obstacles);
+    walkCatTo(target);
     event.currentTarget.focus();
   }
 
-  function moveCatToFurniture(item: (typeof furnitureItems)[number], position: Point) {
-    if (refuseMovement(Boolean(item.rest))) return;
-    const target = getFurnitureTarget(position, item.standHeight);
-    const distance = Math.hypot(target.x - game.catPosition.x, target.y - game.catPosition.y);
-    const duration = Math.round(clamp(distance * 14, WALK_CYCLE_MS * 2, 900));
-    setDirection(target.x < game.catPosition.x ? "left" : "right");
-    setWalkDuration(duration);
+  function walkCatTo(target: Point, onFinished?: () => void, shouldJump = false, excludeFurniture?: string) {
+    const obstacles = getSceneObstacles(excludeFurniture);
+    const path = getWalkPath(game.catPosition, target, game.scene, obstacles);
+    let from = game.catPosition;
     resetStatusAnimation();
     setResting(false);
-    setJumping(target.jumping);
+    setLounging(false);
+    setScratching(false);
+    setJumping(shouldJump);
     setWalking(true);
-    setGame((current) => ({
-      ...current,
-      catPosition: { x: target.x, y: target.y },
-      catFurniture: target.onTop ? item.id : null,
-    }));
-    finishWalkAfter(duration, () => {
+    const step = (index: number) => {
+      const point = path[index];
+      const duration = Math.round(clamp(Math.hypot(point.x - from.x, point.y - from.y) * 14, WALK_CYCLE_MS * 2, 900));
+      setDirection(point.x < from.x ? "left" : "right");
+      setWalkDuration(duration);
+      setGame((current) => ({ ...current, catPosition: point, catFurniture: null }));
+      from = point;
+      window.clearTimeout(walkingTimer.current);
+      walkingTimer.current = window.setTimeout(() => {
+        if (index + 1 < path.length) step(index + 1);
+        else {
+          setWalking(false);
+          setJumping(false);
+          onFinished?.();
+        }
+      }, duration + 60);
+    };
+    step(0);
+  }
+
+  function moveCatToFurniture(item: (typeof furnitureItems)[number], position: Point, heightOverride?: number) {
+    if (refuseMovement(Boolean(item.rest))) return;
+    const target = getFurnitureTarget(position, heightOverride ?? item.standHeight);
+    walkCatTo(target, () => {
+      setGame((current) => ({ ...current, catFurniture: target.onTop ? item.id : null }));
       if (item.rest) {
         const sleepEndsAt = Date.now() + SLEEP_DURATION_MS;
         setResting(true);
@@ -731,44 +904,47 @@ export default function Home() {
         sleepInterruptReadyAt.current = Date.now() + 900;
         setGame((current) => ({ ...current, statsUpdatedAt: Date.now(), sleepEndsAt, sleepRest: item.rest }));
         setToast(`${pet.name}开始在${item.name}睡觉，3小时后困倦值降低 ${item.rest}`);
+      } else if ("lounge" in item && item.lounge) {
+        setLounging(true);
+        setToast(`${pet.name}在${item.name}上安静地休息`);
+      } else if ("action" in item && item.action === "scratch") {
+        setScratching(true);
+        setToast(item.id === "yarnBasket" ? `${pet.name}拨动了彩色毛线球` : `${pet.name}认真磨了磨小爪子`);
       }
-    });
+    }, target.jumping, item.id);
   }
 
   async function checkIn(event: React.FormEvent) {
     event.preventDefault();
-    const completedActivity = activityText.trim();
-    if (!ready || checkedToday || !completedActivity || !deviceId || savingCheckin) return;
+    const content = noteText.trim();
+    if (!ready || !content || !deviceId || savingCheckin) return;
     const next = game.streak + 1;
     const bonus = milestones.find((item) => item.day === next)?.bonus ?? 0;
-    const reward = 8 + bonus;
+    const reward = checkedToday ? 0 : 20 + bonus;
+    const minutes = durationMinutes ? Number(durationMinutes) : null;
     setSavingCheckin(true);
     try {
       let record: CheckinRecord;
       if (navigator.userAgent.includes("BerryWorkoutDesktop")) {
-        record = { id: Date.now(), date: today, activity: completedActivity, minutes: durationMinutes, calories: estimatedCalories, mood: null };
-        const records = [record, ...history.filter((item) => item.date !== record.date)];
+        record = { id: Date.now(), date: today, content, category, minutes, mood: mood || null, createdAt: new Date().toISOString() };
+        const records = [record, ...history];
         window.localStorage.setItem("berry-workout-history", JSON.stringify(records));
       } else {
         const response = await fetch("/api/checkins", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ deviceId, date: today, activity: completedActivity, minutes: durationMinutes }),
+          body: JSON.stringify({ deviceId, date: today, content, category, minutes, mood: mood || null }),
         });
         if (!response.ok) throw new Error();
         record = (await response.json() as { record: CheckinRecord }).record;
       }
-      setHistory((records) => [record, ...records.filter((item) => item.date !== record.date)]);
-      setGame((current) => ({
-        ...current,
-        berries: current.berries + reward,
-        streak: next,
-        lastCheckin: today,
-        lastActivity: completedActivity,
-        energy: Math.min(100, current.energy + 8),
-        sleepiness: Math.max(0, current.sleepiness - 8),
-      }));
-      setToast(bonus ? `连续 ${next} 天！获得 ${reward} 颗草莓` : `记录成功！获得 ${reward} 颗草莓`);
+      setHistory((records) => [record, ...records]);
+      if (!checkedToday) setGame((current) => ({ ...current, berries: current.berries + reward, streak: next, lastCheckin: today, lastActivity: content }));
+      setNoteText("");
+      setDurationMinutes("");
+      setMood("");
+      window.localStorage.setItem("berry-journal-category", category);
+      setToast("今天的记忆已经收好啦 🍓");
     } catch {
       setToast("记录保存失败，请稍后再试");
     } finally {
@@ -776,9 +952,9 @@ export default function Home() {
     }
   }
 
-  function buyFood(item: (typeof foodItems)[number]) {
+  function buyFood(item: (typeof storeFoodItems)[number]) {
     if (game.berries < item.price) {
-      setToast("草莓不够，再完成几次运动吧！");
+      setToast("草莓不够，再写几篇日记吧！");
       return;
     }
     setGame((current) => ({
@@ -792,7 +968,7 @@ export default function Home() {
   function buyFurniture(item: (typeof furnitureItems)[number]) {
     if (game.purchased.includes(item.id)) return;
     if (game.berries < item.price) {
-      setToast("草莓不够，再完成几次运动吧！");
+      setToast("草莓不够，再写几篇日记吧！");
       return;
     }
     setGame((current) => ({
@@ -826,6 +1002,25 @@ export default function Home() {
     setToast(`${pet.name} 吃掉了${item.name}，活力 +${item.energy}`);
   }
 
+  function cookDish(dish: (typeof cookedDishes)[number]) {
+    if (game.cooking) {
+      setToast("灶台正在忙，等这道菜做好吧");
+      return;
+    }
+    if (!game.produce[dish.cropId]) {
+      setToast(`背包里没有${cropItems.find((crop) => crop.id === dish.cropId)?.name}了`);
+      return;
+    }
+    const startedAt = Date.now();
+    setKitchenNow(startedAt);
+    setGame((current) => ({
+      ...current,
+      produce: { ...current.produce, [dish.cropId]: current.produce[dish.cropId] - 1 },
+      cooking: { dishId: dish.id, startedAt, endsAt: startedAt + dish.cookMinutes * 60_000 },
+    }));
+    setToast(`${dish.name}开始烹饪，${dish.cookMinutes} 分钟后完成`);
+  }
+
   function adoptPet(id: PetId) {
     const chosen = pets.find((item) => item.id === id)!;
     setGame((current) => ({ ...current, pet: id }));
@@ -835,6 +1030,115 @@ export default function Home() {
   function resetFurniture() {
     setGame((current) => ({ ...current, furniturePositions: { ...DEFAULT_FURNITURE_POSITIONS } }));
     setToast("家具已经恢复到推荐位置");
+  }
+
+  function changeScene() {
+    if (sceneTransition) return;
+    if (resting) {
+      requestSleepInterrupt();
+      return;
+    }
+    setOverlay(null);
+    setDecorating(false);
+    setSeedStorageOpen(false);
+    setSelectedSeed(null);
+    setWatering(false);
+    setWateringPlot(null);
+    setLounging(false);
+    setScratching(false);
+    window.clearTimeout(walkingTimer.current);
+    setWalking(false);
+    setSceneTransition(true);
+    window.setTimeout(() => {
+      setGame((current) => ({
+        ...current,
+        scene: current.scene === "room" ? "yard" : "room",
+        catPosition: current.scene === "yard" ? { x: 78, y: 61 } : current.catPosition,
+        catFurniture: null,
+      }));
+      window.setTimeout(() => setSceneTransition(false), 80);
+    }, 320);
+  }
+
+  function buySeed(cropId: CropId) {
+    const crop = cropItems.find((item) => item.id === cropId)!;
+    if (game.berries < crop.seedPrice) {
+      setToast("草莓不够，先完成记录或收获作物吧");
+      return;
+    }
+    setGame((current) => ({
+      ...current,
+      berries: current.berries - crop.seedPrice,
+      seeds: { ...current.seeds, [cropId]: current.seeds[cropId] + 1 },
+    }));
+    setToast(`买到一包${crop.name}种子`);
+  }
+
+  function plantCrop(index: number, cropId: CropId) {
+    if (!game.seeds[cropId]) {
+      setToast("先买一包种子吧");
+      return;
+    }
+    const now = Date.now();
+    const wateredAt = weather.kind === "rain" || weather.kind === "thunderstorm" ? now : null;
+    setGame((current) => ({
+      ...current,
+      seeds: { ...current.seeds, [cropId]: current.seeds[cropId] - 1 },
+      farmPlots: current.farmPlots.map((plot, plotIndex) => plotIndex === index ? { cropId, plantedAt: now, wateredAt } : plot),
+    }));
+    if (game.seeds[cropId] <= 1) setSelectedSeed(null);
+    setFarmNow(now);
+    setPlotEffect({ index, type: "seed" });
+    window.setTimeout(() => setPlotEffect(null), 700);
+    setToast(wateredAt ? "种子种下啦，雨水也帮忙浇好了" : "种子种下啦，记得去拿浇水壶");
+  }
+
+  function handlePlot(index: number) {
+    const plot = game.farmPlots[index];
+    if (!plot) {
+      if (watering) setToast("这块田还没有播种");
+      else if (selectedSeed) plantCrop(index, selectedSeed);
+      else setToast("先点击右侧种子仓库选择种子");
+      return;
+    }
+    if (selectedSeed) {
+      setToast("这块田已经有作物了，换一块空田吧");
+      return;
+    }
+    if (watering) {
+      setWateringPlot(index);
+      window.setTimeout(() => setWateringPlot(null), 900);
+      if (plot.wateredAt) setToast("这块土已经湿润啦");
+      else {
+        const now = Date.now();
+        setGame((current) => ({ ...current, farmPlots: current.farmPlots.map((item, plotIndex) => plotIndex === index && item ? { ...item, wateredAt: now } : item) }));
+        setFarmNow(now);
+        setPlotEffect({ index, type: "water" });
+        window.setTimeout(() => setPlotEffect(null), 900);
+        setToast("浇好水啦，种子开始慢慢长大");
+      }
+      return;
+    }
+    if (getCropStage(plot, farmNow) !== "mature") {
+      setToast(plot.wateredAt ? "还在慢慢长大，再等等吧" : "还没浇水，种子正在土里等你");
+      return;
+    }
+    const crop = cropItems.find((item) => item.id === plot.cropId)!;
+    setGame((current) => ({
+      ...current,
+      produce: { ...current.produce, [plot.cropId]: current.produce[plot.cropId] + 1 },
+      farmPlots: current.farmPlots.map((item, plotIndex) => plotIndex === index ? null : item),
+    }));
+    setPlotEffect({ index, type: "harvest" });
+    window.setTimeout(() => setPlotEffect(null), 700);
+    setToast(`收获${crop.name}，成品已放进背包`);
+    if (plot.cropId === "catnip" && !resting && !wakingUp) {
+      const position = PLOT_POSITIONS[index];
+      walkCatTo({ x: position.x - 4, y: position.y + 4 }, () => {
+        setStatusIdle(false);
+        setToast(`${pet.name}闻到猫薄荷，开心地玩了起来！`);
+      });
+    }
   }
 
   return (
@@ -867,20 +1171,53 @@ export default function Home() {
           </section>
         </div>
       )}
-      <section className="game-stage" aria-label="莓好运动岛全屏游戏">
+      <section className="game-stage" aria-label="OH 像素生活小屋">
         <div
-          className={`game-room ${decorating ? "decorating" : ""}`}
+          className={`game-room scene-${game.scene} ${decorating ? "decorating" : ""} ${sceneTransition ? "scene-fading" : ""} ${selectedSeed ? "seed-selected" : ""} ${watering ? "watering-selected" : ""}`}
           data-period={timePeriod}
           data-weather={weather.kind}
           ref={roomRef}
           tabIndex={0}
-          onPointerDown={moveCat}
-          onPointerMove={requestSleepInterrupt}
-          aria-label="全屏像素小屋。点击地面或使用方向键移动猫咪。"
+          onPointerDown={game.scene === "room" ? moveCat : undefined}
+          onPointerMove={(event) => {
+            requestSleepInterrupt();
+            const rect = event.currentTarget.getBoundingClientRect();
+            if (selectedSeed) {
+              event.currentTarget.style.setProperty("--seed-x", `${event.clientX - rect.left}px`);
+              event.currentTarget.style.setProperty("--seed-y", `${event.clientY - rect.top}px`);
+            }
+            if (watering) {
+              event.currentTarget.style.setProperty("--watering-x", `${event.clientX - rect.left}px`);
+              event.currentTarget.style.setProperty("--watering-y", `${event.clientY - rect.top}px`);
+            }
+          }}
+          aria-label={game.scene === "room" ? "全屏像素小屋。点击地面或使用方向键移动猫咪。" : "全屏像素院子。点击田地进行种植，或使用导航栏。"}
         >
-          <img className="room-background" src={getRoomAsset(weather.kind, timePeriod)} alt={`像素风猫咪小屋的${weather.label}场景`} draggable={false} />
+          <img className="room-background" src={getSceneAsset(game.scene, weather.kind, timePeriod)} alt={`像素风猫咪${game.scene === "room" ? "小屋" : "院子"}的${weather.label}场景`} draggable={false} />
           <div className="room-vignette" />
-          {ownedFurniture.map((item) => {
+          <button type="button" data-interactive className={`scene-door scene-door-${game.scene}`} onPointerDown={(event) => { event.stopPropagation(); changeScene(); }} aria-label={game.scene === "room" ? "去院子" : "回到室内"} />
+          {game.scene === "room" && <button type="button" data-interactive className="kitchen-hotspot" onPointerDown={(event) => { event.stopPropagation(); openOverlay("kitchen"); }} aria-label="打开左墙厨房烹饪" />}
+
+          {game.scene === "yard" && PLOT_POSITIONS.map((position, index) => {
+            const plot = game.farmPlots[index];
+            const stage = getCropStage(plot, farmNow);
+            const progress = getCropProgress(plot, farmNow);
+            return (
+              <button key={index} type="button" data-interactive data-plot={index} className={`farm-plot ${stage === "mature" ? "mature" : ""}`} style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${position.width}%`, height: `${position.height}%`, zIndex: Math.round(position.y) }} onPointerDown={(event) => { event.stopPropagation(); handlePlot(index); }} aria-label={plot ? `${cropItems.find((crop) => crop.id === plot.cropId)?.name}，${stage === "mature" ? "点击收获" : plot.wateredAt ? "生长中" : "等待浇水"}` : selectedSeed ? `空田，点击播种${cropItems.find((crop) => crop.id === selectedSeed)?.name}` : "空田，请先从种子仓库选择种子"}>
+                {plot && <img className="crop-sprite" src={`/game/crop-${plot.cropId}-${stage}.png`} alt="" />}
+                {plot && <span className={`crop-progress ${stage === "mature" ? "complete" : ""}`}><progress max={1} value={progress} /><b>{stage === "mature" ? "已成熟" : plot.wateredAt ? `${Math.round(progress * 100)}%` : "待浇水"}</b></span>}
+                {plotEffect?.index === index && <img className="plot-effect" src={`/game/effect-${plotEffect.type}.png`} alt="" />}
+              </button>
+            );
+          })}
+
+          {game.scene === "yard" && <button type="button" data-interactive className="seed-storage" onPointerDown={(event) => { event.stopPropagation(); setSelectedSeed(null); setSeedStorageOpen(true); setWatering(false); setWateringPlot(null); }} aria-label="打开种子仓库"><span>种子仓库</span></button>}
+          {game.scene === "yard" && selectedSeed && <img className="seed-cursor" src={`/game/crop-${selectedSeed}-seed.png`} alt="" />}
+          {game.scene === "yard" && watering && wateringPlot === null && <img className="watering-cursor" src="/game/watering-can-matched.png" alt="" />}
+          {game.scene === "yard" && wateringPlot !== null && <div className="watering-animation" style={{ left: `${PLOT_POSITIONS[wateringPlot].x}%`, top: `${PLOT_POSITIONS[wateringPlot].y}%`, zIndex: Math.round(PLOT_POSITIONS[wateringPlot].y) + 5 }}><img src="/game/watering-can-matched.png" alt="" /><span className="water-spray"><i /><i /><i /><i /><i /></span><span className="water-impact"><i /><i /><i /></span></div>}
+          {game.scene === "yard" && <button type="button" data-interactive className={`watering-can ${watering ? "selected" : ""}`} onPointerDown={(event) => { event.stopPropagation(); const rect = roomRef.current?.getBoundingClientRect(); if (rect) { roomRef.current?.style.setProperty("--watering-x", `${event.clientX - rect.left}px`); roomRef.current?.style.setProperty("--watering-y", `${event.clientY - rect.top}px`); } setWatering((value) => !value); setWateringPlot(null); setSeedStorageOpen(false); setSelectedSeed(null); setToast(watering ? "放下浇水壶" : "拿起浇水壶，再点击田地浇水"); }} aria-label={watering ? "放下浇水壶" : "拿起浇水壶"}><span>浇水壶</span></button>}
+
+          {game.scene === "room" && ownedFurniture.map((item) => {
             const position = game.furniturePositions[item.id] ?? DEFAULT_FURNITURE_POSITIONS[item.id];
             return (
               <button
@@ -893,27 +1230,51 @@ export default function Home() {
                   event.preventDefault();
                   event.stopPropagation();
                   if (decorating) setDragging(item.id);
-                  else moveCatToFurniture(item, position);
+                  else {
+                    const heights = "platformHeights" in item ? item.platformHeights : undefined;
+                    const relativeY = (event.clientY - event.currentTarget.getBoundingClientRect().top) / event.currentTarget.getBoundingClientRect().height;
+                    moveCatToFurniture(item, position, heights ? heights[relativeY < .5 ? 1 : 0] : undefined);
+                  }
                 }}
                 aria-label={`${item.name}${decorating ? "，拖动可调整位置" : item.rest ? "，睡觉3小时" : item.standHeight === null ? "，走到旁边" : item.standHeight ? "，跳上去" : "，走上去"}`}
               >
                 <img src={item.asset} alt="" draggable={false} />
+                {"overlay" in item && item.overlay && <img className="furniture-overlay" src={item.overlay} alt="" draggable={false} />}
                 {decorating && <span>拖动</span>}
               </button>
             );
           })}
 
-          <div
-            className={`walking-cat ${walking ? "walking" : "status-animation"} ${jumping ? "jumping" : ""} ${resting ? "resting" : ""} ${wakingUp ? "waking-up" : ""} ${headShaking ? "head-shaking" : ""} ${direction === "left" ? "facing-left" : ""}`}
+          {game.scene === "room" && <div
+            className={`walking-cat ${walking ? "walking" : "status-animation"} ${jumping ? "jumping" : ""} ${resting ? "resting" : ""} ${lounging ? "lounging" : ""} ${scratching ? "scratching" : ""} ${wakingUp ? "waking-up" : ""} ${headShaking ? "head-shaking" : ""} ${direction === "left" ? "facing-left" : ""}`}
             data-cat-status={desiredCatStatus}
             data-active-status={catStatus}
             style={{ left: `${game.catPosition.x}%`, top: `${game.catPosition.y}%`, zIndex: game.catFurniture ? Math.round((game.furniturePositions[game.catFurniture] ?? DEFAULT_FURNITURE_POSITIONS[game.catFurniture]).y) + 2 : Math.round(game.catPosition.y) + 2, transitionDuration: `${walkDuration}ms` }}
           >
-            <img className={`cat-base cat-pose-${activePose}`} src={catAsset} alt={`${pet.name}正在小屋里`} decoding="sync" draggable={false} style={{ transform: `scaleX(${direction === "left" ? -1 : 1})`, translate: `${motionX}px ${motionY}px` }} />
-            <b>{headShaking ? "太困啦…" : wakingUp ? "起床中…" : resting ? `还剩 ${formatSleepRemaining(sleepRemainingMs)}` : pet.name}</b>
-          </div>
+            <img className={`cat-base cat-pose-${activePose}`} src={catAsset} alt={`${pet.name}正在${game.scene === "room" ? "小屋" : "院子"}里`} decoding="sync" draggable={false} style={{ transform: `scaleX(${direction === "left" ? -1 : 1})`, translate: `${motionX}px ${motionY}px` }} />
+            <b>{headShaking ? "太困啦…" : wakingUp ? "起床中…" : resting ? `还剩 ${formatSleepRemaining(sleepRemainingMs)}` : scratching ? "玩耍中…" : lounging ? "休息中…" : pet.name}</b>
+          </div>}
 
         </div>
+
+        {seedStorageOpen && game.scene === "yard" && (
+          <div className="seed-layer" onPointerDown={() => setSeedStorageOpen(false)}>
+            <section className="seed-panel" role="dialog" aria-modal="true" aria-label="种子仓库" onPointerDown={(event) => event.stopPropagation()}>
+              <button className="window-close" onClick={() => setSeedStorageOpen(false)} aria-label="关闭种子仓库">×</button>
+              <small>SEED STORAGE</small><h2>种子仓库</h2><p>选择一种种子，再点击想播种的空田。</p>
+              <div className="seed-grid">
+                {cropItems.map((crop) => (
+                  <article key={crop.id}>
+                    <img src={`/game/crop-${crop.id}-mature.png`} alt="" />
+                    <div><h3>{crop.name}</h3><p>{formatGrowTime(crop.growMs)} · 收获作物 ×1</p><b>种子 ×{game.seeds[crop.id]}</b></div>
+                    <button type="button" onClick={() => buySeed(crop.id)}>购买 🍓 {crop.seedPrice}</button>
+                    <button type="button" className="plant-button" disabled={!game.seeds[crop.id]} onClick={() => { setSelectedSeed(crop.id); setSeedStorageOpen(false); setWatering(false); setWateringPlot(null); setToast(`已拿起${crop.name}种子，点击空田播种`); }}>播种</button>
+                  </article>
+                ))}
+              </div>
+            </section>
+          </div>
+        )}
 
         {interruptConfirm && (
           <div className="sleep-interrupt-layer">
@@ -930,9 +1291,6 @@ export default function Home() {
         )}
 
         <header className="game-hud">
-          <button className="game-logo" onClick={() => setOverlay(null)} aria-label="关闭窗口回到小屋">
-            <span>🍓</span><b>莓好运动岛</b>
-          </button>
           <div className="hud-counters">
             <div><span>🔥</span><small>连续</small><b>{game.streak} 天</b></div>
             <div><span>🍓</span><small>草莓</small><b>{game.berries}</b></div>
@@ -957,11 +1315,11 @@ export default function Home() {
         )}
 
         <nav className="game-dock" aria-label="游戏菜单">
-          <button className={overlay === "quest" || overlay === "history" ? "active" : ""} onClick={() => openOverlay("quest")}><span>📋</span><b>任务</b></button>
-          <button className={overlay === "bag" ? "active" : ""} onClick={() => openOverlay("bag")}><span>🎒</span><b>背包</b><i>{totalFood}</i></button>
+          <button className={overlay === "quest" || overlay === "history" ? "active" : ""} onClick={() => openOverlay("quest")}><span>📓</span><b>记录</b></button>
+          <button className={overlay === "bag" ? "active" : ""} onClick={() => openOverlay("bag")}><span>🎒</span><b>背包</b><i>{totalFood + totalProduce}</i></button>
           <button className={overlay === "shop" ? "active" : ""} onClick={() => openOverlay("shop")}><span>🛒</span><b>商店</b></button>
           <button className={overlay === "pets" ? "active" : ""} onClick={() => openOverlay("pets")}><span>🐾</span><b>伙伴</b></button>
-          <button className={decorating ? "active" : ""} onClick={() => { setOverlay(null); setDecorating((value) => !value); setJumping(false); resetStatusAnimation(); }}><span>🪑</span><b>布置</b></button>
+          <button className={decorating ? "active" : ""} disabled={game.scene === "yard"} onClick={() => { setOverlay(null); setDecorating((value) => !value); setJumping(false); resetStatusAnimation(); }}><span>🪑</span><b>{game.scene === "yard" ? "回屋布置" : "布置"}</b></button>
         </nav>
 
         {overlay && (
@@ -971,18 +1329,20 @@ export default function Home() {
 
               {overlay === "quest" && (
                 <>
-                  <div className="window-heading"><small>TODAY&apos;S QUEST</small><h1>今日运动任务</h1><p>{dateLabel || "今天"}</p></div>
+                  <div className="window-heading"><small>TODAY&apos;S NOTE</small><h1>今日记录</h1><p>{dateLabel || "今天"}</p></div>
                   <form className="activity-entry" onSubmit={checkIn}>
-                    <label htmlFor="today-activity">今天做了什么运动？</label>
+                    <label htmlFor="today-note">今天发生了什么？</label>
                     <div>
-                      <textarea id="today-activity" value={activityText} onChange={(event) => setActivityText(event.target.value)} placeholder="例如：跳绳、爬楼梯、打篮球……" maxLength={40} rows={3} disabled={checkedToday} />
-                      <small>{activityText.trim().length}/40</small>
+                      <textarea id="today-note" value={noteText} onChange={(event) => setNoteText(event.target.value)} placeholder="记录一件今天想留下的事情……" maxLength={300} rows={5} />
+                      <small>{noteText.length}/300</small>
                     </div>
-                    <label className="duration-field">运动时长 <span><input type="number" min="1" max="600" value={durationMinutes} onChange={(event) => setDurationMinutes(Math.min(600, Math.max(1, Number(event.target.value) || 1)))} disabled={checkedToday} /> 分钟</span></label>
-                    <div className="calorie-estimate"><span>✨ 智能估算消耗</span><b>{estimatedCalories || "—"} 千卡</b><small>按运动项目、时长和 50–55 kg 参考区间估算，仅供参考</small></div>
-                    {checkedToday && game.lastActivity && <p>✓ 今天完成：{game.lastActivity}</p>}
-                    <div className="reward-line"><span>{checkedToday ? "今天已收获" : "记录即可获得"}</span><b>🍓 +{checkinReward}</b></div>
-                    <button className="primary-button" type="submit" disabled={!ready || checkedToday || !activityText.trim() || savingCheckin}>{checkedToday ? "✓ 今天已完成" : savingCheckin ? "正在保存……" : "记录运动，领取草莓"}</button>
+                    <fieldset className="journal-options"><legend>记录分类</legend><div className="category-options">{journalCategories.map((item) => <button key={item.name} className={category === item.name ? "selected" : ""} type="button" onClick={() => setCategory(item.name)}><span>{item.icon}</span>{item.name}</button>)}</div></fieldset>
+                    <div className="optional-fields">
+                      <label className="duration-field">时长（选填）<span><input type="number" min="1" max="600" value={durationMinutes} onChange={(event) => setDurationMinutes(event.target.value)} placeholder="—" /> 分钟</span></label>
+                      <fieldset className="mood-field"><legend>心情（选填）</legend><div>{journalMoods.map((item) => <button key={item.name} className={mood === item.name ? "selected" : ""} type="button" onClick={() => setMood(mood === item.name ? "" : item.name)} title={item.name}><span>{item.icon}</span>{item.name}</button>)}</div></fieldset>
+                    </div>
+                    <div className="reward-line"><span>{checkedToday ? "今日首条奖励已领取" : "完成今日记录可获得"}</span><b>🍓 +20</b></div>
+                    <button className="primary-button" type="submit" disabled={!ready || !noteText.trim() || savingCheckin}>{savingCheckin ? "正在保存……" : "保存今日记录"}</button>
                   </form>
                   <div className="streak-card">
                     <div><span><small>连续记录</small><b>{game.streak} 天</b></span><em>下一份奖励</em></div>
@@ -990,7 +1350,7 @@ export default function Home() {
                     <p>{nextMilestone ? <>再坚持 <b>{nextMilestone.day - game.streak} 天</b>，奖励 🍓 {nextMilestone.bonus}</> : "30 天里程碑已达成！"}</p>
                   </div>
                   <button className="history-link" type="button" onClick={() => { setHistoryPage(0); setOverlay("history"); }}>
-                    <span>CHECK-IN HISTORY</span><b>{history.length} 次　→</b>
+                    <span>JOURNAL HISTORY</span><b>{history.length} 篇　→</b>
                   </button>
                 </>
               )}
@@ -998,35 +1358,24 @@ export default function Home() {
               {overlay === "history" && (
                 <>
                   <div className="notebook-heading">
-                    <button type="button" onClick={() => setOverlay("quest")}>← 返回今日任务</button>
-                    <small>CHECK-IN HISTORY</small><h1>运动手账</h1><p>每一页收藏两天的运动和心情</p>
+                    <button type="button" onClick={() => setOverlay("quest")}>← 返回今日记录</button>
+                    <small>JOURNAL HISTORY</small><h1>往日日记</h1><p>把平凡日子里的小事好好收起来</p>
                   </div>
                   {history.length ? (
                     <>
-                      <section className="notebook-page" aria-label={`运动手账第 ${historyPage + 1} 页`}>
-                        {[0, 1].map((slot) => {
-                          const record = historyPageRecords[slot];
-                          return record ? (
-                            <article className="notebook-entry" key={record.id}>
-                              <time dateTime={record.date}>{record.date.replaceAll("-", ".")}</time>
-                              <div className="notebook-stats">
-                                <span><small>运动</small><b>{record.activity}</b></span>
-                                <span><small>时长</small><b>{record.minutes ? `${record.minutes} 分钟` : "未记录"}</b></span>
-                                <span><small>卡路里</small><b>{record.calories == null ? "—" : `${record.calories} kcal`}</b></span>
-                              </div>
-                              <label>今日心情
-                                <textarea
-                                  value={record.mood ?? ""}
-                                  onChange={(event) => setHistory((records) => records.map((item) => item.id === record.id ? { ...item, mood: event.target.value } : item))}
-                                  onBlur={(event) => saveMood(record.id, event.currentTarget.value)}
-                                  placeholder="写下运动后的心情……"
-                                  maxLength={200}
-                                  rows={6}
-                                />
-                              </label>
-                            </article>
-                          ) : <div className="notebook-blank" key={slot}>下一次运动会写在这里</div>;
-                        })}
+                      <section className="notebook-page" aria-label={`往日日记第 ${historyPage + 1} 页`}>
+                        {historyPageDates.map((date) => <article className="notebook-day" key={date}>
+                          <time dateTime={date}>{date.replaceAll("-", ".")}</time>
+                          {history.filter((record) => record.date === date).map((record) => {
+                            const categoryInfo = journalCategories.find((item) => item.name === record.category) ?? journalCategories.at(-1)!;
+                            const moodInfo = journalMoods.find((item) => item.name === record.mood);
+                            return <div className="notebook-entry" key={record.id}>
+                              <div className="entry-meta"><span>{categoryInfo.icon} {categoryInfo.name}</span><time dateTime={record.createdAt}>{new Date(record.createdAt || `${record.date}T00:00:00`).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time></div>
+                              <p>{record.content}</p>
+                              {(record.minutes || moodInfo) && <small>{record.minutes ? `⏱ ${record.minutes} 分钟` : ""}{record.minutes && moodInfo ? "　" : ""}{moodInfo ? `${moodInfo.icon} ${moodInfo.name}` : ""}</small>}
+                            </div>;
+                          })}
+                        </article>)}
                       </section>
                       <nav className="notebook-pagination" aria-label="手账翻页">
                         <button type="button" onClick={() => setHistoryPage((page) => Math.max(0, page - 1))} disabled={historyPage === 0}>← 上一页</button>
@@ -1034,13 +1383,39 @@ export default function Home() {
                         <button type="button" onClick={() => setHistoryPage((page) => Math.min(historyPageCount - 1, page + 1))} disabled={historyPage === historyPageCount - 1}>下一页 →</button>
                       </nav>
                     </>
-                  ) : <div className="notebook-empty">完成第一次运动打卡后，手账会从这里开始。</div>}
+                  ) : <div className="notebook-empty">保存第一篇今日记录后，日记会从这里开始。</div>}
+                </>
+              )}
+
+              {overlay === "kitchen" && (
+                <>
+                  <div className="window-heading"><small>PAW PAW KITCHEN</small><h1>猫爪小厨房</h1><p>每份收获可烹饪一份菜，做好后会放入背包</p></div>
+                  <div className="recipe-grid">
+                    {cookedDishes.map((dish) => {
+                      const crop = cropItems.find((item) => item.id === dish.cropId)!;
+                      const count = game.produce[dish.cropId];
+                      const cooking = game.cooking?.dishId === dish.id ? game.cooking : null;
+                      return (
+                        <article key={dish.id}>
+                          <img src={dish.asset} alt={dish.name} />
+                          <div><small>{crop.name} ×1 · 活力 +{dish.energy} · ⏱ {dish.cookMinutes} 分钟</small><h2>{dish.name}</h2><p>{dish.detail}</p></div>
+                          {cooking && <div className="recipe-progress"><i style={{ width: `${getCookingProgress(cooking.startedAt, cooking.endsAt, kitchenNow) * 100}%` }} /><span>烹饪中 · {formatCookingTime(cooking.endsAt, kitchenNow)}</span></div>}
+                          <button type="button" onClick={() => cookDish(dish)} disabled={!count || Boolean(game.cooking)}>{cooking ? "正在烹饪……" : count ? `烹饪（原料 ×${count}）` : `缺少${crop.name}`}</button>
+                        </article>
+                      );
+                    })}
+                  </div>
                 </>
               )}
 
               {overlay === "bag" && (
                 <>
-                  <div className="window-heading"><small>MY BACKPACK</small><h1>我的背包</h1><p>选择一种食物喂给 {pet.name}</p></div>
+                  <div className="window-heading"><small>MY BACKPACK</small><h1>我的背包</h1><p>收获的作物可以带去厨房烹饪，菜品可以喂给 {pet.name}</p></div>
+                  <div className="produce-strip">
+                    <b>新鲜作物</b>
+                    {cropItems.map((crop) => <span key={crop.id} className={game.produce[crop.id] ? "" : "empty"}><img src={`/game/crop-${crop.id}-mature.png`} alt="" /><em>{crop.name}</em><i>×{game.produce[crop.id]}</i></span>)}
+                    <button type="button" onClick={() => setOverlay("kitchen")}>去厨房烹饪 →</button>
+                  </div>
                   <div className="backpack-layout">
                     <div className="inventory-grid">
                       {foodItems.map((item) => (
@@ -1070,7 +1445,7 @@ export default function Home() {
                     <button className={shopCategory === "furniture" ? "active" : ""} onClick={() => setShopCategory("furniture")}>小屋家具</button>
                   </div>
                   <div className="store-grid">
-                    {shopCategory === "food" ? foodItems.map((item) => (
+                    {shopCategory === "food" ? storeFoodItems.map((item) => (
                       <article key={item.id}>
                         <div className="store-art"><img src={item.asset} alt="" /><i>背包 ×{game.inventory[item.id]}</i></div>
                         <div><small>补充活力 +{item.energy}</small><h2>{item.name}</h2><p>{item.detail}</p></div>

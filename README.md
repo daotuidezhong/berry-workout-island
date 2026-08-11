@@ -1,6 +1,6 @@
-# 草莓打卡屋
+# OH 像素生活日记小屋
 
-一个把运动打卡、宠物状态和房间布置结合起来的网页 / Windows 桌面小游戏。
+一个把每日生活日记、猫咪陪伴、院子种植、厨房烹饪和房间布置结合起来的网页 / Windows 桌面小游戏。
 
 ## 项目入口
 
@@ -24,7 +24,7 @@ npm test
 npm run desktop:build
 ```
 
-安装包输出到 `outputs/Berry-Workout-Island-Setup-0.2.0.exe`。桌面版在本机保存游戏进度、打卡历史、心情和猫咪名字，并支持检查 GitHub Releases 更新。
+安装包输出到 `outputs/Berry-Workout-Island-Setup-0.3.0.exe`。桌面版在本机保存游戏进度、日记历史、心情和猫咪名字，并支持检查 GitHub Releases 更新。
 
 ## 数据位置
 

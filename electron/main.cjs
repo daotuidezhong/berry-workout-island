@@ -3,6 +3,8 @@ const { autoUpdater } = require("electron-updater");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
+app.setName("OH");
+
 protocol.registerSchemesAsPrivileged([{
   scheme: "berry",
   privileges: { standard: true, secure: true, supportFetchAPI: true },
@@ -21,6 +23,8 @@ app.whenReady().then(() => {
   });
 
   const window = new BrowserWindow({
+    title: "OH",
+    icon: app.isPackaged ? undefined : path.join(__dirname, "../build/icon.png"),
     width: 1280,
     height: 820,
     minWidth: 960,

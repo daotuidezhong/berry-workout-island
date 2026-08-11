@@ -1,7 +1,7 @@
-import { estimateCalories } from "@/app/game/calories";
-
 const devicePattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+const categories = new Set(["运动", "学习", "工作", "饮食", "心情", "睡眠", "娱乐", "其他"]);
+const moods = new Set(["很差", "低落", "平静", "开心", "超棒"]);
 function json(body: unknown, status = 200) {
   return Response.json(body, { status });
 }
@@ -14,39 +14,22 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  let body: { deviceId?: string; date?: string; activity?: string; minutes?: number | null };
+  let body: { deviceId?: string; date?: string; content?: string; category?: string; minutes?: number | null; mood?: string | null };
   try {
     body = await request.json();
   } catch {
-    return json({ error: "打卡内容无效" }, 400);
+    return json({ error: "记录内容无效" }, 400);
   }
   const deviceId = body.deviceId ?? "";
   const date = body.date ?? "";
-  const activity = body.activity?.trim() ?? "";
+  const content = body.content?.trim() ?? "";
+  const category = body.category ?? "其他";
+  const mood = body.mood ?? null;
   const minutes = body.minutes == null ? null : Math.round(body.minutes);
-  if (!devicePattern.test(deviceId) || !datePattern.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00`)) || !activity || activity.length > 40 || (minutes !== null && (minutes < 1 || minutes > 600))) {
-    return json({ error: "打卡内容无效" }, 400);
+  if (!devicePattern.test(deviceId) || !datePattern.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00`)) || !content || content.length > 300 || !categories.has(category) || (mood !== null && !moods.has(mood)) || (minutes !== null && (minutes < 1 || minutes > 600))) {
+    return json({ error: "记录内容无效" }, 400);
   }
-  const calories = minutes === null ? null : estimateCalories(activity, minutes);
   const { saveCheckin } = await import("@/db/checkins");
-  const record = await saveCheckin(deviceId, date, activity, minutes, calories);
+  const record = await saveCheckin(deviceId, date, content, category, minutes, mood);
   return record ? json({ record }) : json({ error: "保存失败" }, 500);
-}
-
-export async function PATCH(request: Request) {
-  let body: { deviceId?: string; id?: number; mood?: string };
-  try {
-    body = await request.json();
-  } catch {
-    return json({ error: "心情内容无效" }, 400);
-  }
-  const deviceId = body.deviceId ?? "";
-  const id = body.id;
-  const mood = body.mood ?? "";
-  if (!devicePattern.test(deviceId) || typeof id !== "number" || !Number.isInteger(id) || id < 1 || typeof body.mood !== "string" || mood.length > 200) {
-    return json({ error: "心情内容无效" }, 400);
-  }
-  const { saveCheckinMood } = await import("@/db/checkins");
-  const record = await saveCheckinMood(deviceId, id, mood);
-  return record ? json({ record }) : json({ error: "记录不存在" }, 404);
 }

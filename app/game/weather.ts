@@ -1,18 +1,27 @@
 import type { TimePeriod } from "./time-period";
+import type { SceneId } from "./scene";
 
 export type WeatherKind = "clear" | "cloudy" | "rain" | "thunderstorm";
 
 export const ROOM_ASSET_BY_WEATHER: Record<WeatherKind, string> = {
-  clear: "/game/room-v2.png",
-  cloudy: "/game/room-cloudy-v2.png",
-  rain: "/game/room-rain.png",
-  thunderstorm: "/game/room-thunderstorm-v2.png",
+  clear: "/game/room-kitchen-v3.png",
+  cloudy: "/game/room-kitchen-cloudy.png",
+  rain: "/game/room-kitchen-rain.png",
+  thunderstorm: "/game/room-kitchen-thunderstorm.png",
 };
 
 export function getRoomAsset(kind: WeatherKind, period: TimePeriod) {
-  if (period === "morning" && kind === "clear") return "/game/room-morning.png";
-  if (period === "evening" && kind === "clear") return "/game/room-evening.png";
+  if (period === "morning" && kind === "clear") return "/game/room-kitchen-morning.png";
+  if (period === "evening" && kind === "clear") return "/game/room-kitchen-evening.png";
   return ROOM_ASSET_BY_WEATHER[kind];
+}
+
+export function getYardAsset(kind: WeatherKind, period: TimePeriod) {
+  return `/game/yard-${kind}-${period}.png`;
+}
+
+export function getSceneAsset(scene: SceneId, kind: WeatherKind, period: TimePeriod) {
+  return scene === "room" ? getRoomAsset(kind, period) : getYardAsset(kind, period);
 }
 
 export function getWeatherKind(code: number, precipitation: number, cloudCover: number): WeatherKind {

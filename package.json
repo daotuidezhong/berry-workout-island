@@ -1,6 +1,6 @@
 {
   "name": "berry-workout-island",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -45,7 +45,7 @@
   "main": "electron/main.cjs",
   "build": {
     "appId": "com.berryworkout.island",
-    "productName": "草莓打卡屋",
+    "productName": "OH",
     "artifactName": "Berry-Workout-Island-Setup-${version}.exe",
     "directories": {
       "output": "outputs"
@@ -70,7 +70,7 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "草莓打卡屋"
+      "shortcutName": "OH"
     },
     "publish": {
       "provider": "github",
