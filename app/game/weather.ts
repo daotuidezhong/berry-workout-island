@@ -4,15 +4,16 @@ import type { SceneId } from "./scene";
 export type WeatherKind = "clear" | "cloudy" | "rain" | "thunderstorm";
 
 export const ROOM_ASSET_BY_WEATHER: Record<WeatherKind, string> = {
-  clear: "/game/room-kitchen-v3.png",
-  cloudy: "/game/room-kitchen-cloudy.png",
-  rain: "/game/room-kitchen-rain.png",
-  thunderstorm: "/game/room-kitchen-thunderstorm.png",
+  clear: "/game/room-v030-clear-with-vinyl-bar.png",
+  cloudy: "/game/room-v030-cloudy-with-vinyl-bar.png",
+  rain: "/game/room-v030-rain-with-vinyl-bar.png",
+  thunderstorm: "/game/room-v030-thunderstorm-with-vinyl-bar.png",
 };
 
 export function getRoomAsset(kind: WeatherKind, period: TimePeriod) {
-  if (period === "morning" && kind === "clear") return "/game/room-kitchen-morning.png";
-  if (period === "evening" && kind === "clear") return "/game/room-kitchen-evening.png";
+  if (period === "night") return `/game/room-v030-${kind}-night-with-vinyl-bar.png`;
+  if (period === "morning" && kind === "clear") return "/game/room-v030-morning-with-vinyl-bar.png";
+  if (period === "evening" && kind === "clear") return "/game/room-v030-evening-with-vinyl-bar.png";
   return ROOM_ASSET_BY_WEATHER[kind];
 }
 

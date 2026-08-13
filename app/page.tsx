@@ -5,7 +5,7 @@ import { getFurnitureTarget, type Point } from "./game/furniture";
 import { getTimePeriod, type TimePeriod } from "./game/time-period";
 import { getSceneAsset, getWeatherKind, type WeatherKind } from "./game/weather";
 import { cropItems, EMPTY_FARM, formatCookingTime, formatGrowTime, getCookingProgress, getCropProgress, getCropStage, INITIAL_PRODUCE, INITIAL_SEEDS, waterUnwateredPlots, type CropId, type CropPlotState, type ProduceInventory, type SeedInventory } from "./game/farm";
-import { clampToScene, getWalkPath, YARD_OBSTACLES, type Rect, type SceneId } from "./game/scene";
+import { clampFurniturePosition, clampToScene, getWalkPath, ROOM_FIXED_OBSTACLES, YARD_OBSTACLES, type Rect, type SceneId } from "./game/scene";
 import {
   CAT_STATUS_ANIMATIONS,
   getCatStatus,
@@ -18,7 +18,7 @@ import { canPetMove, decayPetStatsByTime, formatSleepRemaining, getSleepRemainin
 import { getJournalReward } from "./game/journal-reward";
 
 type PetId = "mitao" | "doubao" | "xueqiu";
-type OverlayId = "quest" | "history" | "bag" | "pets" | "shop" | "kitchen" | null;
+type OverlayId = "quest" | "history" | "bag" | "pets" | "shop" | "kitchen" | "music" | "bar" | null;
 type ShopCategory = "food" | "furniture";
 type JournalCategory = "运动" | "学习" | "工作" | "饮食" | "睡眠" | "其他";
 type CheckinRecord = { id: number; date: string; content: string; category: JournalCategory; rating: number | null; reward: number | null; createdAt: string };
@@ -27,6 +27,8 @@ type StoreFoodId = "driedFish" | "chickenCan" | "salmonMousse" | "tunaRice" | "c
 type CookedFoodId = "strawberryPuree" | "carrotSoup" | "tomatoSoup" | "catnipCookies" | "sunflowerRice" | "pumpkinPuree";
 type FoodId = StoreFoodId | CookedFoodId;
 type PetStats = { energy: number; sleepiness: number; statsUpdatedAt: number };
+type PlaylistTrack = { id: number; name: string; artist: string; duration: number; cover: string; playbackUrl: string | null; playbackCode: number | null; playbackFee: number | null };
+type Playlist = { id: string; name: string; trackCount: number; tracks: PlaylistTrack[] };
 type GameState = {
   gameSchemaVersion: 5;
   statModelVersion: 2;
@@ -248,9 +250,12 @@ const PLOT_POSITIONS = [
 ];
 
 const FURNITURE_FOOTPRINTS: Record<string, { halfWidth: number; height: number }> = {
-  bookcase: { halfWidth: 5, height: 11 }, table: { halfWidth: 7, height: 6 }, chest: { halfWidth: 5, height: 6 },
+  rug: { halfWidth: 10, height: 2 }, plant: { halfWidth: 4, height: 9 }, lamp: { halfWidth: 4, height: 10 },
+  catbed: { halfWidth: 7, height: 5 }, strawberrybed: { halfWidth: 7, height: 5 }, moonbed: { halfWidth: 7, height: 5 },
+  bookcase: { halfWidth: 5, height: 11 }, table: { halfWidth: 7, height: 6 }, cushion: { halfWidth: 5, height: 4 }, chest: { halfWidth: 5, height: 6 },
   strawberrySofa: { halfWidth: 9, height: 7 }, catTree: { halfWidth: 6, height: 15 }, fishFireplace: { halfWidth: 7, height: 11 },
-  wickerRocker: { halfWidth: 6, height: 9 }, creamVanity: { halfWidth: 7, height: 11 }, grandfatherClock: { halfWidth: 4, height: 14 }, teaCart: { halfWidth: 6, height: 8 },
+  wickerRocker: { halfWidth: 6, height: 9 }, creamVanity: { halfWidth: 7, height: 11 }, grandfatherClock: { halfWidth: 4, height: 14 },
+  fishScratcher: { halfWidth: 5, height: 4 }, flowerStool: { halfWidth: 5, height: 5 }, teaCart: { halfWidth: 6, height: 8 }, yarnBasket: { halfWidth: 5, height: 5 },
 };
 
 const WAKE_YAWN_SEQUENCE = [0, 1, 2, 3, 3, 2, 1, 0];
@@ -320,13 +325,28 @@ export default function Home() {
   const [scratching, setScratching] = useState(false);
   const [scratchFrame, setScratchFrame] = useState(0);
   const [plotEffect, setPlotEffect] = useState<{ index: number; type: "seed" | "water" | "harvest" } | null>(null);
+  const [playlist, setPlaylist] = useState<Playlist | null>(null);
+  const [playlistLoading, setPlaylistLoading] = useState(true);
+  const [playingTrackId, setPlayingTrackId] = useState<number | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [volume, setVolume] = useState(.7);
+  const [roomVinylFrame, setRoomVinylFrame] = useState(0);
   const roomRef = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const sceneCanvasRef = useRef<HTMLCanvasElement>(null);
+  const catDragStart = useRef<{ pointerId: number; x: number; y: number; triggered: boolean } | null>(null);
   const walkingTimer = useRef<number | undefined>(undefined);
   const headShakeTimer = useRef<number | undefined>(undefined);
   const sleepInterruptReadyAt = useRef(0);
   const animationImages = useRef<HTMLImageElement[]>([]);
   const scratchTimer = useRef<number | undefined>(undefined);
   const desiredCatStatus = getCatStatus(game.energy, game.sleepiness);
+  const currentTrack = playlist?.tracks.find((track) => track.id === playingTrackId) ?? null;
+  const sceneAsset = getSceneAsset(game.scene, weather.kind, timePeriod);
+  const roomSceneName = sceneAsset.split("/").at(-1)?.replace(".png", "") ?? "room-v030-clear-with-vinyl-bar";
+  const renderedSceneAsset = game.scene === "room" && isPlaying
+    ? `/game/room-frames/${roomSceneName}-${String(roomVinylFrame).padStart(2, "0")}.png`
+    : sceneAsset;
 
   useEffect(() => {
     const now = new Date();
@@ -360,7 +380,8 @@ export default function Home() {
           petNames: { ...INITIAL_GAME.petNames, ...(parsed.petNames ?? {}) },
           petStats: { ...INITIAL_GAME.petStats, ...(parsed.petStats ?? {}) },
           catPosition: clampToScene(parsed.catPosition ?? INITIAL_GAME.catPosition, scene, scene === "yard" ? YARD_OBSTACLES : []),
-          furniturePositions: { ...DEFAULT_FURNITURE_POSITIONS, ...(parsed.furniturePositions ?? {}) },
+          furniturePositions: Object.fromEntries(Object.entries({ ...DEFAULT_FURNITURE_POSITIONS, ...(parsed.furniturePositions ?? {}) })
+            .map(([id, position]) => [id, clampFurniturePosition(position, FURNITURE_FOOTPRINTS[id])])),
           scene,
           farmPlots: Array.from({ length: 12 }, (_, index) => parsed.farmPlots?.[index] ?? null),
           seeds: { ...INITIAL_SEEDS, ...(parsed.seeds ?? {}) },
@@ -400,6 +421,23 @@ export default function Home() {
     } else setGame({ ...INITIAL_GAME, statsUpdatedAt: now.getTime() });
     setReady(true);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/netease-playlist")
+      .then(async (response) => {
+        const data = await response.json() as Playlist & { error?: string };
+        if (!response.ok) throw new Error(data.error || "歌单载入失败");
+        if (!cancelled) setPlaylist(data);
+      })
+      .catch((error) => { if (!cancelled) setToast(error instanceof Error ? error.message : "歌单载入失败"); })
+      .finally(() => { if (!cancelled) setPlaylistLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.volume = volume;
+  }, [volume]);
 
   useEffect(() => {
     if (!ready || !deviceId) return;
@@ -610,6 +648,39 @@ export default function Home() {
   }, [game.scene, timePeriod, weather.kind]);
 
   useEffect(() => {
+    if (game.scene !== "room") return;
+    for (let frame = 0; frame < 4; frame += 1) {
+      const image = new Image();
+      image.src = `/game/room-frames/${roomSceneName}-${String(frame).padStart(2, "0")}.png`;
+      image.decode().catch(() => undefined);
+    }
+  }, [game.scene, roomSceneName]);
+
+  useEffect(() => {
+    if (game.scene !== "room") return;
+    const canvas = sceneCanvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (!canvas || !context) return;
+    const image = new Image();
+    let cancelled = false;
+    image.onload = () => {
+      if (cancelled) return;
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      context.imageSmoothingEnabled = false;
+      context.drawImage(image, 0, 0);
+    };
+    image.src = renderedSceneAsset;
+    return () => { cancelled = true; };
+  }, [game.scene, renderedSceneAsset]);
+
+  useEffect(() => {
+    if (!isPlaying) return;
+    const timer = window.setInterval(() => setRoomVinylFrame((frame) => (frame + 1) % 4), 250);
+    return () => window.clearInterval(timer);
+  }, [isPlaying]);
+
+  useEffect(() => {
     if (!walking) {
       setWalkFrame(0);
       return;
@@ -747,10 +818,10 @@ export default function Home() {
     const moveFurniture = (event: PointerEvent) => {
       const rect = roomRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const point = {
-        x: clamp(((event.clientX - rect.left) / rect.width) * 100, 2, 98),
-        y: clamp(((event.clientY - rect.top) / rect.height) * 100, 8, 95),
-      };
+      const point = clampFurniturePosition({
+        x: ((event.clientX - rect.left) / rect.width) * 100,
+        y: ((event.clientY - rect.top) / rect.height) * 100,
+      }, FURNITURE_FOOTPRINTS[dragging]);
       setGame((current) => ({
         ...current,
         furniturePositions: { ...current.furniturePositions, [dragging]: point },
@@ -876,13 +947,70 @@ export default function Home() {
 
   function getSceneObstacles(excludeFurniture?: string): Rect[] {
     if (game.scene === "yard") return YARD_OBSTACLES;
-    return ownedFurniture.flatMap((item) => {
+    return [...ROOM_FIXED_OBSTACLES, ...ownedFurniture.flatMap((item) => {
       if (item.id === excludeFurniture || item.id === game.catFurniture) return [];
       const footprint = FURNITURE_FOOTPRINTS[item.id];
       if (!footprint) return [];
       const position = game.furniturePositions[item.id] ?? DEFAULT_FURNITURE_POSITIONS[item.id];
       return [{ left: position.x - footprint.halfWidth, right: position.x + footprint.halfWidth, top: position.y - footprint.height, bottom: position.y + 2 }];
-    });
+    })];
+  }
+
+  function playTrack(track: PlaylistTrack) {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (!track.playbackUrl) {
+      setToast(`${track.name} 受网易云版权或会员限制，当前无法直接播放`);
+      return;
+    }
+    if (playingTrackId !== track.id) {
+      audio.src = track.playbackUrl;
+      audio.load();
+      setPlayingTrackId(track.id);
+    }
+    audio.play().catch(() => setToast("这首歌暂时无法播放，请稍后再试"));
+  }
+
+  function togglePlayback() {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (!playingTrackId) {
+      const firstTrack = playlist?.tracks.find((track) => track.playbackUrl);
+      if (firstTrack) playTrack(firstTrack);
+      return;
+    }
+    if (audio.paused) audio.play().catch(() => setToast("歌曲暂时无法继续播放"));
+    else audio.pause();
+  }
+
+  function skipTrack(offset: number) {
+    const playableTracks = playlist?.tracks.filter((track) => track.playbackUrl) ?? [];
+    if (!playableTracks.length) return;
+    const currentIndex = playableTracks.findIndex((track) => track.id === playingTrackId);
+    const nextIndex = currentIndex < 0 ? (offset > 0 ? 0 : playableTracks.length - 1) : (currentIndex + offset + playableTracks.length) % playableTracks.length;
+    playTrack(playableTracks[nextIndex]);
+  }
+
+  function startCatDrag(event: React.PointerEvent<HTMLDivElement>) {
+    if (!resting || wakingUp || interruptConfirm) return;
+    event.preventDefault();
+    event.stopPropagation();
+    catDragStart.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, triggered: false };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function trackCatDrag(event: React.PointerEvent<HTMLDivElement>) {
+    const start = catDragStart.current;
+    if (!start || start.pointerId !== event.pointerId || start.triggered) return;
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) < 10) return;
+    start.triggered = true;
+    requestSleepInterrupt();
+  }
+
+  function stopCatDrag(event: React.PointerEvent<HTMLDivElement>) {
+    if (catDragStart.current?.pointerId !== event.pointerId) return;
+    catDragStart.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   }
 
   function moveCat(event: React.PointerEvent<HTMLDivElement>) {
@@ -1032,10 +1160,6 @@ export default function Home() {
       inventory: { ...current.inventory, [foodId]: current.inventory[foodId] - 1 },
       petStats: { ...current.petStats, [statusPetId]: { ...current.petStats[statusPetId], energy: Math.min(100, current.petStats[statusPetId].energy + item.energy), statsUpdatedAt: Date.now() } },
     });
-    if (resting && statusPetId === game.pet) {
-      setOverlay(null);
-      setInterruptConfirm(true);
-    }
     setToast(`${statusPet.name} 吃掉了${item.name}，活力 +${item.energy}`);
   }
 
@@ -1083,7 +1207,7 @@ export default function Home() {
   function changeScene() {
     if (sceneTransition) return;
     if (resting) {
-      requestSleepInterrupt();
+      setToast(`${pet.name}正在睡觉，还剩 ${formatSleepRemaining(sleepRemainingMs)}`);
       return;
     }
     setOverlay(null);
@@ -1220,6 +1344,7 @@ export default function Home() {
         </div>
       )}
       <section className="game-stage" aria-label="OH 像素生活小屋">
+        <audio ref={audioRef} onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onEnded={() => skipTrack(1)} onError={() => { setIsPlaying(false); setToast("歌曲加载失败，请重试或切换下一首"); }} />
         <div
           className={`game-room scene-${game.scene} ${decorating ? "decorating" : ""} ${sceneTransition ? "scene-fading" : ""} ${selectedSeed ? "seed-selected" : ""} ${watering ? "watering-selected" : ""}`}
           data-period={timePeriod}
@@ -1228,7 +1353,6 @@ export default function Home() {
           tabIndex={0}
           onPointerDown={game.scene === "room" ? moveCat : undefined}
           onPointerMove={(event) => {
-            requestSleepInterrupt();
             const rect = event.currentTarget.getBoundingClientRect();
             if (selectedSeed) {
               event.currentTarget.style.setProperty("--seed-x", `${event.clientX - rect.left}px`);
@@ -1241,10 +1365,14 @@ export default function Home() {
           }}
           aria-label={game.scene === "room" ? "全屏像素小屋。点击地面或使用方向键移动猫咪。" : "全屏像素院子。点击田地进行种植，或使用导航栏。"}
         >
-          <img className="room-background" src={getSceneAsset(game.scene, weather.kind, timePeriod)} alt={`像素风猫咪${game.scene === "room" ? "小屋" : "院子"}的${weather.label}场景`} draggable={false} />
+          {game.scene === "room"
+            ? <canvas ref={sceneCanvasRef} className="room-background" role="img" aria-label={`像素风猫咪小屋的${weather.label}场景`} />
+            : <img className="room-background" src={sceneAsset} alt={`像素风猫咪院子的${weather.label}场景`} draggable={false} />}
           <div className="room-vignette" />
           <button type="button" data-interactive className={`scene-door scene-door-${game.scene}`} onPointerDown={(event) => { event.stopPropagation(); changeScene(); }} aria-label={game.scene === "room" ? "去院子" : "回到室内"} />
           {game.scene === "room" && <button type="button" data-interactive className="kitchen-hotspot" onPointerDown={(event) => { event.stopPropagation(); openOverlay("kitchen"); }} aria-label="打开左墙厨房烹饪" />}
+          {game.scene === "room" && <button type="button" data-interactive className="music-hotspot" onPointerDown={(event) => { event.stopPropagation(); openOverlay("music"); }} aria-label="打开黑胶唱片与网易云歌单" />}
+          {game.scene === "room" && <button type="button" data-interactive className="bar-hotspot" onPointerDown={(event) => { event.stopPropagation(); openOverlay("bar"); }} aria-label="打开调酒台" />}
 
           {game.scene === "yard" && PLOT_POSITIONS.map((position, index) => {
             const plot = game.farmPlots[index];
@@ -1302,10 +1430,14 @@ export default function Home() {
           })}
           {game.scene === "room" && <div
             className={`walking-cat ${walking ? "walking" : "status-animation"} ${jumping ? "jumping" : ""} ${resting ? "resting" : ""} ${lounging ? "lounging" : ""} ${scratching ? "scratching" : ""} ${wakingUp ? "waking-up" : ""} ${headShaking ? "head-shaking" : ""} ${direction === "left" ? "facing-left" : ""}`}
-            data-cat-status={desiredCatStatus}
-            data-active-status={catStatus}
-            style={{ left: `${game.catPosition.x}%`, top: `${game.catPosition.y}%`, zIndex: game.catFurniture ? Math.round((game.furniturePositions[game.catFurniture] ?? DEFAULT_FURNITURE_POSITIONS[game.catFurniture]).y) + 2 : Math.round(game.catPosition.y) + 2, transitionDuration: `${walkDuration}ms` }}
-          >
+              data-cat-status={desiredCatStatus}
+              data-active-status={catStatus}
+              style={{ left: `${game.catPosition.x}%`, top: `${game.catPosition.y}%`, zIndex: game.catFurniture ? Math.round((game.furniturePositions[game.catFurniture] ?? DEFAULT_FURNITURE_POSITIONS[game.catFurniture]).y) + 2 : Math.round(game.catPosition.y) + 2, transitionDuration: `${walkDuration}ms` }}
+              onPointerDown={startCatDrag}
+              onPointerMove={trackCatDrag}
+              onPointerUp={stopCatDrag}
+              onPointerCancel={stopCatDrag}
+            >
             <img className={`cat-base cat-pose-${activePose}`} src={catAsset} alt={`${pet.name}正在${game.scene === "room" ? "小屋" : "院子"}里`} decoding="sync" draggable={false} style={{ transform: `scaleX(${direction === "left" ? -1 : 1})`, translate: `${motionX}px ${motionY}px` }} />
             <b>{headShaking ? "太困啦…" : wakingUp ? "起床中…" : resting ? `还剩 ${formatSleepRemaining(sleepRemainingMs)}` : scratching ? "玩耍中…" : lounging ? "休息中…" : pet.name}</b>
           </div>}
@@ -1459,6 +1591,41 @@ export default function Home() {
                       );
                     })}
                   </div>
+                </>
+              )}
+
+              {overlay === "music" && (
+                <>
+                  <div className="window-heading music-heading"><small>VINYL CORNER</small><h1>木质唱片柜</h1><p>只收藏《Deep Focus Mode》歌单中的全部唱片</p></div>
+                  {playlist ? <section className="vinyl-player">
+                    <div className="turntable-panel">
+                      <div className={`turntable-record ${playingTrackId ? "current" : ""} ${isPlaying ? "playing" : ""}`}><i>{playingTrackId ? "♪" : "OH"}</i></div>
+                      <div className="now-playing"><small>NOW SPINNING</small><h2>{currentTrack?.name ?? "挑一张唱片吧"}</h2><p>{currentTrack?.artist ?? `${playlist.name} · ${playlist.trackCount} 首`}</p></div>
+                      <div className="player-controls">
+                        <button type="button" onClick={() => skipTrack(-1)} aria-label="上一首">◀</button>
+                        <button type="button" className="play-toggle" onClick={togglePlayback} aria-label={isPlaying ? "暂停" : "继续播放"}>{isPlaying ? "Ⅱ" : "▶"}</button>
+                        <button type="button" onClick={() => skipTrack(1)} aria-label="下一首">▶</button>
+                        <label>音量<input aria-label="音量" type="range" min="0" max="1" step="0.05" value={volume} onChange={(event) => setVolume(Number(event.target.value))} /></label>
+                      </div>
+                    </div>
+                    <div className="record-cabinet" aria-label={`${playlist.name}，共 ${playlist.tracks.length} 首`}>
+                      <div className="cabinet-shelf">{playlist.tracks.map((track, index) => {
+                        const selected = playingTrackId === track.id;
+                        return <button type="button" key={track.id} className={`record-sleeve ${selected ? "selected" : ""} ${track.playbackUrl ? "" : "unavailable"}`} onClick={() => playTrack(track)} aria-label={track.playbackUrl ? `播放 ${track.name}，${track.artist}` : `${track.name}，当前受网易云版权或会员限制`}>
+                          <span className="sleeve-vinyl-slot"><span className={`sleeve-vinyl ${selected ? "current" : ""} ${selected && isPlaying ? "playing" : ""}`}><i /></span></span>
+                          <span className="sleeve-cover">{track.cover && <img src={track.cover} alt="" loading="lazy" />}<b>{String(index + 1).padStart(3, "0")}</b></span>
+                          <strong>{track.name}<small>{track.artist}{track.playbackUrl ? "" : " · 暂不可播"}</small></strong>
+                        </button>;
+                      })}</div>
+                    </div>
+                  </section> : <div className="playlist-empty"><b>{playlistLoading ? "正在整理全部唱片…" : "唱片柜暂时无法打开"}</b><p>歌曲只从指定的网易云歌单读取。</p></div>}
+                </>
+              )}
+
+              {overlay === "bar" && (
+                <>
+                  <div className="window-heading"><small>STRAWBERRY BAR</small><h1>莓果调酒台</h1><p>这一区已按最终布局落地，饮品互动会在后续版本开放</p></div>
+                  <div className="bar-preview"><span>COMING SOON</span><h2>今晚想喝点什么？</h2><p>果酒、无酒精特调和猫咪小零食都会在这里慢慢添上。</p></div>
                 </>
               )}
 

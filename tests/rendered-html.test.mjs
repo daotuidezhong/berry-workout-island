@@ -5,7 +5,7 @@ import { CAT_BOUNDS, clampCatPosition, getFurnitureTarget } from "../app/game/fu
 import { getTimePeriod } from "../app/game/time-period.ts";
 import { getRoomAsset, getWeatherKind, getYardAsset, ROOM_ASSET_BY_WEATHER } from "../app/game/weather.ts";
 import { cropItems, formatCookingTime, getCookingProgress, getCropProgress, getCropStage, INITIAL_PRODUCE, waterUnwateredPlots } from "../app/game/farm.ts";
-import { clampToScene, getWalkPath, YARD_OBSTACLES } from "../app/game/scene.ts";
+import { clampFurniturePosition, clampToScene, getWalkPath, YARD_OBSTACLES } from "../app/game/scene.ts";
 import { CAT_STATUS_ANIMATIONS, getCatStatus, getCatStatusTransition } from "../app/game/cat-actions.ts";
 import { canPetMove, decayPetStats, decayPetStatsByTime, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "../app/game/pet-stats.ts";
 import { getJournalReward } from "../app/game/journal-reward.ts";
@@ -44,17 +44,18 @@ test("maps Foshan weather codes to room weather states", () => {
   assert.equal(getWeatherKind(61, 0.4, 95), "rain");
   assert.equal(getWeatherKind(95, 2.2, 100), "thunderstorm");
   assert.deepEqual(Object.values(ROOM_ASSET_BY_WEATHER), [
-    "/game/room-kitchen-v3.png",
-    "/game/room-kitchen-cloudy.png",
-    "/game/room-kitchen-rain.png",
-    "/game/room-kitchen-thunderstorm.png",
+    "/game/room-v030-clear-with-vinyl-bar.png",
+    "/game/room-v030-cloudy-with-vinyl-bar.png",
+    "/game/room-v030-rain-with-vinyl-bar.png",
+    "/game/room-v030-thunderstorm-with-vinyl-bar.png",
   ]);
-  assert.equal(getRoomAsset("clear", "morning"), "/game/room-kitchen-morning.png");
-  assert.equal(getRoomAsset("cloudy", "morning"), "/game/room-kitchen-cloudy.png");
-  assert.equal(getRoomAsset("rain", "morning"), "/game/room-kitchen-rain.png");
-  assert.equal(getRoomAsset("clear", "evening"), "/game/room-kitchen-evening.png");
-  assert.equal(getRoomAsset("cloudy", "evening"), "/game/room-kitchen-cloudy.png");
-  assert.equal(getRoomAsset("rain", "evening"), "/game/room-kitchen-rain.png");
+  assert.equal(getRoomAsset("clear", "morning"), "/game/room-v030-morning-with-vinyl-bar.png");
+  assert.equal(getRoomAsset("cloudy", "morning"), "/game/room-v030-cloudy-with-vinyl-bar.png");
+  assert.equal(getRoomAsset("rain", "morning"), "/game/room-v030-rain-with-vinyl-bar.png");
+  assert.equal(getRoomAsset("clear", "evening"), "/game/room-v030-evening-with-vinyl-bar.png");
+  assert.equal(getRoomAsset("cloudy", "evening"), "/game/room-v030-cloudy-with-vinyl-bar.png");
+  assert.equal(getRoomAsset("rain", "evening"), "/game/room-v030-rain-with-vinyl-bar.png");
+  assert.equal(getRoomAsset("thunderstorm", "night"), "/game/room-v030-thunderstorm-night-with-vinyl-bar.png");
   assert.equal(getYardAsset("thunderstorm", "night"), "/game/yard-thunderstorm-night.png");
 });
 
@@ -93,6 +94,16 @@ test("keeps yard movement out of large obstacles", () => {
   const path = getWalkPath({ x: 30, y: 76 }, { x: 92, y: 60 }, "yard", YARD_OBSTACLES);
   assert.ok(path.length >= 1 && path.length <= 2);
   assert.ok(path.every((point) => point.x >= 7 && point.x <= 94 && point.y >= 45 && point.y <= 89));
+});
+
+test("keeps furniture on the floor and away from fixed room furniture", () => {
+  const footprint = { halfWidth: 6, height: 10 };
+  const kitchen = clampFurniturePosition({ x: 20, y: 30 }, footprint);
+  const music = clampFurniturePosition({ x: 88, y: 48 }, footprint);
+  const bar = clampFurniturePosition({ x: 90, y: 70 }, footprint);
+  assert.ok(kitchen.y - footprint.height >= 46);
+  assert.ok(music.x + footprint.halfWidth <= 76 || music.y - footprint.height >= 52);
+  assert.ok(bar.x + footprint.halfWidth <= 79);
 });
 
 test("keeps the cat and movement controls indoors", async () => {
@@ -248,7 +259,13 @@ test("sleep interruption clears the pending reward before the wake-up animation"
   const start = source.indexOf("function interruptSleep()");
   const end = source.indexOf("\n  function", start + 1);
   const interruptBody = source.slice(start, end);
-  assert.match(source, /onPointerMove=\{\(event\) => \{[\s\S]*requestSleepInterrupt\(\)/);
+  const dragStart = source.indexOf("function startCatDrag(");
+  const dragEnd = source.indexOf("\n  function moveCat", dragStart);
+  const dragHandlers = source.slice(dragStart, dragEnd);
+  assert.match(dragHandlers, /if \(!resting \|\| wakingUp \|\| interruptConfirm\) return/);
+  assert.match(dragHandlers, /Math\.hypot\([\s\S]*< 10/);
+  assert.match(dragHandlers, /setPointerCapture[\s\S]*requestSleepInterrupt\(\)[\s\S]*releasePointerCapture/);
+  assert.match(source, /onPointerDown=\{startCatDrag\}[\s\S]*onPointerMove=\{trackCatDrag\}[\s\S]*onPointerUp=\{stopCatDrag\}/);
   assert.match(source, /是否要打断睡眠？/);
   assert.match(interruptBody, /sleepEndsAt: null, sleepRest: 0/);
   assert.match(interruptBody, /setWakingUp\(true\)/);
@@ -260,13 +277,18 @@ test("sleep interruption clears the pending reward before the wake-up animation"
   assert.doesNotMatch(css, /@keyframes cat-head-shake[^\n]*\brotate:/);
 });
 
-test("feeding a sleeping cat opens the sleep interruption confirmation", async () => {
+test("other controls do not open the sleep interruption confirmation", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const start = source.indexOf("function feedPet(");
   const end = source.indexOf("\n  function", start + 1);
   const feedBody = source.slice(start, end);
+  const sceneStart = source.indexOf("function changeScene(");
+  const sceneEnd = source.indexOf("\n  function", sceneStart + 1);
+  const changeSceneBody = source.slice(sceneStart, sceneEnd);
   assert.match(feedBody, /statusPetId === current\.pet[\s\S]*petStats:[\s\S]*\[statusPetId\]/);
-  assert.match(feedBody, /if \(resting && statusPetId === game\.pet\) \{[\s\S]*setOverlay\(null\);[\s\S]*setInterruptConfirm\(true\);/);
+  assert.doesNotMatch(feedBody, /setInterruptConfirm|requestSleepInterrupt/);
+  assert.doesNotMatch(changeSceneBody, /setInterruptConfirm|requestSleepInterrupt/);
+  assert.match(changeSceneBody, /if \(resting\) \{[\s\S]*setToast[\s\S]*return/);
 });
 
 test("keeps every cat animation loaded and coordinates transitions", async () => {

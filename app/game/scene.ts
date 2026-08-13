@@ -14,6 +14,43 @@ export const YARD_OBSTACLES: Rect[] = [
   { left: 90, right: 100, top: 28, bottom: 68 },
 ];
 
+export const ROOM_FIXED_OBSTACLES: Rect[] = [
+  { left: 0, right: 35, top: 0, bottom: 46 },
+  { left: 72, right: 81, top: 0, bottom: 45 },
+  { left: 81, right: 98, top: 35, bottom: 52 },
+  { left: 76, right: 94, top: 39, bottom: 51 },
+  { left: 79, right: 100, top: 54, bottom: 90 },
+];
+
+export function clampFurniturePosition(point: Point, footprint: { halfWidth: number; height: number }) {
+  const bounds = SCENE_BOUNDS.room;
+  let next = {
+    x: Math.min(bounds.right - footprint.halfWidth, Math.max(bounds.left + footprint.halfWidth, point.x)),
+    y: Math.min(bounds.bottom - 2, Math.max(bounds.top + footprint.height, point.y)),
+  };
+
+  for (const rect of ROOM_FIXED_OBSTACLES) {
+    const overlaps = next.x + footprint.halfWidth > rect.left
+      && next.x - footprint.halfWidth < rect.right
+      && next.y + 2 > rect.top
+      && next.y - footprint.height < rect.bottom;
+    if (!overlaps) continue;
+
+    const candidates = [
+      { x: rect.left - footprint.halfWidth - .5, y: next.y },
+      { x: rect.right + footprint.halfWidth + .5, y: next.y },
+      { x: next.x, y: rect.top - 2.5 },
+      { x: next.x, y: rect.bottom + footprint.height + .5 },
+    ].filter((candidate) => candidate.x >= bounds.left + footprint.halfWidth
+      && candidate.x <= bounds.right - footprint.halfWidth
+      && candidate.y >= bounds.top + footprint.height
+      && candidate.y <= bounds.bottom - 2);
+    next = candidates.sort((a, b) => Math.hypot(a.x - next.x, a.y - next.y) - Math.hypot(b.x - next.x, b.y - next.y))[0] ?? next;
+  }
+
+  return next;
+}
+
 function inside(point: Point, rect: Rect) {
   return point.x > rect.left && point.x < rect.right && point.y > rect.top && point.y < rect.bottom;
 }
