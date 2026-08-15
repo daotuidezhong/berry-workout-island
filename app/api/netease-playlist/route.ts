@@ -1,4 +1,5 @@
-const PLAYLIST_ID = "17961012548";
+import { PLAYLIST_ID, resolvePlaybackUrl } from "../../game/music";
+
 const headers = { Referer: "https://music.163.com/", "User-Agent": "Mozilla/5.0" };
 
 type Song = { id: number; name: string; duration?: number; artists?: Array<{ name: string }>; album?: { picUrl?: string } };
@@ -34,7 +35,7 @@ export async function GET() {
       artist: song.artists?.map((artist) => artist.name).join(" / ") || "未知歌手",
       duration: song.duration ?? 0,
       cover: song.album?.picUrl ?? "",
-      playbackUrl: stream?.url?.replace(/^http:/, "https:") ?? null,
+      playbackUrl: resolvePlaybackUrl(song.id, stream?.url),
       playbackCode: stream?.code ?? null,
       playbackFee: stream?.fee ?? null,
     }] : [];

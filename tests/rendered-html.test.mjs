@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
-import { readFile, readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { access, readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 import { CAT_BOUNDS, clampCatPosition, getFurnitureTarget } from "../app/game/furniture.ts";
+import { LOCAL_PLAYBACK_PATHS, PLAYLIST_ID, resolvePlaybackUrl } from "../app/game/music.ts";
 import { getTimePeriod } from "../app/game/time-period.ts";
 import { getRoomAsset, getWeatherKind, getYardAsset, ROOM_ASSET_BY_WEATHER } from "../app/game/weather.ts";
 import { cropItems, formatCookingTime, getCookingProgress, getCropProgress, getCropStage, INITIAL_PRODUCE, waterUnwateredPlots } from "../app/game/farm.ts";
@@ -94,6 +96,30 @@ test("keeps yard movement out of large obstacles", () => {
   const path = getWalkPath({ x: 30, y: 76 }, { x: 92, y: 60 }, "yard", YARD_OBSTACLES);
   assert.ok(path.length >= 1 && path.length <= 2);
   assert.ok(path.every((point) => point.x >= 7 && point.x <= 94 && point.y >= 45 && point.y <= 89));
+});
+
+test("bakes twelve distinct low-frame vinyl rotations into complete room images", async () => {
+  const hashes = new Set();
+  for (let frame = 0; frame < 12; frame += 1) {
+    const png = await readFile(new URL(`../public/game/room-frames/room-v030-clear-with-vinyl-bar-${String(frame).padStart(2, "0")}.png`, import.meta.url));
+    assert.equal(png.readUInt32BE(16), 1672);
+    assert.equal(png.readUInt32BE(20), 941);
+    hashes.add(createHash("sha256").update(png).digest("hex"));
+  }
+  assert.equal(hashes.size, 12);
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(source, /frame < 12/);
+  assert.match(source, /\(frame \+ 1\) % 12/);
+  assert.doesNotMatch(source, /turntable-frames|room-turntable-vinyl/);
+});
+
+test("uses the requested NetEase playlist and local fallbacks for its unavailable tracks", async () => {
+  assert.equal(PLAYLIST_ID, "17961012548");
+  assert.equal(Object.keys(LOCAL_PLAYBACK_PATHS).length, 22);
+  assert.equal(resolvePlaybackUrl(1352585027, null), "/music/tracks/1352585027.mp3");
+  assert.equal(resolvePlaybackUrl(2008736389, "http://example.com/song.mp3"), "https://example.com/song.mp3");
+  await Promise.all(Object.values(LOCAL_PLAYBACK_PATHS).map((playbackPath) =>
+    access(new URL(`../public${playbackPath}`, import.meta.url))));
 });
 
 test("keeps furniture on the floor and away from fixed room furniture", () => {

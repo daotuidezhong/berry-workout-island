@@ -649,7 +649,7 @@ export default function Home() {
 
   useEffect(() => {
     if (game.scene !== "room") return;
-    for (let frame = 0; frame < 4; frame += 1) {
+    for (let frame = 0; frame < 12; frame += 1) {
       const image = new Image();
       image.src = `/game/room-frames/${roomSceneName}-${String(frame).padStart(2, "0")}.png`;
       image.decode().catch(() => undefined);
@@ -676,7 +676,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!isPlaying) return;
-    const timer = window.setInterval(() => setRoomVinylFrame((frame) => (frame + 1) % 4), 250);
+    const timer = window.setInterval(() => setRoomVinylFrame((frame) => (frame + 1) % 12), 250);
     return () => window.clearInterval(timer);
   }, [isPlaying]);
 
