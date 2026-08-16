@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, net, protocol } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
+const { loadDesktopPlaylist } = require("./netease.cjs");
 const { createStorage } = require("./storage.cjs");
 
 app.setName("OH");
@@ -16,8 +17,11 @@ app.whenReady().then(() => {
     ? path.join(process.resourcesPath, "desktop-dist")
     : path.join(__dirname, "../desktop-dist");
 
-  protocol.handle("berry", (request) => {
+  protocol.handle("berry", async (request) => {
     const pathname = decodeURIComponent(new URL(request.url).pathname);
+    if (pathname === "/api/netease-playlist") {
+      return Response.json(await loadDesktopPlaylist(root, net.fetch));
+    }
     const file = path.resolve(root, pathname === "/" ? "index.html" : `.${pathname}`);
     if (!file.startsWith(root)) return new Response("Not found", { status: 404 });
     return net.fetch(pathToFileURL(file).toString());

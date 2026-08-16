@@ -4,6 +4,7 @@ import { access, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { CAT_BOUNDS, clampCatPosition, getFurnitureTarget } from "../app/game/furniture.ts";
 import { LOCAL_PLAYBACK_PATHS, PLAYLIST_ID, resolvePlaybackUrl } from "../app/game/music.ts";
@@ -16,6 +17,7 @@ import { canPetMove, decayPetStats, decayPetStatsByTime, formatSleepRemaining, g
 import { getJournalReward } from "../app/game/journal-reward.ts";
 
 const { createStorage } = createRequire(import.meta.url)("../electron/storage.cjs");
+const { LOCAL_PLAYBACK_PATHS: DESKTOP_PLAYBACK_PATHS, loadDesktopPlaylist } = createRequire(import.meta.url)("../electron/netease.cjs");
 
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -143,6 +145,18 @@ test("uses the requested NetEase playlist and local fallbacks for its unavailabl
   assert.equal(resolvePlaybackUrl(2008736389, "http://example.com/song.mp3"), "https://example.com/song.mp3");
   await Promise.all(Object.values(LOCAL_PLAYBACK_PATHS).map((playbackPath) =>
     access(new URL(`../public${playbackPath}`, import.meta.url))));
+});
+
+test("opens the desktop record cabinet from its bundled playlist when NetEase is unavailable", async () => {
+  const root = fileURLToPath(new URL("../public/", import.meta.url));
+  const playlist = await loadDesktopPlaylist(root, async () => { throw new Error("offline"); });
+  assert.equal(playlist.id, PLAYLIST_ID);
+  assert.equal(playlist.trackCount, 115);
+  assert.equal(playlist.tracks.length, 115);
+  assert.equal(playlist.tracks.filter((track) => track.playbackUrl).length, 22);
+  assert.deepEqual(DESKTOP_PLAYBACK_PATHS, LOCAL_PLAYBACK_PATHS);
+  const electronMain = await readFile(new URL("../electron/main.cjs", import.meta.url), "utf8");
+  assert.match(electronMain, /pathname === "\/api\/netease-playlist"[\s\S]*loadDesktopPlaylist\(root, net\.fetch\)/);
 });
 
 test("keeps furniture on the floor and away from fixed room furniture", () => {
@@ -417,7 +431,7 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(schema, /category: text\("category"\)/);
   assert.match(checkins, /name === "rating"[\s\S]*ALTER TABLE checkins ADD rating INTEGER[\s\S]*ALTER TABLE checkins ADD reward INTEGER/);
   assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*user-data\.json[\s\S]*createStorage\(dataFile\)[\s\S]*storage:load[\s\S]*storage:save/);
-  assert.match(packageJson, /"version": "0\.5\.0"[\s\S]*"appId": "com\.berryworkout\.island"[\s\S]*"productName": "OH"/);
+  assert.match(packageJson, /"version": "0\.5\.1"[\s\S]*"appId": "com\.berryworkout\.island"[\s\S]*"productName": "OH"/);
   assert.match(preload, /storage:[\s\S]*sendSync\("storage:load"[\s\S]*send\("storage:save"/);
 });
 
