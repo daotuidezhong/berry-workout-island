@@ -1,8 +1,8 @@
 const { app, BrowserWindow, ipcMain, net, protocol } = require("electron");
 const { autoUpdater } = require("electron-updater");
-const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
+const { createStorage } = require("./storage.cjs");
 
 app.setName("OH");
 
@@ -36,15 +36,9 @@ app.whenReady().then(() => {
   });
   const sendUpdate = (status) => window.webContents.send("update:status", status);
   const dataFile = path.join(app.getPath("userData"), "user-data.json");
-  const readData = () => {
-    try { return JSON.parse(fs.readFileSync(dataFile, "utf8")); } catch { return {}; }
-  };
-  ipcMain.on("storage:load", (event, key) => { event.returnValue = readData()[key] ?? null; });
-  ipcMain.on("storage:save", (_event, key, value) => {
-    const data = { ...readData(), [key]: value };
-    fs.mkdirSync(path.dirname(dataFile), { recursive: true });
-    fs.writeFileSync(dataFile, JSON.stringify(data), "utf8");
-  });
+  const storage = createStorage(dataFile);
+  ipcMain.on("storage:load", (event, key) => { event.returnValue = storage.load(key); });
+  ipcMain.on("storage:save", (_event, key, value) => storage.save(key, value));
   autoUpdater.autoDownload = false;
   autoUpdater.on("update-available", (info) => sendUpdate({
     phase: "available",

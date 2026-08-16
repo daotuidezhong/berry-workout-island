@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { access, readFile, readdir } from "node:fs/promises";
+import { access, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createRequire } from "node:module";
 import test from "node:test";
 import { CAT_BOUNDS, clampCatPosition, getFurnitureTarget } from "../app/game/furniture.ts";
 import { LOCAL_PLAYBACK_PATHS, PLAYLIST_ID, resolvePlaybackUrl } from "../app/game/music.ts";
@@ -11,6 +14,8 @@ import { clampFurniturePosition, clampToScene, getWalkPath, YARD_OBSTACLES } fro
 import { CAT_STATUS_ANIMATIONS, getCatStatus, getCatStatusTransition } from "../app/game/cat-actions.ts";
 import { canPetMove, decayPetStats, decayPetStatsByTime, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "../app/game/pet-stats.ts";
 import { getJournalReward } from "../app/game/journal-reward.ts";
+
+const { createStorage } = createRequire(import.meta.url)("../electron/storage.cjs");
 
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -387,6 +392,7 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   const api = await readFile(new URL("../app/api/checkins/route.ts", import.meta.url), "utf8");
   const electronMain = await readFile(new URL("../electron/main.cjs", import.meta.url), "utf8");
   const preload = await readFile(new URL("../electron/preload.cjs", import.meta.url), "utf8");
+  const packageJson = await readFile(new URL("../package.json", import.meta.url), "utf8");
   assert.match(source, /historyDates\.slice\(historyPage \* 2, historyPage \* 2 \+ 2\)/);
   assert.match(css, /\.notebook-page \{[^}]*min-height: 430px/);
   assert.match(source, /TODAY&apos;S NOTE[\s\S]*今天发生了什么[\s\S]*JOURNAL HISTORY[\s\S]*往日日记/);
@@ -410,8 +416,27 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(schema, /rating: integer\("rating"\)[\s\S]*reward: integer\("reward"\)/);
   assert.match(schema, /category: text\("category"\)/);
   assert.match(checkins, /name === "rating"[\s\S]*ALTER TABLE checkins ADD rating INTEGER[\s\S]*ALTER TABLE checkins ADD reward INTEGER/);
-  assert.match(electronMain, /user-data\.json[\s\S]*storage:load[\s\S]*storage:save/);
+  assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*user-data\.json[\s\S]*createStorage\(dataFile\)[\s\S]*storage:load[\s\S]*storage:save/);
+  assert.match(packageJson, /"version": "0\.5\.0"[\s\S]*"appId": "com\.berryworkout\.island"[\s\S]*"productName": "OH"/);
   assert.match(preload, /storage:[\s\S]*sendSync\("storage:load"[\s\S]*send\("storage:save"/);
+});
+
+test("preserves the previous desktop save and recovers from a damaged primary file", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "oh-storage-"));
+  const dataFile = join(directory, "user-data.json");
+  const legacyGame = JSON.stringify({ gameSchemaVersion: 5, berries: 321, streak: 9, pet: "doubao", inventory: { driedFish: 7 } });
+  const legacyHistory = JSON.stringify([{ id: 1, date: "2026-08-15", content: "旧版记录", category: "学习", rating: 8, reward: 23 }]);
+  try {
+    const storage = createStorage(dataFile);
+    storage.save("berry-workout-game", legacyGame);
+    storage.save("berry-workout-history", legacyHistory);
+    assert.equal(storage.load("berry-workout-game"), legacyGame);
+    assert.equal(storage.load("berry-workout-history"), legacyHistory);
+    await writeFile(dataFile, "{damaged", "utf8");
+    assert.equal(storage.load("berry-workout-game"), legacyGame);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("rewards only the first three journal records of each day", () => {
