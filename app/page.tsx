@@ -60,8 +60,9 @@ type GameState = {
   cooking: { dishId: CookedFoodId; startedAt: number; endsAt: number } | null;
 };
 
-const RELEASE_VERSION = "0.5.1";
+const RELEASE_VERSION = "0.5.2";
 const RELEASE_NOTES = [
+  { version: "0.5.2", items: ["开启桌面版本地音频流支持，修复内置备用歌曲加载失败的问题", "确认用户提供的 22 首 MP3 已逐首完整收录并映射到对应唱片"] },
   { version: "0.5.1", items: ["修复 Windows 桌面版唱片柜无法读取歌单的问题", "内置完整歌单清单，网易云接口暂时不可用时仍可打开唱片柜和播放本地备用歌曲"] },
   { version: "0.5.0", items: ["新增唱片机、吧台和指定网易云歌单，受限歌曲支持本地播放", "完成全部天气与时段的室内场景更新，修复右侧模糊和界面遮挡", "多只猫咪现在独立保存位置、状态与睡眠，同一张床不会重复入住", "每日前三条记录依次奖励 10、15、18 个草莓，后续记录不再奖励"] },
   { version: "0.4.1", items: ["修复切换状态时猫咪换位和动画被打断的问题", "伙伴页查看状态与喂食目标现在始终对应左下角选中的猫咪"] },

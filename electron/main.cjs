@@ -9,7 +9,7 @@ app.setName("OH");
 
 protocol.registerSchemesAsPrivileged([{
   scheme: "berry",
-  privileges: { standard: true, secure: true, supportFetchAPI: true },
+  privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
 }]);
 
 app.whenReady().then(() => {

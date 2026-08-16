@@ -157,6 +157,7 @@ test("opens the desktop record cabinet from its bundled playlist when NetEase is
   assert.deepEqual(DESKTOP_PLAYBACK_PATHS, LOCAL_PLAYBACK_PATHS);
   const electronMain = await readFile(new URL("../electron/main.cjs", import.meta.url), "utf8");
   assert.match(electronMain, /pathname === "\/api\/netease-playlist"[\s\S]*loadDesktopPlaylist\(root, net\.fetch\)/);
+  assert.match(electronMain, /supportFetchAPI: true, stream: true/);
 });
 
 test("keeps furniture on the floor and away from fixed room furniture", () => {
@@ -431,7 +432,7 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(schema, /category: text\("category"\)/);
   assert.match(checkins, /name === "rating"[\s\S]*ALTER TABLE checkins ADD rating INTEGER[\s\S]*ALTER TABLE checkins ADD reward INTEGER/);
   assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*user-data\.json[\s\S]*createStorage\(dataFile\)[\s\S]*storage:load[\s\S]*storage:save/);
-  assert.match(packageJson, /"version": "0\.5\.1"[\s\S]*"appId": "com\.berryworkout\.island"[\s\S]*"productName": "OH"/);
+  assert.match(packageJson, /"version": "0\.5\.2"[\s\S]*"appId": "com\.berryworkout\.island"[\s\S]*"productName": "OH"/);
   assert.match(preload, /storage:[\s\S]*sendSync\("storage:load"[\s\S]*send\("storage:save"/);
 });
 

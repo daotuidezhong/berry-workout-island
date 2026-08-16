@@ -24,7 +24,7 @@ npm test
 npm run desktop:build
 ```
 
-安装包输出到 `outputs/Berry-Workout-Island-Setup-0.5.1.exe`。桌面版在本机保存游戏进度、日记历史、自评分和猫咪名字，并支持检查 GitHub Releases 更新。
+安装包输出到 `outputs/Berry-Workout-Island-Setup-0.5.2.exe`。桌面版在本机保存游戏进度、日记历史、自评分和猫咪名字，并支持检查 GitHub Releases 更新。
 
 ## 数据位置
 
