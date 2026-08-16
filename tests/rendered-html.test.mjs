@@ -45,19 +45,36 @@ test("maps Foshan weather codes to room weather states", () => {
   assert.equal(getWeatherKind(3, 0, 80), "cloudy");
   assert.equal(getWeatherKind(61, 0.4, 95), "rain");
   assert.equal(getWeatherKind(95, 2.2, 100), "thunderstorm");
-  assert.deepEqual(Object.values(ROOM_ASSET_BY_WEATHER), [
-    "/game/room-v030-clear-with-vinyl-bar.png",
-    "/game/room-v030-cloudy-with-vinyl-bar.png",
-    "/game/room-v030-rain-with-vinyl-bar.png",
-    "/game/room-v030-thunderstorm-with-vinyl-bar.png",
-  ]);
-  assert.equal(getRoomAsset("clear", "morning"), "/game/room-v030-morning-with-vinyl-bar.png");
-  assert.equal(getRoomAsset("cloudy", "morning"), "/game/room-v030-cloudy-with-vinyl-bar.png");
-  assert.equal(getRoomAsset("rain", "morning"), "/game/room-v030-rain-with-vinyl-bar.png");
-  assert.equal(getRoomAsset("clear", "evening"), "/game/room-v030-evening-with-vinyl-bar.png");
-  assert.equal(getRoomAsset("cloudy", "evening"), "/game/room-v030-cloudy-with-vinyl-bar.png");
-  assert.equal(getRoomAsset("rain", "evening"), "/game/room-v030-rain-with-vinyl-bar.png");
-  assert.equal(getRoomAsset("thunderstorm", "night"), "/game/room-v030-thunderstorm-night-with-vinyl-bar.png");
+  assert.deepEqual(ROOM_ASSET_BY_WEATHER, {
+    clear: {
+      morning: "/game/room-v070-clear-morning.png",
+      noon: "/game/room-v070-clear-noon.png",
+      evening: "/game/room-v060-clear-evening.png",
+      night: "/game/room-v070-clear-night.png",
+    },
+    cloudy: {
+      morning: "/game/room-v060-cloudy-morning.png",
+      noon: "/game/room-v060-cloudy-noon.png",
+      evening: "/game/room-v060-cloudy-evening.png",
+      night: "/game/room-v060-cloudy-night.png",
+    },
+    rain: {
+      morning: "/game/room-v060-rain-morning.png",
+      noon: "/game/room-v060-rain-noon.png",
+      evening: "/game/room-v060-rain-evening.png",
+      night: "/game/room-v070-rain-night.png",
+    },
+    thunderstorm: {
+      morning: "/game/room-v060-thunderstorm-morning.png",
+      noon: "/game/room-v060-thunderstorm-noon.png",
+      evening: "/game/room-v060-thunderstorm-evening.png",
+      night: "/game/room-v060-thunderstorm-night.png",
+    },
+  });
+  assert.equal(getRoomAsset("clear", "morning"), "/game/room-v070-clear-morning.png");
+  assert.equal(getRoomAsset("clear", "noon"), "/game/room-v070-clear-noon.png");
+  assert.equal(getRoomAsset("rain", "night"), "/game/room-v070-rain-night.png");
+  assert.equal(getRoomAsset("thunderstorm", "evening"), "/game/room-v060-thunderstorm-evening.png");
   assert.equal(getYardAsset("thunderstorm", "night"), "/game/yard-thunderstorm-night.png");
 });
 

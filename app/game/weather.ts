@@ -3,18 +3,35 @@ import type { SceneId } from "./scene";
 
 export type WeatherKind = "clear" | "cloudy" | "rain" | "thunderstorm";
 
-export const ROOM_ASSET_BY_WEATHER: Record<WeatherKind, string> = {
-  clear: "/game/room-v030-clear-with-vinyl-bar.png",
-  cloudy: "/game/room-v030-cloudy-with-vinyl-bar.png",
-  rain: "/game/room-v030-rain-with-vinyl-bar.png",
-  thunderstorm: "/game/room-v030-thunderstorm-with-vinyl-bar.png",
+export const ROOM_ASSET_BY_WEATHER: Record<WeatherKind, Record<TimePeriod, string>> = {
+  clear: {
+    morning: "/game/room-v070-clear-morning.png",
+    noon: "/game/room-v070-clear-noon.png",
+    evening: "/game/room-v060-clear-evening.png",
+    night: "/game/room-v070-clear-night.png",
+  },
+  cloudy: {
+    morning: "/game/room-v060-cloudy-morning.png",
+    noon: "/game/room-v060-cloudy-noon.png",
+    evening: "/game/room-v060-cloudy-evening.png",
+    night: "/game/room-v060-cloudy-night.png",
+  },
+  rain: {
+    morning: "/game/room-v060-rain-morning.png",
+    noon: "/game/room-v060-rain-noon.png",
+    evening: "/game/room-v060-rain-evening.png",
+    night: "/game/room-v070-rain-night.png",
+  },
+  thunderstorm: {
+    morning: "/game/room-v060-thunderstorm-morning.png",
+    noon: "/game/room-v060-thunderstorm-noon.png",
+    evening: "/game/room-v060-thunderstorm-evening.png",
+    night: "/game/room-v060-thunderstorm-night.png",
+  },
 };
 
 export function getRoomAsset(kind: WeatherKind, period: TimePeriod) {
-  if (period === "night") return `/game/room-v030-${kind}-night-with-vinyl-bar.png`;
-  if (period === "morning" && kind === "clear") return "/game/room-v030-morning-with-vinyl-bar.png";
-  if (period === "evening" && kind === "clear") return "/game/room-v030-evening-with-vinyl-bar.png";
-  return ROOM_ASSET_BY_WEATHER[kind];
+  return ROOM_ASSET_BY_WEATHER[kind][period];
 }
 
 export function getYardAsset(kind: WeatherKind, period: TimePeriod) {
