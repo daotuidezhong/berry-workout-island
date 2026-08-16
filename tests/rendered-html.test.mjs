@@ -127,6 +127,7 @@ test("bakes twelve distinct low-frame vinyl rotations into complete room images"
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.match(source, /frame < 12/);
   assert.match(source, /\(frame \+ 1\) % 12/);
+  assert.match(source, /ROOM_SCENE_ASSET_VERSION[\s\S]*\?v=\$\{ROOM_SCENE_ASSET_VERSION\}/);
   assert.doesNotMatch(source, /turntable-frames|room-turntable-vinyl/);
 });
 
@@ -153,7 +154,7 @@ test("keeps the cat and movement controls indoors", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.match(source, /game\.scene !== "room" \|\| overlay/);
   assert.match(source, /onPointerDown=\{game\.scene === "room" \? moveCat : undefined\}/);
-  assert.match(source, /\{game\.scene === "room" && <div[\s\S]*className=\{`walking-cat/);
+  assert.match(source, /\{game\.scene === "room" && game\.adoptedPets\.map[\s\S]*className=\{`scene-cat walking-cat/);
   assert.match(source, /全屏像素院子。点击田地进行种植，或使用导航栏。/);
 });
 
@@ -296,26 +297,29 @@ test("keeps cat-bed sleep active for three hours and formats the countdown", () 
   assert.equal(formatSleepRemaining(3661000), "1:01:01");
 });
 
-test("sleep interruption clears the pending reward before the wake-up animation", async () => {
+test("only movement intent asks to cancel sleep before the wake-up animation", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
   const start = source.indexOf("function interruptSleep()");
   const end = source.indexOf("\n  function", start + 1);
   const interruptBody = source.slice(start, end);
-  const dragStart = source.indexOf("function startCatDrag(");
-  const dragEnd = source.indexOf("\n  function moveCat", dragStart);
-  const dragHandlers = source.slice(dragStart, dragEnd);
-  assert.match(dragHandlers, /if \(!resting \|\| wakingUp \|\| interruptConfirm\) return/);
-  assert.match(dragHandlers, /Math\.hypot\([\s\S]*< 10/);
-  assert.match(dragHandlers, /setPointerCapture[\s\S]*requestSleepInterrupt\(\)[\s\S]*releasePointerCapture/);
-  assert.match(source, /onPointerDown=\{startCatDrag\}[\s\S]*onPointerMove=\{trackCatDrag\}[\s\S]*onPointerUp=\{stopCatDrag\}/);
-  assert.match(source, /是否要打断睡眠？/);
-  assert.match(interruptBody, /sleepEndsAt: null, sleepRest: 0/);
+  const moveStart = source.indexOf("function moveCat(");
+  const moveEnd = source.indexOf("\n  function walkCatTo", moveStart);
+  const moveBody = source.slice(moveStart, moveEnd);
+  const keyboardStart = source.indexOf("const onKeyDown = (event: KeyboardEvent)");
+  const keyboardEnd = source.indexOf("window.addEventListener(\"keydown\", onKeyDown)", keyboardStart);
+  const keyboardBody = source.slice(keyboardStart, keyboardEnd);
+  assert.match(moveBody, /if \(resting\) \{[\s\S]*requestSleepInterrupt\(\)[\s\S]*return/);
+  assert.match(keyboardBody, /const move = moves\[event\.key\][\s\S]*if \(resting\) \{[\s\S]*requestSleepInterrupt\(\)[\s\S]*return/);
+  assert.doesNotMatch(source, /startCatDrag|trackCatDrag|stopCatDrag|setPointerCapture|releasePointerCapture/);
+  assert.match(source, /是否要取消睡眠？[\s\S]*>取消睡眠<\/button>/);
+  assert.match(interruptBody, /petSleep: \{ \.\.\.current\.petSleep, \[current\.pet\]: \{ endsAt: null, rest: 0, furnitureId: null \} \}[\s\S]*catFurniture: null[\s\S]*sleepEndsAt: null[\s\S]*sleepRest: 0/);
   assert.match(interruptBody, /setWakingUp\(true\)/);
-  assert.doesNotMatch(interruptBody, /sleepiness/);
+  assert.doesNotMatch(interruptBody, /sleepiness:\s*Math\.max|sleepiness\s*-/);
   assert.match(source, /cat-orange-wake\.png[\s\S]*cat-cow-wake\.png[\s\S]*cat-white-wake\.png/);
   assert.doesNotMatch(source, /frameAdjustments|baseAdjustment/);
   assert.doesNotMatch(css, /walking-cat\.(?:resting|waking-up)[^{]*\{[^}]*\bwidth:/);
+  assert.doesNotMatch(css, /\.walking-cat\.resting \{[^}]*pointer-events: auto/);
   assert.doesNotMatch(css, /@keyframes cat-rest[^\n]*\bscale:/);
   assert.doesNotMatch(css, /@keyframes cat-head-shake[^\n]*\brotate:/);
 });
@@ -328,9 +332,13 @@ test("other controls do not open the sleep interruption confirmation", async () 
   const sceneStart = source.indexOf("function changeScene(");
   const sceneEnd = source.indexOf("\n  function", sceneStart + 1);
   const changeSceneBody = source.slice(sceneStart, sceneEnd);
+  const furnitureStart = source.indexOf("function moveCatToFurniture(");
+  const furnitureEnd = source.indexOf("\n  async function checkIn", furnitureStart);
+  const furnitureBody = source.slice(furnitureStart, furnitureEnd);
   assert.match(feedBody, /statusPetId === current\.pet[\s\S]*petStats:[\s\S]*\[statusPetId\]/);
   assert.doesNotMatch(feedBody, /setInterruptConfirm|requestSleepInterrupt/);
   assert.doesNotMatch(changeSceneBody, /setInterruptConfirm|requestSleepInterrupt/);
+  assert.doesNotMatch(furnitureBody, /setInterruptConfirm|requestSleepInterrupt/);
   assert.match(changeSceneBody, /if \(resting\) \{[\s\S]*setToast[\s\S]*return/);
 });
 
@@ -383,7 +391,10 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(css, /\.notebook-page \{[^}]*min-height: 430px/);
   assert.match(source, /TODAY&apos;S NOTE[\s\S]*今天发生了什么[\s\S]*JOURNAL HISTORY[\s\S]*往日日记/);
   assert.match(source, /maxLength=\{300\}/);
-  assert.match(source, /checkedToday \? 0 : Math\.min\(23, getJournalReward\(rating\) \+ bonus\)/);
+  assert.match(source, /const todayRecordCount = history\.filter\(\(record\) => record\.date === today\)\.length/);
+  assert.match(source, /let reward = getJournalReward\(todayRecordCount \+ 1\)/);
+  assert.match(source, /berries: current\.berries \+ reward, streak: firstRecordToday \? next : current\.streak/);
+  assert.match(api, /countCheckinsForDate[\s\S]*getJournalReward\(\(await countCheckinsForDate\(deviceId, date\)\) \+ 1\)/);
   assert.doesNotMatch(source, /calorie|卡路里|千卡|智能估算/i);
   assert.doesNotMatch(api, /calorie|estimateCalories/i);
   assert.doesNotMatch(source, /backup-consent|syncDesktopRecord|BACKUP_ORIGIN|云备份/);
@@ -403,25 +414,49 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(preload, /storage:[\s\S]*sendSync\("storage:load"[\s\S]*send\("storage:save"/);
 });
 
-test("caps the score-based journal reward at 23 strawberries", () => {
-  assert.equal(getJournalReward(1), 5);
-  assert.equal(getJournalReward(5), 13);
-  assert.equal(getJournalReward(10), 23);
-  assert.equal(getJournalReward(99), 23);
+test("rewards only the first three journal records of each day", () => {
+  assert.equal(getJournalReward(0), 0);
+  assert.equal(getJournalReward(1), 10);
+  assert.equal(getJournalReward(2), 15);
+  assert.equal(getJournalReward(3), 18);
+  assert.equal(getJournalReward(4), 0);
+  assert.equal(getJournalReward(99), 0);
 });
 
-test("supports multiple adopted pets and status switching", async () => {
+test("switches movement control and independent stats with the selected pet", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
-  assert.match(source, /adoptedPets: PetId\[\][\s\S]*petStats: Record<PetId, PetStats>/);
-  assert.match(source, /function cyclePet\(\)[\s\S]*className="roommate-cat"[\s\S]*title="切换宠物状态"/);
+  assert.match(source, /adoptedPets: PetId\[\][\s\S]*petStats: Record<PetId, PetStats>[\s\S]*petPositions: Record<PetId, Point>/);
+  assert.match(source, /function switchControlledPet\(id: PetId\)[\s\S]*pet: id[\s\S]*\[current\.pet\]: \{ energy: current\.energy[\s\S]*\[id\]: nextStats/);
+  assert.match(source, /catPosition: current\.petPositions\[id\] \?\? ROOMMATE_POSITIONS\[id\][\s\S]*\[current\.pet\]: current\.catPosition/);
+  assert.match(source, /game\.adoptedPets\.map\(\(id\) => \{[\s\S]*const controlled = id === game\.pet[\s\S]*const position = controlled \? game\.catPosition : game\.petPositions\[id\] \?\? ROOMMATE_POSITIONS\[id\]/);
+  assert.match(source, /function cyclePet\(\)[\s\S]*className=\{`scene-cat roommate-cat[\s\S]*title="切换控制猫咪"/);
   const cyclePetSource = source.slice(source.indexOf("function cyclePet()"), source.indexOf("function adoptPet"));
-  assert.match(cyclePetSource, /setStatusPetId/);
-  assert.doesNotMatch(cyclePetSource, /switchPet|setGame|resetStatusAnimation|catPosition/);
+  assert.match(cyclePetSource, /game\.adoptedPets\.indexOf\(game\.pet\)[\s\S]*switchControlledPet\(id\)/);
   const adoptPetSource = source.slice(source.indexOf("function adoptPet"), source.indexOf("function resetFurniture"));
-  assert.doesNotMatch(adoptPetSource, /switchPet|resetStatusAnimation|catPosition|pet: id/);
+  assert.match(adoptPetSource, /switchControlledPet\(id\)[\s\S]*已切换控制/);
   assert.match(source, /菜品可以喂给 \{statusPet\.name\}[\s\S]*`喂给 \$\{statusPet\.name\}`/);
-  assert.match(css, /\.roommate-cat/);
+  assert.match(css, /\.scene-cat \{[^}]*width: clamp\(92px, 10vw, 168px\)[^}]*transform: translate\(-50%, -79%\)/);
+  assert.match(css, /\.game-room \{[^}]*z-index: 0/);
+  assert.doesNotMatch(css, /\.roommate-cat \{[^}]*\b(?:width|transform):/);
+});
+
+test("stores sleep independently, reserves beds, and animates every adopted pet", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(source, /type PetSleep = \{ endsAt: number \| null; rest: number; furnitureId: string \| null \}/);
+  assert.match(source, /petSleep: Record<PetId, PetSleep>/);
+  assert.match(source, /mitao: \{ endsAt: null, rest: 0, furnitureId: null \}[\s\S]*doubao: \{ endsAt: null, rest: 0, furnitureId: null \}[\s\S]*xueqiu: \{ endsAt: null, rest: 0, furnitureId: null \}/);
+  assert.match(source, /petSleep: \{ \.\.\.current\.petSleep, \[current\.pet\]: \{ endsAt: sleepEndsAt, rest: item\.rest, furnitureId: item\.id \} \}/);
+  assert.match(source, /const occupyingPet = game\.adoptedPets\.find[\s\S]*sleep\.furnitureId === item\.id[\s\S]*请换一个猫窝/);
+  const switchStart = source.indexOf("function switchControlledPet(id: PetId)");
+  const switchEnd = source.indexOf("\n  function cyclePet", switchStart);
+  const switchBody = source.slice(switchStart, switchEnd);
+  assert.doesNotMatch(switchBody, /if \(resting\)/);
+  assert.match(switchBody, /const targetSleep = game\.petSleep\[id\][\s\S]*sleepEndsAt: currentTargetSleep\.endsAt[\s\S]*sleepRest: currentTargetSleep\.rest/);
+  assert.match(switchBody, /catFurniture: getSleepRemainingMs\(currentTargetSleep\.endsAt, now\) > 0 \? currentTargetSleep\.furnitureId : null/);
+  assert.match(source, /const roommateSleep = game\.petSleep\[id\][\s\S]*const roommateStatus = getCatStatus[\s\S]*getLoopedStatusFrame\(CAT_STATUS_ANIMATIONS\[roommateStatus\]\.frames[\s\S]*const roommateAsset/);
+  assert.match(source, /roommateFrame\.pose === "walk"[\s\S]*cat\.walkFrames[\s\S]*roommateFrame\.pose === "groom"[\s\S]*cat\.groomFrames/);
+  assert.doesNotMatch(source, /onClick=\{cyclePet\} disabled=\{resting\}/);
 });
 
 test("uses OH desktop branding and a stable cat-paw cursor", async () => {

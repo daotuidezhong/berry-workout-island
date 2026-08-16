@@ -1,3 +1,5 @@
-export function getJournalReward(rating: number) {
-  return Math.min(23, 3 + Math.max(1, Math.min(10, Math.round(rating))) * 2);
+const JOURNAL_REWARDS = [10, 15, 18] as const;
+
+export function getJournalReward(recordNumber: number) {
+  return JOURNAL_REWARDS[Math.round(recordNumber) - 1] ?? 0;
 }

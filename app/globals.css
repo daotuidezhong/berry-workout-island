@@ -47,6 +47,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .game-room {
   --scene-lighting: brightness(1);
   position: absolute;
+  z-index: 0;
   inset: 0;
   overflow: hidden;
   background: #c89c6c;
@@ -177,20 +178,19 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .hud-counters small { color: var(--muted); font-size: var(--hud-text-size); }
 .hud-counters b { margin-top: 3px; font-size: var(--hud-text-size); }
 
-.walking-cat {
+.scene-cat {
   position: absolute;
   width: clamp(92px, 10vw, 168px);
   transform: translate(-50%, -79%);
   transform-origin: 50% 100%;
-  transition: left .55s linear, top .55s linear;
   pointer-events: none;
   user-select: none;
 }
 
-.walking-cat img { display: block; width: 100%; max-height: 185px; object-fit: contain; image-rendering: pixelated; transform-origin: 50% 100%; filter: var(--scene-lighting); transition: filter 1.2s ease, translate .12s ease-out; }
-.roommate-cat { position: absolute; width: clamp(90px, 11vw, 160px); transform: translate(-50%, -100%); text-align: center; pointer-events: none; }
-.roommate-cat img { width: 100%; max-height: 150px; object-fit: contain; image-rendering: pixelated; filter: var(--scene-lighting); }
-.roommate-cat b { display: block; margin-top: -12px; color: #fff8e9; text-shadow: 0 2px 0 #5b4034; font-size: var(--hud-text-size); }
+.scene-cat img { display: block; width: 100%; max-height: 185px; object-fit: contain; image-rendering: pixelated; transform-origin: 50% 100%; filter: var(--scene-lighting); transition: filter 1.2s ease, translate .12s ease-out; }
+.walking-cat { transition: left .55s linear, top .55s linear; }
+.roommate-cat { text-align: center; }
+.roommate-cat b { position: absolute; left: 50%; bottom: -5px; transform: translateX(-50%); color: #fff8e9; text-shadow: 0 2px 0 #5b4034; font-size: var(--hud-text-size); white-space: nowrap; }
 .walking-cat.walking .cat-base { animation: cat-pose-walk-in .18s ease-out both; }
 .walking-cat.status-animation:not(.resting):not(.waking-up) .cat-base.cat-pose-idle { animation: cat-pose-idle-in .18s ease-out both; }
 .walking-cat.status-animation:not(.resting):not(.waking-up) .cat-base.cat-pose-walk { animation: cat-pose-status-walk-in .18s ease-out both; }
@@ -515,7 +515,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
   .pet-grid img { height: 155px; }
   .pet-grid small { margin: 0; }
   .pet-grid article > button { grid-column: 2; }
-    .walking-cat { width: clamp(78px, 17vw, 125px); }
+    .scene-cat { width: clamp(78px, 17vw, 125px); }
     .turntable-panel { grid-template-columns: 94px minmax(0, 1fr); padding: 12px; gap: 8px 12px; }
     .turntable-record { width: 88px; }
     .player-controls { grid-column: 1 / -1; }

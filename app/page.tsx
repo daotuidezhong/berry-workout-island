@@ -27,10 +27,11 @@ type StoreFoodId = "driedFish" | "chickenCan" | "salmonMousse" | "tunaRice" | "c
 type CookedFoodId = "strawberryPuree" | "carrotSoup" | "tomatoSoup" | "catnipCookies" | "sunflowerRice" | "pumpkinPuree";
 type FoodId = StoreFoodId | CookedFoodId;
 type PetStats = { energy: number; sleepiness: number; statsUpdatedAt: number };
+type PetSleep = { endsAt: number | null; rest: number; furnitureId: string | null };
 type PlaylistTrack = { id: number; name: string; artist: string; duration: number; cover: string; playbackUrl: string | null; playbackCode: number | null; playbackFee: number | null };
 type Playlist = { id: string; name: string; trackCount: number; tracks: PlaylistTrack[] };
 type GameState = {
-  gameSchemaVersion: 5;
+  gameSchemaVersion: 7;
   statModelVersion: 2;
   berries: number;
   streak: number;
@@ -46,6 +47,8 @@ type GameState = {
   sleepiness: number;
   statsUpdatedAt: number;
   catPosition: Point;
+  petPositions: Record<PetId, Point>;
+  petSleep: Record<PetId, PetSleep>;
   catFurniture: string | null;
   sleepEndsAt: number | null;
   sleepRest: number;
@@ -183,7 +186,7 @@ const INITIAL_INVENTORY: Record<FoodId, number> = {
 };
 
 const INITIAL_GAME: GameState = {
-  gameSchemaVersion: 5,
+  gameSchemaVersion: 7,
   statModelVersion: 2,
   berries: 48,
   streak: 0,
@@ -203,6 +206,12 @@ const INITIAL_GAME: GameState = {
   sleepiness: 24,
   statsUpdatedAt: 0,
   catPosition: { x: 56, y: 72 },
+  petPositions: { mitao: { x: 56, y: 72 }, doubao: { x: 62, y: 73 }, xueqiu: { x: 78, y: 77 } },
+  petSleep: {
+    mitao: { endsAt: null, rest: 0, furnitureId: null },
+    doubao: { endsAt: null, rest: 0, furnitureId: null },
+    xueqiu: { endsAt: null, rest: 0, furnitureId: null },
+  },
   catFurniture: null,
   sleepEndsAt: null,
   sleepRest: 0,
@@ -214,12 +223,7 @@ const INITIAL_GAME: GameState = {
   cooking: null,
 };
 
-const milestones = [
-  { day: 3, bonus: 6 },
-  { day: 7, bonus: 20 },
-  { day: 14, bonus: 40 },
-  { day: 30, bonus: 100 },
-];
+const milestones = [3, 7, 14, 30];
 
 const ROOMMATE_POSITIONS: Record<PetId, Point> = {
   mitao: { x: 38, y: 76 }, doubao: { x: 62, y: 73 }, xueqiu: { x: 78, y: 77 },
@@ -263,6 +267,7 @@ const WAKE_SEQUENCE_LENGTH = WAKE_YAWN_SEQUENCE.length + 3;
 const WALK_FRAME_MS = 90;
 const WALK_CYCLE_MS = WALK_FRAME_MS * 4;
 const STATUS_IDLE_MS = 8000;
+const ROOM_SCENE_ASSET_VERSION = "20260816-crisp-vinyl-v2";
 
 function localDate(date = new Date()) {
   const year = date.getFullYear();
@@ -273,6 +278,16 @@ function localDate(date = new Date()) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function getLoopedStatusFrame(frames: CatAnimationFrame[], now: number) {
+  const totalDuration = frames.reduce((total, frame) => total + frame.duration, 0);
+  let elapsed = now % totalDuration;
+  for (const frame of frames) {
+    if (elapsed < frame.duration) return frame;
+    elapsed -= frame.duration;
+  }
+  return frames[0];
 }
 
 export default function Home() {
@@ -307,6 +322,8 @@ export default function Home() {
   const [statusTransitionTarget, setStatusTransitionTarget] = useState<CatStatusId | null>(null);
   const [resting, setResting] = useState(false);
   const [sleepRemainingMs, setSleepRemainingMs] = useState(0);
+  const [sleepNow, setSleepNow] = useState(Date.now());
+  const [roommateAnimationNow, setRoommateAnimationNow] = useState(Date.now());
   const [interruptConfirm, setInterruptConfirm] = useState(false);
   const [wakingUp, setWakingUp] = useState(false);
   const [wakeFrame, setWakeFrame] = useState(0);
@@ -334,7 +351,6 @@ export default function Home() {
   const roomRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const sceneCanvasRef = useRef<HTMLCanvasElement>(null);
-  const catDragStart = useRef<{ pointerId: number; x: number; y: number; triggered: boolean } | null>(null);
   const walkingTimer = useRef<number | undefined>(undefined);
   const headShakeTimer = useRef<number | undefined>(undefined);
   const sleepInterruptReadyAt = useRef(0);
@@ -347,6 +363,7 @@ export default function Home() {
   const renderedSceneAsset = game.scene === "room" && isPlaying
     ? `/game/room-frames/${roomSceneName}-${String(roomVinylFrame).padStart(2, "0")}.png`
     : sceneAsset;
+  const renderedSceneUrl = `${renderedSceneAsset}?v=${ROOM_SCENE_ASSET_VERSION}`;
 
   useEffect(() => {
     const now = new Date();
@@ -370,18 +387,31 @@ export default function Home() {
         const inventory = { ...INITIAL_INVENTORY, ...(parsed.inventory ?? {}) };
         const scene: SceneId = parsed.scene === "yard" ? "yard" : "room";
         if (!parsed.inventory) inventory.driedFish = legacyFood;
+        const activePet = parsed.pet ?? "mitao";
+        const activePosition = clampToScene(parsed.catPosition ?? INITIAL_GAME.catPosition, scene, scene === "yard" ? YARD_OBSTACLES : []);
+        const furniturePositions = Object.fromEntries(Object.entries({ ...DEFAULT_FURNITURE_POSITIONS, ...(parsed.furniturePositions ?? {}) })
+          .map(([id, position]) => [id, clampFurniturePosition(position, FURNITURE_FOOTPRINTS[id])]));
         const merged: GameState = {
           ...INITIAL_GAME,
           ...parsed,
           inventory,
-          gameSchemaVersion: 5,
+          gameSchemaVersion: 7,
+          pet: activePet,
           purchased: Array.isArray(parsed.purchased) ? parsed.purchased : [],
-          adoptedPets: Array.isArray(parsed.adoptedPets) && parsed.adoptedPets.length ? parsed.adoptedPets : [parsed.pet ?? "mitao"],
+          adoptedPets: Array.isArray(parsed.adoptedPets) && parsed.adoptedPets.length ? parsed.adoptedPets : [activePet],
           petNames: { ...INITIAL_GAME.petNames, ...(parsed.petNames ?? {}) },
           petStats: { ...INITIAL_GAME.petStats, ...(parsed.petStats ?? {}) },
-          catPosition: clampToScene(parsed.catPosition ?? INITIAL_GAME.catPosition, scene, scene === "yard" ? YARD_OBSTACLES : []),
-          furniturePositions: Object.fromEntries(Object.entries({ ...DEFAULT_FURNITURE_POSITIONS, ...(parsed.furniturePositions ?? {}) })
-            .map(([id, position]) => [id, clampFurniturePosition(position, FURNITURE_FOOTPRINTS[id])])),
+          catPosition: activePosition,
+          petPositions: { ...INITIAL_GAME.petPositions, ...(parsed.petPositions ?? {}), [activePet]: activePosition },
+          petSleep: Object.fromEntries((["mitao", "doubao", "xueqiu"] as PetId[]).map((id) => {
+            const savedSleep = parsed.petSleep?.[id];
+            return [id, {
+              endsAt: savedSleep?.endsAt ?? (id === activePet ? parsed.sleepEndsAt ?? null : null),
+              rest: savedSleep?.rest ?? (id === activePet ? parsed.sleepRest ?? 0 : 0),
+              furnitureId: savedSleep?.furnitureId ?? (id === activePet ? parsed.catFurniture ?? null : null),
+            }];
+          })) as Record<PetId, PetSleep>,
+          furniturePositions,
           scene,
           farmPlots: Array.from({ length: 12 }, (_, index) => parsed.farmPlots?.[index] ?? null),
           seeds: { ...INITIAL_SEEDS, ...(parsed.seeds ?? {}) },
@@ -399,13 +429,51 @@ export default function Home() {
         }
         const nowMs = now.getTime();
         merged.statsUpdatedAt = typeof parsed.statsUpdatedAt === "number" && parsed.statsUpdatedAt > 0 ? parsed.statsUpdatedAt : nowMs;
+        const sleepingPets = (Object.keys(merged.petSleep) as PetId[])
+          .filter((id) => merged.petSleep[id].endsAt && getSleepRemainingMs(merged.petSleep[id].endsAt, nowMs) > 0)
+          .sort((left, right) => (merged.petSleep[left].endsAt ?? 0) - (merged.petSleep[right].endsAt ?? 0));
+        const restFurniture = furnitureItems.filter((item) => item.rest && merged.purchased.includes(item.id));
+        const occupiedBeds = new Set<string>();
+        for (const id of sleepingPets) {
+          const sleep = merged.petSleep[id];
+          let furnitureId = sleep.furnitureId;
+          if (!furnitureId) {
+            const petPosition = id === merged.pet ? merged.catPosition : merged.petPositions[id];
+            const nearestBed = restFurniture.map((item) => {
+              const target = getFurnitureTarget(merged.furniturePositions[item.id], item.standHeight);
+              return { id: item.id, distance: Math.hypot(target.x - petPosition.x, target.y - petPosition.y) };
+            }).sort((left, right) => left.distance - right.distance)[0];
+            if (nearestBed && (restFurniture.length === 1 || nearestBed.distance < 8)) furnitureId = nearestBed.id;
+          }
+          if (furnitureId && occupiedBeds.has(furnitureId)) {
+            merged.petSleep[id] = { endsAt: null, rest: 0, furnitureId: null };
+            merged.petPositions[id] = ROOMMATE_POSITIONS[id];
+            if (id === merged.pet) merged.catPosition = ROOMMATE_POSITIONS[id];
+            continue;
+          }
+          merged.petSleep[id] = { ...sleep, furnitureId: furnitureId ?? null };
+          if (furnitureId) occupiedBeds.add(furnitureId);
+        }
+        for (const id of Object.keys(merged.petSleep) as PetId[]) {
+          const sleep = merged.petSleep[id];
+          if (id === merged.pet || !sleep.endsAt || getSleepRemainingMs(sleep.endsAt, nowMs) > 0) continue;
+          const stats = merged.petStats[id];
+          merged.petStats[id] = { ...stats, sleepiness: Math.max(0, stats.sleepiness - sleep.rest), statsUpdatedAt: nowMs };
+          merged.petSleep[id] = { endsAt: null, rest: 0, furnitureId: null };
+        }
+        const activeSleep = merged.petSleep[merged.pet];
+        merged.sleepEndsAt = activeSleep.endsAt;
+        merged.sleepRest = activeSleep.rest;
         const sleepRemaining = getSleepRemainingMs(merged.sleepEndsAt, nowMs);
         if (merged.sleepEndsAt && sleepRemaining === 0) {
           merged.sleepiness = Math.max(0, merged.sleepiness - merged.sleepRest);
+          merged.petSleep[merged.pet] = { endsAt: null, rest: 0, furnitureId: null };
+          merged.catFurniture = null;
           merged.sleepEndsAt = null;
           merged.sleepRest = 0;
           merged.statsUpdatedAt = nowMs;
         } else if (sleepRemaining > 0) {
+          merged.catFurniture = activeSleep.furnitureId;
           merged.statsUpdatedAt = nowMs;
           setResting(true);
           setSleepRemainingMs(sleepRemaining);
@@ -593,36 +661,64 @@ export default function Home() {
   }, [ready, resting]);
 
   useEffect(() => {
-    if (!ready || !game.sleepEndsAt) {
-      setSleepRemainingMs(0);
-      setResting(false);
-      setInterruptConfirm(false);
-      return;
-    }
+    if (!ready) return;
     const updateSleep = () => {
-      const remaining = getSleepRemainingMs(game.sleepEndsAt);
-      setSleepRemainingMs(remaining);
-      if (remaining > 0) {
-        setResting(true);
-        return;
-      }
-      setResting(false);
+      const now = Date.now();
+      const activeSleep = game.petSleep[game.pet] ?? INITIAL_GAME.petSleep[game.pet];
+      const activeRemaining = getSleepRemainingMs(activeSleep.endsAt, now);
+      const completedPets = (Object.keys(game.petSleep) as PetId[]).filter((id) => {
+        const sleep = game.petSleep[id];
+        return Boolean(sleep.endsAt && getSleepRemainingMs(sleep.endsAt, now) === 0);
+      });
+      setSleepNow(now);
+      setSleepRemainingMs(activeRemaining);
+      setResting(activeRemaining > 0);
+      if (activeRemaining === 0) setInterruptConfirm(false);
+      if (!completedPets.length) return;
       setGame((current) => {
-        if (!current.sleepEndsAt || getSleepRemainingMs(current.sleepEndsAt) > 0) return current;
+        let sleepiness = current.sleepiness;
+        let statsUpdatedAt = current.statsUpdatedAt;
+        const petStats = { ...current.petStats };
+        const petSleep = { ...current.petSleep };
+        for (const id of Object.keys(current.petSleep) as PetId[]) {
+          const sleep = current.petSleep[id];
+          if (!sleep.endsAt || getSleepRemainingMs(sleep.endsAt, now) > 0) continue;
+          if (id === current.pet) {
+            sleepiness = Math.max(0, current.sleepiness - sleep.rest);
+            statsUpdatedAt = now;
+            petStats[id] = { energy: current.energy, sleepiness, statsUpdatedAt };
+          } else {
+            const stats = current.petStats[id];
+            petStats[id] = { ...stats, sleepiness: Math.max(0, stats.sleepiness - sleep.rest), statsUpdatedAt: now };
+          }
+          petSleep[id] = { endsAt: null, rest: 0, furnitureId: null };
+        }
+        const currentActiveSleep = petSleep[current.pet] ?? INITIAL_GAME.petSleep[current.pet];
         return {
           ...current,
-          sleepiness: Math.max(0, current.sleepiness - current.sleepRest),
-          statsUpdatedAt: Date.now(),
-          sleepEndsAt: null,
-          sleepRest: 0,
+          sleepiness,
+          statsUpdatedAt,
+          petStats,
+          petSleep,
+          catFurniture: completedPets.includes(current.pet) ? null : current.catFurniture,
+          sleepEndsAt: currentActiveSleep.endsAt,
+          sleepRest: currentActiveSleep.rest,
         };
       });
-      setToast(`睡醒啦，困倦值降低 ${game.sleepRest}`);
+      if (completedPets.includes(game.pet)) setToast(`${game.petNames[game.pet]}睡醒啦，困倦值降低 ${activeSleep.rest}`);
     };
     updateSleep();
+    if (!Object.values(game.petSleep).some((sleep) => sleep.endsAt)) return;
     const timer = window.setInterval(updateSleep, 1000);
     return () => window.clearInterval(timer);
-  }, [game.sleepEndsAt, game.sleepRest, ready]);
+  }, [game.pet, game.petNames, game.petSleep, ready]);
+
+  useEffect(() => {
+    if (!ready || game.scene !== "room" || game.adoptedPets.length < 2) return;
+    const updateRoommateAnimations = () => setRoommateAnimationNow(Date.now());
+    const timer = window.setInterval(updateRoommateAnimations, 120);
+    return () => window.clearInterval(timer);
+  }, [game.adoptedPets.length, game.scene, ready]);
 
   useEffect(() => {
     if (!toast) return;
@@ -651,7 +747,7 @@ export default function Home() {
     if (game.scene !== "room") return;
     for (let frame = 0; frame < 12; frame += 1) {
       const image = new Image();
-      image.src = `/game/room-frames/${roomSceneName}-${String(frame).padStart(2, "0")}.png`;
+      image.src = `/game/room-frames/${roomSceneName}-${String(frame).padStart(2, "0")}.png?v=${ROOM_SCENE_ASSET_VERSION}`;
       image.decode().catch(() => undefined);
     }
   }, [game.scene, roomSceneName]);
@@ -670,9 +766,9 @@ export default function Home() {
       context.imageSmoothingEnabled = false;
       context.drawImage(image, 0, 0);
     };
-    image.src = renderedSceneAsset;
+    image.src = renderedSceneUrl;
     return () => { cancelled = true; };
-  }, [game.scene, renderedSceneAsset]);
+  }, [game.scene, renderedSceneUrl]);
 
   useEffect(() => {
     if (!isPlaying) return;
@@ -781,6 +877,10 @@ export default function Home() {
       const move = moves[event.key];
       if (!move) return;
       event.preventDefault();
+      if (resting) {
+        requestSleepInterrupt();
+        return;
+      }
       if (refuseMovement()) return;
       if (move.x) setDirection(move.x < 0 ? "left" : "right");
       setWalkDuration(WALK_CYCLE_MS);
@@ -843,13 +943,14 @@ export default function Home() {
     window.clearTimeout(headShakeTimer.current);
   }, []);
 
-  const checkedToday = Boolean(today && game.lastCheckin === today);
+  const todayRecordCount = history.filter((record) => record.date === today).length;
+  const nextJournalReward = getJournalReward(todayRecordCount + 1);
   const basePet = pets.find((item) => item.id === game.pet) ?? pets[0];
   const pet = { ...basePet, name: game.petNames[basePet.id] };
   const statusPetBase = pets.find((item) => item.id === statusPetId) ?? basePet;
   const statusPet = { ...statusPetBase, name: game.petNames[statusPetBase.id] };
   const statusPetStats = statusPetId === game.pet ? game : game.petStats[statusPetId];
-  const nextMilestone = milestones.find((item) => item.day > game.streak);
+  const nextMilestone = milestones.find((day) => day > game.streak);
   const ownedFurniture = furnitureItems.filter((item) => game.purchased.includes(item.id));
   const totalFood = foodItems.reduce((total, item) => total + game.inventory[item.id], 0);
   const totalProduce = cropItems.reduce((total, crop) => total + game.produce[crop.id], 0);
@@ -922,8 +1023,16 @@ export default function Home() {
     resetStatusAnimation();
     setWakeFrame(0);
     setWakingUp(true);
-    setGame((current) => ({ ...current, statsUpdatedAt: Date.now(), sleepEndsAt: null, sleepRest: 0 }));
-    setToast("睡眠已打断，本次不会降低困倦值");
+    setGame((current) => ({
+      ...current,
+      statsUpdatedAt: Date.now(),
+      petStats: { ...current.petStats, [current.pet]: { energy: current.energy, sleepiness: current.sleepiness, statsUpdatedAt: Date.now() } },
+      petSleep: { ...current.petSleep, [current.pet]: { endsAt: null, rest: 0, furnitureId: null } },
+      catFurniture: null,
+      sleepEndsAt: null,
+      sleepRest: 0,
+    }));
+    setToast("睡眠已取消，本次不会降低困倦值");
   }
 
   function refuseMovement(allowNoEnergy = false) {
@@ -991,30 +1100,12 @@ export default function Home() {
     playTrack(playableTracks[nextIndex]);
   }
 
-  function startCatDrag(event: React.PointerEvent<HTMLDivElement>) {
-    if (!resting || wakingUp || interruptConfirm) return;
-    event.preventDefault();
-    event.stopPropagation();
-    catDragStart.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, triggered: false };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }
-
-  function trackCatDrag(event: React.PointerEvent<HTMLDivElement>) {
-    const start = catDragStart.current;
-    if (!start || start.pointerId !== event.pointerId || start.triggered) return;
-    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) < 10) return;
-    start.triggered = true;
-    requestSleepInterrupt();
-  }
-
-  function stopCatDrag(event: React.PointerEvent<HTMLDivElement>) {
-    if (catDragStart.current?.pointerId !== event.pointerId) return;
-    catDragStart.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-  }
-
   function moveCat(event: React.PointerEvent<HTMLDivElement>) {
     if (game.scene !== "room" || decorating || overlay || sceneTransition || (event.target as HTMLElement).closest("[data-interactive], [data-furniture]")) return;
+    if (resting) {
+      requestSleepInterrupt();
+      return;
+    }
     if (refuseMovement()) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const obstacles = getSceneObstacles();
@@ -1058,6 +1149,17 @@ export default function Home() {
 
   function moveCatToFurniture(item: (typeof furnitureItems)[number], position: Point, heightOverride?: number) {
     if (refuseMovement(Boolean(item.rest))) return;
+    if (item.rest) {
+      const occupyingPet = game.adoptedPets.find((id) => {
+        if (id === game.pet) return false;
+        const sleep = game.petSleep[id] ?? INITIAL_GAME.petSleep[id];
+        return sleep.furnitureId === item.id && getSleepRemainingMs(sleep.endsAt) > 0;
+      });
+      if (occupyingPet) {
+        setToast(`${game.petNames[occupyingPet]}正在${item.name}睡觉，请换一个猫窝`);
+        return;
+      }
+    }
     const target = getFurnitureTarget(position, heightOverride ?? item.standHeight);
     walkCatTo(target, () => {
       setGame((current) => ({ ...current, catFurniture: target.onTop ? item.id : null }));
@@ -1066,7 +1168,14 @@ export default function Home() {
         setResting(true);
         setSleepRemainingMs(SLEEP_DURATION_MS);
         sleepInterruptReadyAt.current = Date.now() + 900;
-        setGame((current) => ({ ...current, statsUpdatedAt: Date.now(), sleepEndsAt, sleepRest: item.rest }));
+        setGame((current) => ({
+          ...current,
+          statsUpdatedAt: Date.now(),
+          petStats: { ...current.petStats, [current.pet]: { energy: current.energy, sleepiness: current.sleepiness, statsUpdatedAt: Date.now() } },
+          petSleep: { ...current.petSleep, [current.pet]: { endsAt: sleepEndsAt, rest: item.rest, furnitureId: item.id } },
+          sleepEndsAt,
+          sleepRest: item.rest,
+        }));
         setToast(`${pet.name}开始在${item.name}睡觉，3小时后困倦值降低 ${item.rest}`);
       } else if ("lounge" in item && item.lounge) {
         setLounging(true);
@@ -1082,9 +1191,9 @@ export default function Home() {
     event.preventDefault();
     const content = noteText.trim();
     if (!ready || !content || !deviceId || savingCheckin) return;
+    const firstRecordToday = todayRecordCount === 0;
     const next = game.streak + 1;
-    const bonus = milestones.find((item) => item.day === next)?.bonus ?? 0;
-    const reward = checkedToday ? 0 : Math.min(23, getJournalReward(rating) + bonus);
+    let reward = getJournalReward(todayRecordCount + 1);
     setSavingCheckin(true);
     try {
       let record: CheckinRecord;
@@ -1096,16 +1205,17 @@ export default function Home() {
         const response = await fetch("/api/checkins", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ deviceId, date: today, content, category, rating, reward }),
+          body: JSON.stringify({ deviceId, date: today, content, category, rating }),
         });
         if (!response.ok) throw new Error();
         record = (await response.json() as { record: CheckinRecord }).record;
+        reward = record.reward ?? 0;
       }
       setHistory((records) => [record, ...records]);
-      if (!checkedToday) setGame((current) => ({ ...current, berries: current.berries + reward, streak: next, lastCheckin: today, lastActivity: content }));
+      setGame((current) => ({ ...current, berries: current.berries + reward, streak: firstRecordToday ? next : current.streak, lastCheckin: today, lastActivity: content }));
       setNoteText("");
       writePersisted("berry-journal-category", category);
-      setToast("今天的记忆已经收好啦 🍓");
+      setToast(reward ? `今天的记忆已经收好啦，获得 ${reward} 个草莓 🍓` : "今天的三次记录奖励已经领完，记忆仍然收好啦");
     } catch {
       setToast("记录保存失败，请稍后再试");
     } finally {
@@ -1182,21 +1292,80 @@ export default function Home() {
     setToast(`${dish.name}开始烹饪，${dish.cookMinutes} 分钟后完成`);
   }
 
+  function switchControlledPet(id: PetId) {
+    if (id === game.pet) {
+      setStatusPetId(id);
+      return;
+    }
+    const now = Date.now();
+    const targetSleep = game.petSleep[id] ?? INITIAL_GAME.petSleep[id];
+    const targetSleepRemaining = getSleepRemainingMs(targetSleep.endsAt, now);
+    const savedTargetStats = game.petStats[id] ?? INITIAL_GAME.petStats[id];
+    const targetStats = targetSleepRemaining > 0
+      ? { ...savedTargetStats, statsUpdatedAt: now }
+      : decayPetStatsByTime(savedTargetStats.energy, savedTargetStats.sleepiness, savedTargetStats.statsUpdatedAt > 0 ? savedTargetStats.statsUpdatedAt : now, now);
+    window.clearTimeout(walkingTimer.current);
+    setWalking(false);
+    setJumping(false);
+    setLounging(false);
+    setScratching(false);
+    setWakingUp(false);
+    setHeadShaking(false);
+    setInterruptConfirm(false);
+    setResting(targetSleepRemaining > 0);
+    setSleepRemainingMs(targetSleepRemaining);
+    sleepInterruptReadyAt.current = now + 300;
+    setStatusPetId(id);
+    setCatStatus(getCatStatus(targetStats.energy, targetStats.sleepiness));
+    setStatusFrame(0);
+    setStatusIdle(true);
+    setStatusTransition(null);
+    setStatusTransitionTarget(null);
+    setGame((current) => {
+      const currentTargetStats = current.petStats[id] ?? INITIAL_GAME.petStats[id];
+      const currentTargetSleep = current.petSleep[id] ?? INITIAL_GAME.petSleep[id];
+      const nextStats = getSleepRemainingMs(currentTargetSleep.endsAt, now) > 0
+        ? { ...currentTargetStats, statsUpdatedAt: now }
+        : decayPetStatsByTime(currentTargetStats.energy, currentTargetStats.sleepiness, currentTargetStats.statsUpdatedAt > 0 ? currentTargetStats.statsUpdatedAt : now, now);
+      return {
+        ...current,
+        pet: id,
+        adoptedPets: current.adoptedPets.includes(id) ? current.adoptedPets : [...current.adoptedPets, id],
+        petStats: {
+          ...current.petStats,
+          [current.pet]: { energy: current.energy, sleepiness: current.sleepiness, statsUpdatedAt: current.statsUpdatedAt },
+          [id]: nextStats,
+        },
+        ...nextStats,
+        catPosition: current.petPositions[id] ?? ROOMMATE_POSITIONS[id],
+        petPositions: {
+          ...current.petPositions,
+          [current.pet]: current.catPosition,
+          [id]: current.petPositions[id] ?? ROOMMATE_POSITIONS[id],
+        },
+        catFurniture: getSleepRemainingMs(currentTargetSleep.endsAt, now) > 0 ? currentTargetSleep.furnitureId : null,
+        sleepEndsAt: currentTargetSleep.endsAt,
+        sleepRest: currentTargetSleep.rest,
+      };
+    });
+  }
+
   function cyclePet() {
-    const index = game.adoptedPets.indexOf(statusPetId);
-    setStatusPetId(game.adoptedPets[(index + 1) % game.adoptedPets.length]);
+    const index = game.adoptedPets.indexOf(game.pet);
+    const id = game.adoptedPets[(index + 1) % game.adoptedPets.length];
+    switchControlledPet(id);
+    setToast(getSleepRemainingMs(game.petSleep[id]?.endsAt ?? null) > 0 ? `已切换到睡眠中的 ${game.petNames[id]}` : `已切换控制 ${game.petNames[id]}`);
   }
 
   function adoptPet(id: PetId) {
     const chosen = pets.find((item) => item.id === id)!;
     if (game.adoptedPets.includes(id)) {
-      setStatusPetId(id);
-      setToast(`已切换查看 ${game.petNames[id]} 的状态`);
+      switchControlledPet(id);
+      setToast(`已切换控制 ${game.petNames[id]}`);
       return;
     }
-    setGame((current) => ({ ...current, adoptedPets: [...current.adoptedPets, id] }));
-    setStatusPetId(id);
-    setToast(`${chosen.name} 已经住进你的小屋啦！`);
+    switchControlledPet(id);
+    setToast(`${chosen.name} 已经住进小屋，现在由你控制啦！`);
   }
 
   function resetFurniture() {
@@ -1421,26 +1590,46 @@ export default function Home() {
             );
           })}
 
-          {game.scene === "room" && game.adoptedPets.filter((id) => id !== game.pet).map((id) => {
-            const roommate = pets.find((item) => item.id === id)!;
-            const position = ROOMMATE_POSITIONS[id];
-            return <div className="roommate-cat" key={id} style={{ left: `${position.x}%`, top: `${position.y}%`, zIndex: Math.round(position.y) + 1 }}>
-              <img src={roommate.idle} alt={`${game.petNames[id]}正在房间里休息`} /><b>{game.petNames[id]}</b>
-            </div>;
-          })}
-          {game.scene === "room" && <div
-            className={`walking-cat ${walking ? "walking" : "status-animation"} ${jumping ? "jumping" : ""} ${resting ? "resting" : ""} ${lounging ? "lounging" : ""} ${scratching ? "scratching" : ""} ${wakingUp ? "waking-up" : ""} ${headShaking ? "head-shaking" : ""} ${direction === "left" ? "facing-left" : ""}`}
+          {game.scene === "room" && game.adoptedPets.map((id) => {
+            const controlled = id === game.pet;
+            const cat = pets.find((item) => item.id === id)!;
+            const position = controlled ? game.catPosition : game.petPositions[id] ?? ROOMMATE_POSITIONS[id];
+            if (!controlled) {
+              const roommateSleep = game.petSleep[id] ?? INITIAL_GAME.petSleep[id];
+              const roommateSleepRemaining = getSleepRemainingMs(roommateSleep.endsAt, sleepNow);
+              const roommateStats = game.petStats[id] ?? INITIAL_GAME.petStats[id];
+              const roommateStatus = getCatStatus(roommateStats.energy, roommateStats.sleepiness);
+              const roommateFrame = getLoopedStatusFrame(CAT_STATUS_ANIMATIONS[roommateStatus].frames, roommateAnimationNow + (id === "doubao" ? 320 : id === "xueqiu" ? 640 : 0));
+              const roommatePoseFrame = roommateFrame.frame ?? 0;
+              const roommateAsset = roommateSleepRemaining > 0
+                ? cat.sleep
+                : roommateFrame.pose === "walk"
+                  ? cat.walkFrames[roommatePoseFrame]
+                  : roommateFrame.pose === "groom"
+                    ? cat.groomFrames[roommatePoseFrame]
+                    : roommateFrame.pose === "yawn"
+                      ? cat.wakeYawnFrames[roommatePoseFrame]
+                      : roommateFrame.pose === "sleep"
+                        ? cat.sleep
+                        : roommateFrame.pose === "wake"
+                          ? cat.wake
+                          : cat.idle;
+              return <div className={`scene-cat roommate-cat ${roommateSleepRemaining > 0 ? "sleeping" : ""}`} key={id} style={{ left: `${position.x}%`, top: `${position.y}%`, zIndex: Math.round(position.y) + 1 }}>
+                <img className={`cat-base cat-pose-${roommateSleepRemaining > 0 ? "sleep" : roommateFrame.pose}`} src={roommateAsset} alt={roommateSleepRemaining > 0 ? `${game.petNames[id]}正在睡觉` : `${game.petNames[id]}正在${CAT_STATUS_ANIMATIONS[roommateStatus].name}`} style={{ translate: roommateSleepRemaining > 0 ? undefined : `${roommateFrame.x ?? 0}px ${roommateFrame.y ?? 0}px` }} />
+                <b>{roommateSleepRemaining > 0 ? `${game.petNames[id]} · ${formatSleepRemaining(roommateSleepRemaining)}` : game.petNames[id]}</b>
+              </div>;
+            }
+            return <div
+              className={`scene-cat walking-cat ${walking ? "walking" : "status-animation"} ${jumping ? "jumping" : ""} ${resting ? "resting" : ""} ${lounging ? "lounging" : ""} ${scratching ? "scratching" : ""} ${wakingUp ? "waking-up" : ""} ${headShaking ? "head-shaking" : ""} ${direction === "left" ? "facing-left" : ""}`}
               data-cat-status={desiredCatStatus}
               data-active-status={catStatus}
-              style={{ left: `${game.catPosition.x}%`, top: `${game.catPosition.y}%`, zIndex: game.catFurniture ? Math.round((game.furniturePositions[game.catFurniture] ?? DEFAULT_FURNITURE_POSITIONS[game.catFurniture]).y) + 2 : Math.round(game.catPosition.y) + 2, transitionDuration: `${walkDuration}ms` }}
-              onPointerDown={startCatDrag}
-              onPointerMove={trackCatDrag}
-              onPointerUp={stopCatDrag}
-              onPointerCancel={stopCatDrag}
+              key={id}
+              style={{ left: `${position.x}%`, top: `${position.y}%`, zIndex: game.catFurniture ? Math.round((game.furniturePositions[game.catFurniture] ?? DEFAULT_FURNITURE_POSITIONS[game.catFurniture]).y) + 2 : Math.round(position.y) + 2, transitionDuration: `${walkDuration}ms` }}
             >
-            <img className={`cat-base cat-pose-${activePose}`} src={catAsset} alt={`${pet.name}正在${game.scene === "room" ? "小屋" : "院子"}里`} decoding="sync" draggable={false} style={{ transform: `scaleX(${direction === "left" ? -1 : 1})`, translate: `${motionX}px ${motionY}px` }} />
-            <b>{headShaking ? "太困啦…" : wakingUp ? "起床中…" : resting ? `还剩 ${formatSleepRemaining(sleepRemainingMs)}` : scratching ? "玩耍中…" : lounging ? "休息中…" : pet.name}</b>
-          </div>}
+              <img className={`cat-base cat-pose-${activePose}`} src={catAsset} alt={`${cat.name}正在小屋里`} decoding="sync" draggable={false} style={{ transform: `scaleX(${direction === "left" ? -1 : 1})`, translate: `${motionX}px ${motionY}px` }} />
+              <b>{headShaking ? "太困啦…" : wakingUp ? "起床中…" : resting ? `还剩 ${formatSleepRemaining(sleepRemainingMs)}` : scratching ? "玩耍中…" : lounging ? "休息中…" : cat.name}</b>
+            </div>;
+          })}
 
         </div>
 
@@ -1465,13 +1654,13 @@ export default function Home() {
 
         {interruptConfirm && (
           <div className="sleep-interrupt-layer">
-            <section className="sleep-interrupt-dialog" role="dialog" aria-modal="true" aria-label="睡眠打断确认">
+            <section className="sleep-interrupt-dialog" role="dialog" aria-modal="true" aria-label="取消睡眠确认">
               <span>💤</span>
-              <h2>是否要打断睡眠？</h2>
+              <h2>是否要取消睡眠？</h2>
               <p>现在叫醒猫咪，本次睡眠不会降低困倦值。</p>
               <div>
                 <button type="button" onClick={continueSleeping}>继续睡觉</button>
-                <button type="button" className="interrupt-button" onClick={interruptSleep}>打断睡眠</button>
+                <button type="button" className="interrupt-button" onClick={interruptSleep}>取消睡眠</button>
               </div>
             </section>
           </div>
@@ -1491,7 +1680,7 @@ export default function Home() {
             <div><small><span>{statusPet.name}的困倦值</span><b>{statusPetStats.sleepiness}</b></small><div className="sleepiness"><i style={{ width: `${statusPetStats.sleepiness}%` }} /></div></div>
           </div>
           <div className="pet-status-actions">
-            {game.adoptedPets.length > 1 && <button onClick={cyclePet} disabled={resting} title="切换宠物状态">切换</button>}
+            {game.adoptedPets.length > 1 && <button onClick={cyclePet} title="切换控制猫咪">切换</button>}
             <button onClick={() => openOverlay("bag")}>喂食</button>
           </div>
         </aside>
@@ -1528,13 +1717,13 @@ export default function Home() {
                     </div>
                     <fieldset className="journal-options"><legend>记录分类</legend><div className="category-options">{journalCategories.map((item) => <button key={item.name} className={category === item.name ? "selected" : ""} type="button" onClick={() => setCategory(item.name)}><span>{item.icon}</span>{item.name}</button>)}</div></fieldset>
                     <label className="rating-field">今天给自己打几分？<span><input type="range" min="1" max="10" value={rating} onChange={(event) => setRating(Number(event.target.value))} /><b>{rating} 分</b></span></label>
-                    <div className="reward-line"><span>{checkedToday ? "今日首条奖励已领取" : "智能换算今日奖励（最高 23）"}</span><b>🍓 +{checkedToday ? 0 : Math.min(23, getJournalReward(rating) + (milestones.find((item) => item.day === game.streak + 1)?.bonus ?? 0))}</b></div>
+                    <div className="reward-line"><span>{nextJournalReward ? `今日第 ${todayRecordCount + 1} 条记录奖励` : "今日三次记录奖励已全部领取"}</span><b>🍓 +{nextJournalReward}</b></div>
                     <button className="primary-button" type="submit" disabled={!ready || !noteText.trim() || savingCheckin}>{savingCheckin ? "正在保存……" : "保存今日记录"}</button>
                   </form>
                   <div className="streak-card">
                     <div><span><small>连续记录</small><b>{game.streak} 天</b></span><em>下一份奖励</em></div>
                     <div className="week-track">{[1, 2, 3, 4, 5, 6, 7].map((day) => <i key={day} className={day <= Math.min(game.streak, 7) ? "done" : ""}>{day <= Math.min(game.streak, 7) ? "✓" : day}</i>)}</div>
-                    <p>{nextMilestone ? <>再坚持 <b>{nextMilestone.day - game.streak} 天</b>，奖励 🍓 {nextMilestone.bonus}</> : "30 天里程碑已达成！"}</p>
+                    <p>{nextMilestone ? <>再坚持 <b>{nextMilestone - game.streak} 天</b>，达成连续 {nextMilestone} 天记录</> : "30 天里程碑已达成！"}</p>
                   </div>
                   <button className="history-link" type="button" onClick={() => { setHistoryPage(0); setOverlay("history"); }}>
                     <span>JOURNAL HISTORY</span><b>{history.length} 篇　→</b>
@@ -1695,7 +1884,7 @@ export default function Home() {
                         <div><span>{item.kind}</span><img src={item.idle} alt={`${game.petNames[item.id]}，${item.kind}`} /></div>
                         <small>{item.nature}</small><h2>{game.petNames[item.id]}</h2>
                         <label className="pet-name-field">名字<input value={game.petNames[item.id]} maxLength={12} onChange={(event) => setGame((current) => ({ ...current, petNames: { ...current.petNames, [item.id]: event.target.value } }))} onBlur={() => setGame((current) => ({ ...current, petNames: { ...current.petNames, [item.id]: current.petNames[item.id].trim() || INITIAL_GAME.petNames[item.id] } }))} /></label>
-                        <button onClick={() => adoptPet(item.id)} disabled={statusPetId === item.id}>{statusPetId === item.id ? "✓ 正在查看状态" : game.adoptedPets.includes(item.id) ? "查看状态" : "带它回家"}</button>
+                        <button onClick={() => adoptPet(item.id)} disabled={game.pet === item.id}>{game.pet === item.id ? "✓ 正在控制" : game.adoptedPets.includes(item.id) ? "切换控制" : "带它回家"}</button>
                       </article>
                     ))}
                   </div>

@@ -36,6 +36,14 @@ export async function listCheckins(deviceId: string) {
   return result.results;
 }
 
+export async function countCheckinsForDate(deviceId: string, date: string) {
+  await prepareCheckins();
+  const result = await env.DB.prepare(
+    "SELECT COUNT(*) AS count FROM checkins WHERE device_id = ? AND date = ?",
+  ).bind(deviceId, date).first<{ count: number }>();
+  return result?.count ?? 0;
+}
+
 export async function saveCheckin(deviceId: string, date: string, content: string, category: string, rating: number | null, reward: number | null) {
   await prepareCheckins();
   const createdAt = new Date().toISOString();
