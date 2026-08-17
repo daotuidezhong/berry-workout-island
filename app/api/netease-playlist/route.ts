@@ -46,5 +46,5 @@ export async function GET() {
     name: data.playlist.name ?? "网易云歌单",
     trackCount: tracks.length,
     tracks,
-  });
+  }, { headers: { "Cache-Control": "no-store, max-age=0" } });
 }

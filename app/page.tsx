@@ -16,6 +16,7 @@ import {
 } from "./game/cat-actions";
 import { canPetMove, decayPetStatsByTime, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "./game/pet-stats";
 import { getJournalReward } from "./game/journal-reward";
+import { fetchPlaylist, isRemotePlaybackUrl, type Playlist, type PlaylistTrack } from "./game/music";
 
 type PetId = "mitao" | "doubao" | "xueqiu";
 type OverlayId = "quest" | "history" | "bag" | "pets" | "shop" | "kitchen" | "music" | "bar" | null;
@@ -28,8 +29,6 @@ type CookedFoodId = "strawberryPuree" | "carrotSoup" | "tomatoSoup" | "catnipCoo
 type FoodId = StoreFoodId | CookedFoodId;
 type PetStats = { energy: number; sleepiness: number; statsUpdatedAt: number };
 type PetSleep = { endsAt: number | null; rest: number; furnitureId: string | null };
-type PlaylistTrack = { id: number; name: string; artist: string; duration: number; cover: string; playbackUrl: string | null; playbackCode: number | null; playbackFee: number | null };
-type Playlist = { id: string; name: string; trackCount: number; tracks: PlaylistTrack[] };
 type GameState = {
   gameSchemaVersion: 7;
   statModelVersion: 2;
@@ -60,8 +59,9 @@ type GameState = {
   cooking: { dishId: CookedFoodId; startedAt: number; endsAt: number } | null;
 };
 
-const RELEASE_VERSION = "0.5.2";
+const RELEASE_VERSION = "0.5.3";
 const RELEASE_NOTES = [
+  { version: "0.5.3", items: ["修复歌曲地址过期后无法继续播放的问题，自动刷新地址并从原进度恢复", "修复猫咪进入吧台、查看状态时切换控制猫咪，以及家具无法紧贴墙壁的问题", "移除房间唱片碎片动画，并让唱片柜黑胶始终保持完整圆形"] },
   { version: "0.5.2", items: ["开启桌面版本地音频流支持，修复内置备用歌曲加载失败的问题", "确认用户提供的 22 首 MP3 已逐首完整收录并映射到对应唱片"] },
   { version: "0.5.1", items: ["修复 Windows 桌面版唱片柜无法读取歌单的问题", "内置完整歌单清单，网易云接口暂时不可用时仍可打开唱片柜和播放本地备用歌曲"] },
   { version: "0.5.0", items: ["新增唱片机、吧台和指定网易云歌单，受限歌曲支持本地播放", "完成全部天气与时段的室内场景更新，修复右侧模糊和界面遮挡", "多只猫咪现在独立保存位置、状态与睡眠，同一张床不会重复入住", "每日前三条记录依次奖励 10、15、18 个草莓，后续记录不再奖励"] },
@@ -270,7 +270,7 @@ const WAKE_SEQUENCE_LENGTH = WAKE_YAWN_SEQUENCE.length + 3;
 const WALK_FRAME_MS = 90;
 const WALK_CYCLE_MS = WALK_FRAME_MS * 4;
 const STATUS_IDLE_MS = 8000;
-const ROOM_SCENE_ASSET_VERSION = "20260816-crisp-vinyl-v2";
+const ROOM_SCENE_ASSET_VERSION = "20260817-static-vinyl-wall-furniture-v1";
 
 function localDate(date = new Date()) {
   const year = date.getFullYear();
@@ -305,7 +305,7 @@ export default function Home() {
   const [historyPage, setHistoryPage] = useState(0);
   const [savingCheckin, setSavingCheckin] = useState(false);
   const [game, setGame] = useState<GameState>(INITIAL_GAME);
-  const [statusPetId, setStatusPetId] = useState<PetId>("mitao");
+  const [inspectedPetId, setInspectedPetId] = useState<PetId>("mitao");
   const [ready, setReady] = useState(false);
   const [today, setToday] = useState("");
   const [dateLabel, setDateLabel] = useState("");
@@ -350,9 +350,10 @@ export default function Home() {
   const [playingTrackId, setPlayingTrackId] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolume] = useState(.7);
-  const [roomVinylFrame, setRoomVinylFrame] = useState(0);
   const roomRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const recoveringTrackId = useRef<number | null>(null);
+  const lastPlaybackRecovery = useRef<{ trackId: number; attemptedAt: number } | null>(null);
   const sceneCanvasRef = useRef<HTMLCanvasElement>(null);
   const walkingTimer = useRef<number | undefined>(undefined);
   const headShakeTimer = useRef<number | undefined>(undefined);
@@ -362,11 +363,7 @@ export default function Home() {
   const desiredCatStatus = getCatStatus(game.energy, game.sleepiness);
   const currentTrack = playlist?.tracks.find((track) => track.id === playingTrackId) ?? null;
   const sceneAsset = getSceneAsset(game.scene, weather.kind, timePeriod);
-  const roomSceneName = sceneAsset.split("/").at(-1)?.replace(".png", "") ?? "room-v030-clear-with-vinyl-bar";
-  const renderedSceneAsset = game.scene === "room" && isPlaying
-    ? `/game/room-frames/${roomSceneName}-${String(roomVinylFrame).padStart(2, "0")}.png`
-    : sceneAsset;
-  const renderedSceneUrl = `${renderedSceneAsset}?v=${ROOM_SCENE_ASSET_VERSION}`;
+  const renderedSceneUrl = `${sceneAsset}?v=${ROOM_SCENE_ASSET_VERSION}`;
 
   useEffect(() => {
     const now = new Date();
@@ -391,7 +388,12 @@ export default function Home() {
         const scene: SceneId = parsed.scene === "yard" ? "yard" : "room";
         if (!parsed.inventory) inventory.driedFish = legacyFood;
         const activePet = parsed.pet ?? "mitao";
-        const activePosition = clampToScene(parsed.catPosition ?? INITIAL_GAME.catPosition, scene, scene === "yard" ? YARD_OBSTACLES : []);
+        const sceneObstacles = scene === "yard" ? YARD_OBSTACLES : ROOM_FIXED_OBSTACLES;
+        const activePosition = clampToScene(parsed.catPosition ?? INITIAL_GAME.catPosition, scene, sceneObstacles);
+        const petPositions = Object.fromEntries((Object.keys(INITIAL_GAME.petPositions) as PetId[]).map((id) => [
+          id,
+          clampToScene(parsed.petPositions?.[id] ?? INITIAL_GAME.petPositions[id], "room", ROOM_FIXED_OBSTACLES),
+        ])) as Record<PetId, Point>;
         const furniturePositions = Object.fromEntries(Object.entries({ ...DEFAULT_FURNITURE_POSITIONS, ...(parsed.furniturePositions ?? {}) })
           .map(([id, position]) => [id, clampFurniturePosition(position, FURNITURE_FOOTPRINTS[id])]));
         const merged: GameState = {
@@ -405,7 +407,7 @@ export default function Home() {
           petNames: { ...INITIAL_GAME.petNames, ...(parsed.petNames ?? {}) },
           petStats: { ...INITIAL_GAME.petStats, ...(parsed.petStats ?? {}) },
           catPosition: activePosition,
-          petPositions: { ...INITIAL_GAME.petPositions, ...(parsed.petPositions ?? {}), [activePet]: activePosition },
+          petPositions: { ...petPositions, [activePet]: activePosition },
           petSleep: Object.fromEntries((["mitao", "doubao", "xueqiu"] as PetId[]).map((id) => {
             const savedSleep = parsed.petSleep?.[id];
             return [id, {
@@ -485,7 +487,7 @@ export default function Home() {
         }
         merged.petStats[merged.pet] = { energy: merged.energy, sleepiness: merged.sleepiness, statsUpdatedAt: merged.statsUpdatedAt };
         setGame(merged);
-        setStatusPetId(merged.pet);
+        setInspectedPetId(merged.pet);
       } catch {
         setGame(INITIAL_GAME);
       }
@@ -495,12 +497,8 @@ export default function Home() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/netease-playlist")
-      .then(async (response) => {
-        const data = await response.json() as Playlist & { error?: string };
-        if (!response.ok) throw new Error(data.error || "歌单载入失败");
-        if (!cancelled) setPlaylist(data);
-      })
+    fetchPlaylist()
+      .then((data) => { if (!cancelled) setPlaylist(data); })
       .catch((error) => { if (!cancelled) setToast(error instanceof Error ? error.message : "歌单载入失败"); })
       .finally(() => { if (!cancelled) setPlaylistLoading(false); });
     return () => { cancelled = true; };
@@ -748,15 +746,6 @@ export default function Home() {
 
   useEffect(() => {
     if (game.scene !== "room") return;
-    for (let frame = 0; frame < 12; frame += 1) {
-      const image = new Image();
-      image.src = `/game/room-frames/${roomSceneName}-${String(frame).padStart(2, "0")}.png?v=${ROOM_SCENE_ASSET_VERSION}`;
-      image.decode().catch(() => undefined);
-    }
-  }, [game.scene, roomSceneName]);
-
-  useEffect(() => {
-    if (game.scene !== "room") return;
     const canvas = sceneCanvasRef.current;
     const context = canvas?.getContext("2d");
     if (!canvas || !context) return;
@@ -772,12 +761,6 @@ export default function Home() {
     image.src = renderedSceneUrl;
     return () => { cancelled = true; };
   }, [game.scene, renderedSceneUrl]);
-
-  useEffect(() => {
-    if (!isPlaying) return;
-    const timer = window.setInterval(() => setRoomVinylFrame((frame) => (frame + 1) % 12), 250);
-    return () => window.clearInterval(timer);
-  }, [isPlaying]);
 
   useEffect(() => {
     if (!walking) {
@@ -950,9 +933,9 @@ export default function Home() {
   const nextJournalReward = getJournalReward(todayRecordCount + 1);
   const basePet = pets.find((item) => item.id === game.pet) ?? pets[0];
   const pet = { ...basePet, name: game.petNames[basePet.id] };
-  const statusPetBase = pets.find((item) => item.id === statusPetId) ?? basePet;
-  const statusPet = { ...statusPetBase, name: game.petNames[statusPetBase.id] };
-  const statusPetStats = statusPetId === game.pet ? game : game.petStats[statusPetId];
+  const inspectedPetBase = pets.find((item) => item.id === inspectedPetId) ?? basePet;
+  const inspectedPet = { ...inspectedPetBase, name: game.petNames[inspectedPetBase.id] };
+  const inspectedPetStats = inspectedPetId === game.pet ? game : game.petStats[inspectedPetId];
   const nextMilestone = milestones.find((day) => day > game.streak);
   const ownedFurniture = furnitureItems.filter((item) => game.purchased.includes(item.id));
   const totalFood = foodItems.reduce((total, item) => total + game.inventory[item.id], 0);
@@ -1075,12 +1058,59 @@ export default function Home() {
       setToast(`${track.name} 受网易云版权或会员限制，当前无法直接播放`);
       return;
     }
+    if (recoveringTrackId.current !== track.id) lastPlaybackRecovery.current = null;
     if (playingTrackId !== track.id) {
+      audio.dataset.trackId = String(track.id);
       audio.src = track.playbackUrl;
       audio.load();
       setPlayingTrackId(track.id);
     }
-    audio.play().catch(() => setToast("这首歌暂时无法播放，请稍后再试"));
+    audio.play().catch((error) => {
+      if (!(error instanceof DOMException && error.name === "AbortError") && !audio.error) setToast("这首歌暂时无法播放，请稍后再试");
+    });
+  }
+
+  async function recoverPlayback() {
+    const audio = audioRef.current;
+    const track = playlist?.tracks.find((item) => item.id === playingTrackId);
+    if (!audio || !track || !isRemotePlaybackUrl(track.playbackUrl)) {
+      setIsPlaying(false);
+      setToast("歌曲加载失败，请重试或切换下一首");
+      return;
+    }
+    const now = Date.now();
+    const previousRecovery = lastPlaybackRecovery.current;
+    if (recoveringTrackId.current === track.id) return;
+    if (previousRecovery?.trackId === track.id && now - previousRecovery.attemptedAt < 30_000) {
+      setIsPlaying(false);
+      setToast("歌曲地址刷新后仍无法播放，请切换下一首");
+      return;
+    }
+
+    const resumeAt = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+    recoveringTrackId.current = track.id;
+    lastPlaybackRecovery.current = { trackId: track.id, attemptedAt: now };
+    setIsPlaying(false);
+    setToast("播放地址已过期，正在自动刷新…");
+    try {
+      const refreshedPlaylist = await fetchPlaylist();
+      const refreshedTrack = refreshedPlaylist.tracks.find((item) => item.id === track.id);
+      if (!refreshedTrack?.playbackUrl) throw new Error("没有新的播放地址");
+      setPlaylist(refreshedPlaylist);
+      if (audio.dataset.trackId !== String(track.id)) return;
+      audio.addEventListener("loadedmetadata", () => {
+        if (resumeAt > 0 && Number.isFinite(audio.duration)) audio.currentTime = Math.min(resumeAt, Math.max(0, audio.duration - .25));
+      }, { once: true });
+      audio.src = refreshedTrack.playbackUrl;
+      audio.load();
+      await audio.play();
+      setToast(`${track.name} 已恢复播放`);
+    } catch {
+      setIsPlaying(false);
+      setToast("播放地址刷新失败，请检查网络或切换下一首");
+    } finally {
+      if (recoveringTrackId.current === track.id) recoveringTrackId.current = null;
+    }
   }
 
   function togglePlayback() {
@@ -1091,7 +1121,9 @@ export default function Home() {
       if (firstTrack) playTrack(firstTrack);
       return;
     }
-    if (audio.paused) audio.play().catch(() => setToast("歌曲暂时无法继续播放"));
+    if (audio.paused) audio.play().catch((error) => {
+      if (!(error instanceof DOMException && error.name === "AbortError") && !audio.error) setToast("歌曲暂时无法继续播放");
+    });
     else audio.pause();
   }
 
@@ -1260,20 +1292,20 @@ export default function Home() {
       setToast("背包里没有这种食物了");
       return;
     }
-    if (statusPetStats.energy >= 100) {
-      setToast(`${statusPet.name} 现在精神满满！`);
+    if (inspectedPetStats.energy >= 100) {
+      setToast(`${inspectedPet.name} 现在精神满满！`);
       return;
     }
-    setGame((current) => statusPetId === current.pet ? {
+    setGame((current) => inspectedPetId === current.pet ? {
       ...current,
       inventory: { ...current.inventory, [foodId]: current.inventory[foodId] - 1 },
       energy: Math.min(100, current.energy + item.energy),
     } : {
       ...current,
       inventory: { ...current.inventory, [foodId]: current.inventory[foodId] - 1 },
-      petStats: { ...current.petStats, [statusPetId]: { ...current.petStats[statusPetId], energy: Math.min(100, current.petStats[statusPetId].energy + item.energy), statsUpdatedAt: Date.now() } },
+      petStats: { ...current.petStats, [inspectedPetId]: { ...current.petStats[inspectedPetId], energy: Math.min(100, current.petStats[inspectedPetId].energy + item.energy), statsUpdatedAt: Date.now() } },
     });
-    setToast(`${statusPet.name} 吃掉了${item.name}，活力 +${item.energy}`);
+    setToast(`${inspectedPet.name} 吃掉了${item.name}，活力 +${item.energy}`);
   }
 
   function cookDish(dish: (typeof cookedDishes)[number]) {
@@ -1296,10 +1328,7 @@ export default function Home() {
   }
 
   function switchControlledPet(id: PetId) {
-    if (id === game.pet) {
-      setStatusPetId(id);
-      return;
-    }
+    if (id === game.pet) return;
     const now = Date.now();
     const targetSleep = game.petSleep[id] ?? INITIAL_GAME.petSleep[id];
     const targetSleepRemaining = getSleepRemainingMs(targetSleep.endsAt, now);
@@ -1318,7 +1347,6 @@ export default function Home() {
     setResting(targetSleepRemaining > 0);
     setSleepRemainingMs(targetSleepRemaining);
     sleepInterruptReadyAt.current = now + 300;
-    setStatusPetId(id);
     setCatStatus(getCatStatus(targetStats.energy, targetStats.sleepiness));
     setStatusFrame(0);
     setStatusIdle(true);
@@ -1353,11 +1381,10 @@ export default function Home() {
     });
   }
 
-  function cyclePet() {
-    const index = game.adoptedPets.indexOf(game.pet);
+  function cycleInspectedPet() {
+    const index = game.adoptedPets.indexOf(inspectedPetId);
     const id = game.adoptedPets[(index + 1) % game.adoptedPets.length];
-    switchControlledPet(id);
-    setToast(getSleepRemainingMs(game.petSleep[id]?.endsAt ?? null) > 0 ? `已切换到睡眠中的 ${game.petNames[id]}` : `已切换控制 ${game.petNames[id]}`);
+    setInspectedPetId(id);
   }
 
   function adoptPet(id: PetId) {
@@ -1397,7 +1424,7 @@ export default function Home() {
       setGame((current) => ({
         ...current,
         scene: current.scene === "room" ? "yard" : "room",
-        catPosition: current.scene === "yard" ? { x: 78, y: 61 } : current.catPosition,
+        catPosition: current.scene === "yard" ? { x: 70, y: 61 } : current.catPosition,
         catFurniture: null,
       }));
       window.setTimeout(() => setSceneTransition(false), 80);
@@ -1516,7 +1543,7 @@ export default function Home() {
         </div>
       )}
       <section className="game-stage" aria-label="OH 像素生活小屋">
-        <audio ref={audioRef} onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onEnded={() => skipTrack(1)} onError={() => { setIsPlaying(false); setToast("歌曲加载失败，请重试或切换下一首"); }} />
+        <audio ref={audioRef} onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onEnded={() => skipTrack(1)} onError={() => { void recoverPlayback(); }} />
         <div
           className={`game-room scene-${game.scene} ${decorating ? "decorating" : ""} ${sceneTransition ? "scene-fading" : ""} ${selectedSeed ? "seed-selected" : ""} ${watering ? "watering-selected" : ""}`}
           data-period={timePeriod}
@@ -1677,13 +1704,13 @@ export default function Home() {
         </header>
 
         <aside className="pet-status">
-          <img src={statusPet.idle} alt="" />
+          <img src={inspectedPet.idle} alt="" />
           <div className="pet-meters">
-            <div><small><span>{statusPet.name}的活力</span><b>{statusPetStats.energy}</b></small><div className="energy"><i style={{ width: `${statusPetStats.energy}%` }} /></div></div>
-            <div><small><span>{statusPet.name}的困倦值</span><b>{statusPetStats.sleepiness}</b></small><div className="sleepiness"><i style={{ width: `${statusPetStats.sleepiness}%` }} /></div></div>
+            <div><small><span>{inspectedPet.name}的活力</span><b>{inspectedPetStats.energy}</b></small><div className="energy"><i style={{ width: `${inspectedPetStats.energy}%` }} /></div></div>
+            <div><small><span>{inspectedPet.name}的困倦值</span><b>{inspectedPetStats.sleepiness}</b></small><div className="sleepiness"><i style={{ width: `${inspectedPetStats.sleepiness}%` }} /></div></div>
           </div>
           <div className="pet-status-actions">
-            {game.adoptedPets.length > 1 && <button onClick={cyclePet} title="切换控制猫咪">切换</button>}
+            {game.adoptedPets.length > 1 && <button onClick={cycleInspectedPet} title="切换查看猫咪状态">切换</button>}
             <button onClick={() => openOverlay("bag")}>喂食</button>
           </div>
         </aside>
@@ -1823,7 +1850,7 @@ export default function Home() {
 
               {overlay === "bag" && (
                 <>
-                  <div className="window-heading"><small>MY BACKPACK</small><h1>我的背包</h1><p>收获的作物可以带去厨房烹饪，菜品可以喂给 {statusPet.name}</p></div>
+                  <div className="window-heading"><small>MY BACKPACK</small><h1>我的背包</h1><p>收获的作物可以带去厨房烹饪，菜品可以喂给 {inspectedPet.name}</p></div>
                   <div className="produce-strip">
                     <b>新鲜作物</b>
                     {cropItems.map((crop) => <span key={crop.id} className={game.produce[crop.id] ? "" : "empty"}><img src={`/game/crop-${crop.id}-mature.png`} alt="" /><em>{crop.name}</em><i>×{game.produce[crop.id]}</i></span>)}
@@ -1840,8 +1867,8 @@ export default function Home() {
                     <div className="feed-card">
                       <img src={selectedFoodItem.asset} alt={selectedFoodItem.name} />
                       <small>已选择</small><h2>{selectedFoodItem.name}</h2><p>{selectedFoodItem.detail} · 活力 +{selectedFoodItem.energy}</p>
-                      <button className="primary-button" onClick={() => feedPet(selectedFoodItem.id)} disabled={!game.inventory[selectedFoodItem.id] || statusPetStats.energy >= 100}>
-                        {statusPetStats.energy >= 100 ? "活力已经满啦" : game.inventory[selectedFoodItem.id] ? `喂给 ${statusPet.name}` : "背包里没有了"}
+                      <button className="primary-button" onClick={() => feedPet(selectedFoodItem.id)} disabled={!game.inventory[selectedFoodItem.id] || inspectedPetStats.energy >= 100}>
+                        {inspectedPetStats.energy >= 100 ? "活力已经满啦" : game.inventory[selectedFoodItem.id] ? `喂给 ${inspectedPet.name}` : "背包里没有了"}
                       </button>
                       {!totalFood && <button className="text-button" onClick={() => { setShopCategory("food"); setOverlay("shop"); }}>去商店买食物 →</button>}
                     </div>

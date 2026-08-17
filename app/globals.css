@@ -77,13 +77,13 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 :is(.kitchen-hotspot, .music-hotspot, .bar-hotspot):focus-visible { outline: 4px dashed rgba(123, 76, 53, .85); outline-offset: -8px; }
 .vinyl-player { margin-top: 17px; overflow: hidden; border: 4px solid #4b2d22; border-radius: 10px; background: #6d3d27; box-shadow: 0 6px 0 #382119, inset 0 0 0 3px #a66a3b; }
 .turntable-panel { min-height: 160px; padding: 16px 20px; display: grid; grid-template-columns: 128px minmax(0, 1fr); grid-template-rows: 1fr auto; gap: 8px 20px; align-items: center; border-bottom: 7px solid #3d241b; background: linear-gradient(90deg, #8f5735 0 4px, #75452e 4px 8px, #825035 8px 100%); color: #fff4d7; }
-.turntable-record, .sleeve-vinyl { display: grid; place-items: center; border-radius: 50%; background: repeating-radial-gradient(circle, #161311 0 4px, #28231f 5px 7px); box-shadow: 0 0 0 4px #3a2922, 5px 5px 0 rgba(37, 21, 15, .45); }
+.turntable-record, .sleeve-vinyl { position: relative; overflow: hidden; contain: paint; display: grid; place-items: center; border-radius: 50%; background: repeating-radial-gradient(circle, #161311 0 4px, #28231f 5px 7px); box-shadow: 0 0 0 4px #3a2922, 5px 5px 0 rgba(37, 21, 15, .45); }
 .turntable-record { position: relative; grid-row: 1 / 3; width: 122px; aspect-ratio: 1; }
-.turntable-record::after, .sleeve-vinyl::after { width: 14%; aspect-ratio: 1; border: 3px solid #f0c45f; border-radius: 50%; background: #d85c62; content: ""; }
-.turntable-record i { position: absolute; z-index: 1; color: #fff4d7; font-size: 13px; font-style: normal; }
-.current { animation: vinyl-spin 2.4s linear infinite; animation-play-state: paused; }
-.current.playing { animation-play-state: running; }
-@keyframes vinyl-spin { to { transform: rotate(360deg); } }
+.turntable-record::before, .sleeve-vinyl::before { position: absolute; z-index: 0; inset: -14%; border-radius: 50%; background: conic-gradient(from 18deg, transparent 0 18%, rgba(255, 242, 195, .16) 23%, transparent 29% 61%, rgba(255, 242, 195, .1) 66%, transparent 72%); content: ""; animation: vinyl-groove-spin 2.4s linear infinite; animation-play-state: paused; }
+.turntable-record::after, .sleeve-vinyl::after { position: relative; z-index: 1; width: 14%; aspect-ratio: 1; border: 3px solid #f0c45f; border-radius: 50%; background: #d85c62; content: ""; }
+.turntable-record i { position: absolute; z-index: 2; color: #fff4d7; font-size: 13px; font-style: normal; }
+.current.playing::before { animation-play-state: running; }
+@keyframes vinyl-groove-spin { to { transform: rotate(360deg); } }
 .now-playing { min-width: 0; align-self: end; }
 .now-playing small { color: #f4c872; font-size: 9px; letter-spacing: 2px; }
 .now-playing h2 { margin: 8px 0 5px; overflow: hidden; font-family: "ZCOOL KuaiLe", system-ui, sans-serif; font-size: 24px; white-space: nowrap; text-overflow: ellipsis; }

@@ -1,5 +1,8 @@
 export const PLAYLIST_ID = "17961012548";
 
+export type PlaylistTrack = { id: number; name: string; artist: string; duration: number; cover: string; playbackUrl: string | null; playbackCode: number | null; playbackFee: number | null };
+export type Playlist = { id: string; name: string; trackCount: number; tracks: PlaylistTrack[] };
+
 export const LOCAL_PLAYBACK_PATHS: Record<number, string> = {
   1352585027: "/music/tracks/1352585027.mp3",
   1457681678: "/music/tracks/1457681678.mp3",
@@ -27,4 +30,15 @@ export const LOCAL_PLAYBACK_PATHS: Record<number, string> = {
 
 export function resolvePlaybackUrl(id: number, remoteUrl?: string | null) {
   return LOCAL_PLAYBACK_PATHS[id] ?? remoteUrl?.replace(/^http:/, "https:") ?? null;
+}
+
+export function isRemotePlaybackUrl(url: string | null) {
+  return Boolean(url?.startsWith("https://"));
+}
+
+export async function fetchPlaylist(fetchImpl: typeof fetch = fetch) {
+  const response = await fetchImpl(`/api/netease-playlist?refresh=${Date.now()}`, { cache: "no-store" });
+  const data = await response.json() as Playlist & { error?: string };
+  if (!response.ok) throw new Error(data.error || "歌单载入失败");
+  return data;
 }

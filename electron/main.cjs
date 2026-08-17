@@ -20,7 +20,7 @@ app.whenReady().then(() => {
   protocol.handle("berry", async (request) => {
     const pathname = decodeURIComponent(new URL(request.url).pathname);
     if (pathname === "/api/netease-playlist") {
-      return Response.json(await loadDesktopPlaylist(root, net.fetch));
+      return Response.json(await loadDesktopPlaylist(root, net.fetch), { headers: { "Cache-Control": "no-store, max-age=0" } });
     }
     const file = path.resolve(root, pathname === "/" ? "index.html" : `.${pathname}`);
     if (!file.startsWith(root)) return new Response("Not found", { status: 404 });
