@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { access, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,11 +6,11 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { CAT_BOUNDS, clampCatPosition, getFurnitureTarget } from "../app/game/furniture.ts";
-import { LOCAL_PLAYBACK_PATHS, PLAYLIST_ID, resolvePlaybackUrl } from "../app/game/music.ts";
+import { fetchPlaylist, isRemotePlaybackUrl, LOCAL_PLAYBACK_PATHS, PLAYLIST_ID, resolvePlaybackUrl } from "../app/game/music.ts";
 import { getTimePeriod } from "../app/game/time-period.ts";
 import { getRoomAsset, getWeatherKind, getYardAsset, ROOM_ASSET_BY_WEATHER } from "../app/game/weather.ts";
 import { cropItems, formatCookingTime, getCookingProgress, getCropProgress, getCropStage, INITIAL_PRODUCE, waterUnwateredPlots } from "../app/game/farm.ts";
-import { clampFurniturePosition, clampToScene, getWalkPath, YARD_OBSTACLES } from "../app/game/scene.ts";
+import { clampFurniturePosition, clampToScene, getWalkPath, ROOM_FIXED_OBSTACLES, YARD_OBSTACLES } from "../app/game/scene.ts";
 import { CAT_STATUS_ANIMATIONS, getCatStatus, getCatStatusTransition } from "../app/game/cat-actions.ts";
 import { canPetMove, decayPetStats, decayPetStatsByTime, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "../app/game/pet-stats.ts";
 import { getJournalReward } from "../app/game/journal-reward.ts";
@@ -122,20 +121,18 @@ test("keeps yard movement out of large obstacles", () => {
   assert.ok(path.every((point) => point.x >= 7 && point.x <= 94 && point.y >= 45 && point.y <= 89));
 });
 
-test("bakes twelve distinct low-frame vinyl rotations into complete room images", async () => {
-  const hashes = new Set();
-  for (let frame = 0; frame < 12; frame += 1) {
-    const png = await readFile(new URL(`../public/game/room-frames/room-v030-clear-with-vinyl-bar-${String(frame).padStart(2, "0")}.png`, import.meta.url));
-    assert.equal(png.readUInt32BE(16), 1672);
-    assert.equal(png.readUInt32BE(20), 941);
-    hashes.add(createHash("sha256").update(png).digest("hex"));
-  }
-  assert.equal(hashes.size, 12);
+test("keeps the room vinyl static without the rotating fragment", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  assert.match(source, /frame < 12/);
-  assert.match(source, /\(frame \+ 1\) % 12/);
   assert.match(source, /ROOM_SCENE_ASSET_VERSION[\s\S]*\?v=\$\{ROOM_SCENE_ASSET_VERSION\}/);
-  assert.doesNotMatch(source, /turntable-frames|room-turntable-vinyl/);
+  assert.doesNotMatch(source, /roomVinylFrame|setRoomVinylFrame|room-frames|turntable-frames|room-turntable-vinyl/);
+});
+
+test("keeps the player vinyl perfectly round while only its clipped highlight rotates", async () => {
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(css, /\.turntable-record, \.sleeve-vinyl \{[^}]*overflow: hidden[^}]*contain: paint[^}]*border-radius: 50%/);
+  assert.match(css, /\.turntable-record::before, \.sleeve-vinyl::before \{[^}]*inset: -14%[^}]*border-radius: 50%[^}]*animation: vinyl-groove-spin/);
+  assert.match(css, /\.current\.playing::before \{ animation-play-state: running; \}/);
+  assert.doesNotMatch(css, /\.current \{[^}]*animation:/);
 });
 
 test("uses the requested NetEase playlist and local fallbacks for its unavailable tracks", async () => {
@@ -145,6 +142,21 @@ test("uses the requested NetEase playlist and local fallbacks for its unavailabl
   assert.equal(resolvePlaybackUrl(2008736389, "http://example.com/song.mp3"), "https://example.com/song.mp3");
   await Promise.all(Object.values(LOCAL_PLAYBACK_PATHS).map((playbackPath) =>
     access(new URL(`../public${playbackPath}`, import.meta.url))));
+});
+
+test("refreshes expiring NetEase playback URLs without reusing a cached playlist", async () => {
+  let requestedUrl = "";
+  let requestedCache = "";
+  const playlist = await fetchPlaylist(async (url, init) => {
+    requestedUrl = String(url);
+    requestedCache = String(init?.cache);
+    return Response.json({ id: PLAYLIST_ID, name: "test", trackCount: 1, tracks: [{ id: 1, name: "song", artist: "artist", duration: 1, cover: "", playbackUrl: "https://example.com/song.mp3", playbackCode: 200, playbackFee: 0 }] });
+  });
+  assert.match(requestedUrl, /^\/api\/netease-playlist\?refresh=\d+$/);
+  assert.equal(requestedCache, "no-store");
+  assert.equal(playlist.tracks.length, 1);
+  assert.equal(isRemotePlaybackUrl(playlist.tracks[0].playbackUrl), true);
+  assert.equal(isRemotePlaybackUrl(LOCAL_PLAYBACK_PATHS[1352585027]), false);
 });
 
 test("opens the desktop record cabinet from its bundled playlist when NetEase is unavailable", async () => {
@@ -158,16 +170,42 @@ test("opens the desktop record cabinet from its bundled playlist when NetEase is
   const electronMain = await readFile(new URL("../electron/main.cjs", import.meta.url), "utf8");
   assert.match(electronMain, /pathname === "\/api\/netease-playlist"[\s\S]*loadDesktopPlaylist\(root, net\.fetch\)/);
   assert.match(electronMain, /supportFetchAPI: true, stream: true/);
+  assert.match(electronMain, /Cache-Control": "no-store, max-age=0"/);
 });
 
-test("keeps furniture on the floor and away from fixed room furniture", () => {
+test("automatically refreshes an expired stream and resumes its playback position", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const route = await readFile(new URL("../app/api/netease-playlist/route.ts", import.meta.url), "utf8");
+  const recoveryStart = source.indexOf("async function recoverPlayback()");
+  const recoveryEnd = source.indexOf("\n  function togglePlayback", recoveryStart);
+  const recoveryBody = source.slice(recoveryStart, recoveryEnd);
+  assert.match(recoveryBody, /isRemotePlaybackUrl\(track\.playbackUrl\)[\s\S]*fetchPlaylist\(\)/);
+  assert.match(recoveryBody, /resumeAt[\s\S]*loadedmetadata[\s\S]*audio\.currentTime[\s\S]*audio\.play\(\)/);
+  assert.match(recoveryBody, /recoveringTrackId/);
+  assert.match(recoveryBody, /lastPlaybackRecovery[\s\S]*30_000/);
+  assert.match(source, /onError=\{\(\) => \{ void recoverPlayback\(\); \}\}/);
+  assert.match(route, /Cache-Control": "no-store, max-age=0"/);
+});
+
+test("lets furniture touch the wall while keeping its feet out of fixed room furniture", () => {
   const footprint = { halfWidth: 6, height: 10 };
+  const wall = clampFurniturePosition({ x: 50, y: 20 }, footprint);
   const kitchen = clampFurniturePosition({ x: 20, y: 30 }, footprint);
   const music = clampFurniturePosition({ x: 88, y: 48 }, footprint);
   const bar = clampFurniturePosition({ x: 90, y: 70 }, footprint);
-  assert.ok(kitchen.y - footprint.height >= 46);
-  assert.ok(music.x + footprint.halfWidth <= 76 || music.y - footprint.height >= 52);
-  assert.ok(bar.x + footprint.halfWidth <= 79);
+  const overlaps = (point, rect) => point.x + footprint.halfWidth > rect.left
+    && point.x - footprint.halfWidth < rect.right
+    && point.y + 2 > rect.top
+    && point.y - 2.5 < rect.bottom;
+  assert.deepEqual(wall, { x: 50, y: 43 });
+  assert.ok(wall.y - footprint.height < 43);
+  for (const point of [kitchen, music, bar]) {
+    assert.ok(ROOM_FIXED_OBSTACLES.every((rect) => !overlaps(point, rect)));
+  }
+});
+
+test("keeps the cat body clear of the bar counter", () => {
+  assert.deepEqual(clampToScene({ x: 78, y: 61 }, "room", ROOM_FIXED_OBSTACLES), { x: 71, y: 61 });
 });
 
 test("keeps the cat and movement controls indoors", async () => {
@@ -355,7 +393,7 @@ test("other controls do not open the sleep interruption confirmation", async () 
   const furnitureStart = source.indexOf("function moveCatToFurniture(");
   const furnitureEnd = source.indexOf("\n  async function checkIn", furnitureStart);
   const furnitureBody = source.slice(furnitureStart, furnitureEnd);
-  assert.match(feedBody, /statusPetId === current\.pet[\s\S]*petStats:[\s\S]*\[statusPetId\]/);
+  assert.match(feedBody, /inspectedPetId === current\.pet[\s\S]*petStats:[\s\S]*\[inspectedPetId\]/);
   assert.doesNotMatch(feedBody, /setInterruptConfirm|requestSleepInterrupt/);
   assert.doesNotMatch(changeSceneBody, /setInterruptConfirm|requestSleepInterrupt/);
   assert.doesNotMatch(furnitureBody, /setInterruptConfirm|requestSleepInterrupt/);
@@ -432,7 +470,7 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(schema, /category: text\("category"\)/);
   assert.match(checkins, /name === "rating"[\s\S]*ALTER TABLE checkins ADD rating INTEGER[\s\S]*ALTER TABLE checkins ADD reward INTEGER/);
   assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*user-data\.json[\s\S]*createStorage\(dataFile\)[\s\S]*storage:load[\s\S]*storage:save/);
-  assert.match(packageJson, /"version": "0\.5\.2"[\s\S]*"appId": "com\.berryworkout\.island"[\s\S]*"productName": "OH"/);
+  assert.match(packageJson, /"version": "0\.5\.3"[\s\S]*"appId": "com\.berryworkout\.island"[\s\S]*"productName": "OH"/);
   assert.match(preload, /storage:[\s\S]*sendSync\("storage:load"[\s\S]*send\("storage:save"/);
 });
 
@@ -470,12 +508,14 @@ test("switches movement control and independent stats with the selected pet", as
   assert.match(source, /function switchControlledPet\(id: PetId\)[\s\S]*pet: id[\s\S]*\[current\.pet\]: \{ energy: current\.energy[\s\S]*\[id\]: nextStats/);
   assert.match(source, /catPosition: current\.petPositions\[id\] \?\? ROOMMATE_POSITIONS\[id\][\s\S]*\[current\.pet\]: current\.catPosition/);
   assert.match(source, /game\.adoptedPets\.map\(\(id\) => \{[\s\S]*const controlled = id === game\.pet[\s\S]*const position = controlled \? game\.catPosition : game\.petPositions\[id\] \?\? ROOMMATE_POSITIONS\[id\]/);
-  assert.match(source, /function cyclePet\(\)[\s\S]*className=\{`scene-cat roommate-cat[\s\S]*title="切换控制猫咪"/);
-  const cyclePetSource = source.slice(source.indexOf("function cyclePet()"), source.indexOf("function adoptPet"));
-  assert.match(cyclePetSource, /game\.adoptedPets\.indexOf\(game\.pet\)[\s\S]*switchControlledPet\(id\)/);
+  assert.match(source, /function cycleInspectedPet\(\)[\s\S]*className=\{`scene-cat roommate-cat[\s\S]*title="切换查看猫咪状态"/);
+  const inspectStart = source.indexOf("function cycleInspectedPet()");
+  const inspectBody = source.slice(inspectStart, source.indexOf("function adoptPet", inspectStart));
+  assert.match(inspectBody, /game\.adoptedPets\.indexOf\(inspectedPetId\)[\s\S]*setInspectedPetId\(id\)/);
+  assert.doesNotMatch(inspectBody, /switchControlledPet|setGame|setCatStatus|setResting|setWalking/);
   const adoptPetSource = source.slice(source.indexOf("function adoptPet"), source.indexOf("function resetFurniture"));
   assert.match(adoptPetSource, /switchControlledPet\(id\)[\s\S]*已切换控制/);
-  assert.match(source, /菜品可以喂给 \{statusPet\.name\}[\s\S]*`喂给 \$\{statusPet\.name\}`/);
+  assert.match(source, /菜品可以喂给 \{inspectedPet\.name\}[\s\S]*`喂给 \$\{inspectedPet\.name\}`/);
   assert.match(css, /\.scene-cat \{[^}]*width: clamp\(92px, 10vw, 168px\)[^}]*transform: translate\(-50%, -79%\)/);
   assert.match(css, /\.game-room \{[^}]*z-index: 0/);
   assert.doesNotMatch(css, /\.roommate-cat \{[^}]*\b(?:width|transform):/);
@@ -489,14 +529,15 @@ test("stores sleep independently, reserves beds, and animates every adopted pet"
   assert.match(source, /petSleep: \{ \.\.\.current\.petSleep, \[current\.pet\]: \{ endsAt: sleepEndsAt, rest: item\.rest, furnitureId: item\.id \} \}/);
   assert.match(source, /const occupyingPet = game\.adoptedPets\.find[\s\S]*sleep\.furnitureId === item\.id[\s\S]*请换一个猫窝/);
   const switchStart = source.indexOf("function switchControlledPet(id: PetId)");
-  const switchEnd = source.indexOf("\n  function cyclePet", switchStart);
+  const switchEnd = source.indexOf("\n  function cycleInspectedPet", switchStart);
   const switchBody = source.slice(switchStart, switchEnd);
   assert.doesNotMatch(switchBody, /if \(resting\)/);
+  assert.doesNotMatch(switchBody, /setInspectedPetId/);
   assert.match(switchBody, /const targetSleep = game\.petSleep\[id\][\s\S]*sleepEndsAt: currentTargetSleep\.endsAt[\s\S]*sleepRest: currentTargetSleep\.rest/);
   assert.match(switchBody, /catFurniture: getSleepRemainingMs\(currentTargetSleep\.endsAt, now\) > 0 \? currentTargetSleep\.furnitureId : null/);
   assert.match(source, /const roommateSleep = game\.petSleep\[id\][\s\S]*const roommateStatus = getCatStatus[\s\S]*getLoopedStatusFrame\(CAT_STATUS_ANIMATIONS\[roommateStatus\]\.frames[\s\S]*const roommateAsset/);
   assert.match(source, /roommateFrame\.pose === "walk"[\s\S]*cat\.walkFrames[\s\S]*roommateFrame\.pose === "groom"[\s\S]*cat\.groomFrames/);
-  assert.doesNotMatch(source, /onClick=\{cyclePet\} disabled=\{resting\}/);
+  assert.doesNotMatch(source, /onClick=\{cycleInspectedPet\} disabled=\{resting\}/);
 });
 
 test("uses OH desktop branding and a stable cat-paw cursor", async () => {
