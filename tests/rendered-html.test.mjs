@@ -14,6 +14,7 @@ import { clampFurniturePosition, clampToScene, getWalkPath, ROOM_FIXED_OBSTACLES
 import { CAT_STATUS_ANIMATIONS, getCatStatus, getCatStatusTransition } from "../app/game/cat-actions.ts";
 import { canPetMove, decayPetStats, decayPetStatsByTime, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "../app/game/pet-stats.ts";
 import { getJournalReward } from "../app/game/journal-reward.ts";
+import { getWalkDirection, WALK_DIRECTION_ROW } from "../app/game/movement-direction.ts";
 
 const { createStorage } = createRequire(import.meta.url)("../electron/storage.cjs");
 const { LOCAL_PLAYBACK_PATHS: DESKTOP_PLAYBACK_PATHS, loadDesktopPlaylist } = createRequire(import.meta.url)("../electron/netease.cjs");
@@ -119,6 +120,34 @@ test("keeps yard movement out of large obstacles", () => {
   const path = getWalkPath({ x: 30, y: 76 }, { x: 92, y: 60 }, "yard", YARD_OBSTACLES);
   assert.ok(path.length >= 1 && path.length <= 2);
   assert.ok(path.every((point) => point.x >= 7 && point.x <= 94 && point.y >= 45 && point.y <= 89));
+});
+
+test("maps movement vectors to all eight walking directions", () => {
+  const origin = { x: 0, y: 0 };
+  assert.equal(getWalkDirection(origin, { x: -1, y: 0 }), "left");
+  assert.equal(getWalkDirection(origin, { x: -1, y: -1 }), "up-left");
+  assert.equal(getWalkDirection(origin, { x: 0, y: -1 }), "up");
+  assert.equal(getWalkDirection(origin, { x: 1, y: -1 }), "up-right");
+  assert.equal(getWalkDirection(origin, { x: 1, y: 0 }), "right");
+  assert.equal(getWalkDirection(origin, { x: 1, y: 1 }), "down-right");
+  assert.equal(getWalkDirection(origin, { x: 0, y: 1 }), "down");
+  assert.equal(getWalkDirection(origin, { x: -1, y: 1 }), "down-left");
+  assert.deepEqual(Object.values(WALK_DIRECTION_ROW), [0, 1, 2, 3, 4, 5, 6, 7]);
+});
+
+test("ships transparent eight-direction sprite sheets for every cat", async () => {
+  for (const kind of ["orange", "cow", "white"]) {
+    const png = await readFile(new URL(`../public/game/cat-${kind}-walk-8dir-v4.png`, import.meta.url));
+    assert.equal(png.toString("ascii", 1, 4), "PNG");
+    assert.equal(png.readUInt32BE(16), 1024);
+    assert.equal(png.readUInt32BE(20), 2048);
+    assert.equal(png[25], 6);
+  }
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(source, /const stepDirection = getWalkDirection\(from, point\)[\s\S]*setDirection\(stepDirection\)[\s\S]*from = point/);
+  assert.match(source, /WALK_DIRECTION_ROW\[direction\]/);
+  assert.match(css, /\.cat-walk-sprite \{[^}]*background-size: 400% 800%/);
 });
 
 test("keeps the room vinyl static without the rotating fragment", async () => {
@@ -371,7 +400,9 @@ test("only movement intent asks to cancel sleep before the wake-up animation", a
   assert.match(keyboardBody, /const move = moves\[event\.key\][\s\S]*if \(resting\) \{[\s\S]*requestSleepInterrupt\(\)[\s\S]*return/);
   assert.doesNotMatch(source, /startCatDrag|trackCatDrag|stopCatDrag|setPointerCapture|releasePointerCapture/);
   assert.match(source, /是否要取消睡眠？[\s\S]*>取消睡眠<\/button>/);
-  assert.match(interruptBody, /petSleep: \{ \.\.\.current\.petSleep, \[current\.pet\]: \{ endsAt: null, rest: 0, furnitureId: null \} \}[\s\S]*catFurniture: null[\s\S]*sleepEndsAt: null[\s\S]*sleepRest: 0/);
+  assert.match(interruptBody, /petSleep: \{ \.\.\.current\.petSleep, \[current\.pet\]: \{ endsAt: null, rest: 0, furnitureId: null \} \}[\s\S]*sleepEndsAt: null[\s\S]*sleepRest: 0/);
+  assert.doesNotMatch(interruptBody, /catFurniture: null/);
+  assert.match(source, /function walkCatTo[\s\S]*catPosition: point, catFurniture: null/);
   assert.match(interruptBody, /setWakingUp\(true\)/);
   assert.doesNotMatch(interruptBody, /sleepiness:\s*Math\.max|sleepiness\s*-/);
   assert.match(source, /cat-orange-wake\.png[\s\S]*cat-cow-wake\.png[\s\S]*cat-white-wake\.png/);
@@ -470,7 +501,7 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(schema, /category: text\("category"\)/);
   assert.match(checkins, /name === "rating"[\s\S]*ALTER TABLE checkins ADD rating INTEGER[\s\S]*ALTER TABLE checkins ADD reward INTEGER/);
   assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*user-data\.json[\s\S]*createStorage\(dataFile\)[\s\S]*storage:load[\s\S]*storage:save/);
-  assert.match(packageJson, /"version": "0\.5\.3"[\s\S]*"appId": "com\.berryworkout\.island"[\s\S]*"productName": "OH"/);
+  assert.match(packageJson, /"version": "0\.5\.4"[\s\S]*"appId": "com\.berryworkout\.island"[\s\S]*"productName": "OH"/);
   assert.match(preload, /storage:[\s\S]*sendSync\("storage:load"[\s\S]*send\("storage:save"/);
 });
 
@@ -508,11 +539,13 @@ test("switches movement control and independent stats with the selected pet", as
   assert.match(source, /function switchControlledPet\(id: PetId\)[\s\S]*pet: id[\s\S]*\[current\.pet\]: \{ energy: current\.energy[\s\S]*\[id\]: nextStats/);
   assert.match(source, /catPosition: current\.petPositions\[id\] \?\? ROOMMATE_POSITIONS\[id\][\s\S]*\[current\.pet\]: current\.catPosition/);
   assert.match(source, /game\.adoptedPets\.map\(\(id\) => \{[\s\S]*const controlled = id === game\.pet[\s\S]*const position = controlled \? game\.catPosition : game\.petPositions\[id\] \?\? ROOMMATE_POSITIONS\[id\]/);
-  assert.match(source, /function cycleInspectedPet\(\)[\s\S]*className=\{`scene-cat roommate-cat[\s\S]*title="切换查看猫咪状态"/);
-  const inspectStart = source.indexOf("function cycleInspectedPet()");
-  const inspectBody = source.slice(inspectStart, source.indexOf("function adoptPet", inspectStart));
-  assert.match(inspectBody, /game\.adoptedPets\.indexOf\(inspectedPetId\)[\s\S]*setInspectedPetId\(id\)/);
-  assert.doesNotMatch(inspectBody, /switchControlledPet|setGame|setCatStatus|setResting|setWalking/);
+  const controlledCatSource = source.slice(source.indexOf("return <div\n              className={`scene-cat walking-cat"), source.indexOf("\n          })}", source.indexOf("return <div\n              className={`scene-cat walking-cat")));
+  assert.match(controlledCatSource, /aria-label=\{`\$\{game\.petNames\[id\]\}正在行走`\}[\s\S]*alt=\{`\$\{game\.petNames\[id\]\}正在小屋里`\}[\s\S]*game\.petNames\[id\]/);
+  assert.doesNotMatch(controlledCatSource, /cat\.name/);
+  assert.match(source, /function cycleControlledPet\(\)[\s\S]*className=\{`scene-cat roommate-cat[\s\S]*title="切换控制猫咪"/);
+  const cycleStart = source.indexOf("function cycleControlledPet()");
+  const cycleBody = source.slice(cycleStart, source.indexOf("function adoptPet", cycleStart));
+  assert.match(cycleBody, /game\.adoptedPets\.indexOf\(game\.pet\)[\s\S]*switchControlledPet\(id\)/);
   const adoptPetSource = source.slice(source.indexOf("function adoptPet"), source.indexOf("function resetFurniture"));
   assert.match(adoptPetSource, /switchControlledPet\(id\)[\s\S]*已切换控制/);
   assert.match(source, /菜品可以喂给 \{inspectedPet\.name\}[\s\S]*`喂给 \$\{inspectedPet\.name\}`/);
@@ -529,15 +562,15 @@ test("stores sleep independently, reserves beds, and animates every adopted pet"
   assert.match(source, /petSleep: \{ \.\.\.current\.petSleep, \[current\.pet\]: \{ endsAt: sleepEndsAt, rest: item\.rest, furnitureId: item\.id \} \}/);
   assert.match(source, /const occupyingPet = game\.adoptedPets\.find[\s\S]*sleep\.furnitureId === item\.id[\s\S]*请换一个猫窝/);
   const switchStart = source.indexOf("function switchControlledPet(id: PetId)");
-  const switchEnd = source.indexOf("\n  function cycleInspectedPet", switchStart);
+  const switchEnd = source.indexOf("\n  function cycleControlledPet", switchStart);
   const switchBody = source.slice(switchStart, switchEnd);
   assert.doesNotMatch(switchBody, /if \(resting\)/);
-  assert.doesNotMatch(switchBody, /setInspectedPetId/);
+  assert.match(switchBody, /setInspectedPetId\(id\)[\s\S]*setOverlay\(null\)/);
   assert.match(switchBody, /const targetSleep = game\.petSleep\[id\][\s\S]*sleepEndsAt: currentTargetSleep\.endsAt[\s\S]*sleepRest: currentTargetSleep\.rest/);
   assert.match(switchBody, /catFurniture: getSleepRemainingMs\(currentTargetSleep\.endsAt, now\) > 0 \? currentTargetSleep\.furnitureId : null/);
   assert.match(source, /const roommateSleep = game\.petSleep\[id\][\s\S]*const roommateStatus = getCatStatus[\s\S]*getLoopedStatusFrame\(CAT_STATUS_ANIMATIONS\[roommateStatus\]\.frames[\s\S]*const roommateAsset/);
   assert.match(source, /roommateFrame\.pose === "walk"[\s\S]*cat\.walkFrames[\s\S]*roommateFrame\.pose === "groom"[\s\S]*cat\.groomFrames/);
-  assert.doesNotMatch(source, /onClick=\{cycleInspectedPet\} disabled=\{resting\}/);
+  assert.doesNotMatch(source, /onClick=\{cycleControlledPet\} disabled=\{resting\}/);
 });
 
 test("uses OH desktop branding and a stable cat-paw cursor", async () => {

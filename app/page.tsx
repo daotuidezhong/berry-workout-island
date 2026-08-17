@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { getFurnitureTarget, type Point } from "./game/furniture";
 import { getTimePeriod, type TimePeriod } from "./game/time-period";
 import { getSceneAsset, getWeatherKind, type WeatherKind } from "./game/weather";
@@ -17,6 +17,7 @@ import {
 import { canPetMove, decayPetStatsByTime, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "./game/pet-stats";
 import { getJournalReward } from "./game/journal-reward";
 import { fetchPlaylist, isRemotePlaybackUrl, type Playlist, type PlaylistTrack } from "./game/music";
+import { getWalkDirection, WALK_DIRECTION_ROW, type WalkDirection } from "./game/movement-direction";
 
 type PetId = "mitao" | "doubao" | "xueqiu";
 type OverlayId = "quest" | "history" | "bag" | "pets" | "shop" | "kitchen" | "music" | "bar" | null;
@@ -59,8 +60,9 @@ type GameState = {
   cooking: { dishId: CookedFoodId; startedAt: number; endsAt: number } | null;
 };
 
-const RELEASE_VERSION = "0.5.3";
+const RELEASE_VERSION = "0.5.4";
 const RELEASE_NOTES = [
+  { version: "0.5.4", items: ["新增三只猫咪的八方向行走动画，方向切换与移动轨迹保持一致", "状态面板切换现在会切换到对应猫咪的控制权，场景名字与状态名字保持同步", "修复取消睡眠后猫咪被猫窝图层遮挡的问题"] },
   { version: "0.5.3", items: ["修复歌曲地址过期后无法继续播放的问题，自动刷新地址并从原进度恢复", "修复猫咪进入吧台、查看状态时切换控制猫咪，以及家具无法紧贴墙壁的问题", "移除房间唱片碎片动画，并让唱片柜黑胶始终保持完整圆形"] },
   { version: "0.5.2", items: ["开启桌面版本地音频流支持，修复内置备用歌曲加载失败的问题", "确认用户提供的 22 首 MP3 已逐首完整收录并映射到对应唱片"] },
   { version: "0.5.1", items: ["修复 Windows 桌面版唱片柜无法读取歌单的问题", "内置完整歌单清单，网易云接口暂时不可用时仍可打开唱片柜和播放本地备用歌曲"] },
@@ -153,6 +155,7 @@ const pets = [
   {
     id: "mitao" as PetId, name: "蜜桃", kind: "橘子猫", nature: "热情的小太阳",
     walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-walk-fixed-${frame}.png`), idle: "/game/cat-orange-idle.png", sleep: "/game/cat-orange-sleep.png", wake: "/game/cat-orange-wake.png",
+    walkSheet: "/game/cat-orange-walk-8dir-v4.png",
     wakeYawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-wake-yawn-${frame}.png`),
     groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-groom-fixed-${frame}.png`),
     scratchFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-scratch-${frame}.png`),
@@ -160,6 +163,7 @@ const pets = [
   {
     id: "doubao" as PetId, name: "豆包", kind: "奶牛猫", nature: "安静的陪跑员",
     walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-walk-fixed-${frame}.png`), idle: "/game/cat-cow-idle.png", sleep: "/game/cat-cow-sleep.png", wake: "/game/cat-cow-wake.png",
+    walkSheet: "/game/cat-cow-walk-8dir-v4.png",
     wakeYawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-wake-yawn-${frame}.png`),
     groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-groom-fixed-${frame}.png`),
     scratchFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-scratch-${frame}.png`),
@@ -167,6 +171,7 @@ const pets = [
   {
     id: "xueqiu" as PetId, name: "雪球", kind: "白绒猫", nature: "爱撒娇的鼓励师",
     walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-walk-fixed-${frame}.png`), idle: "/game/cat-white-idle.png", sleep: "/game/cat-white-sleep.png", wake: "/game/cat-white-wake.png",
+    walkSheet: "/game/cat-white-walk-8dir-v4.png",
     wakeYawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-wake-yawn-${frame}.png`),
     groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-groom-fixed-${frame}.png`),
     scratchFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-scratch-${frame}.png`),
@@ -333,7 +338,7 @@ export default function Home() {
   const [headShaking, setHeadShaking] = useState(false);
   const [desktopUpdate, setDesktopUpdate] = useState<DesktopUpdate | null>(null);
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
-  const [direction, setDirection] = useState<"left" | "right">("right");
+  const [direction, setDirection] = useState<WalkDirection>("right");
   const [seedStorageOpen, setSeedStorageOpen] = useState(false);
   const [selectedSeed, setSelectedSeed] = useState<CropId | null>(null);
   const [watering, setWatering] = useState(false);
@@ -728,7 +733,7 @@ export default function Home() {
   }, [toast]);
 
   useEffect(() => {
-    const frames = pets.flatMap((item) => [item.idle, item.sleep, item.wake, ...item.wakeYawnFrames, ...item.walkFrames, ...item.groomFrames, ...item.scratchFrames]);
+    const frames = pets.flatMap((item) => [item.idle, item.sleep, item.wake, item.walkSheet, ...item.wakeYawnFrames, ...item.walkFrames, ...item.groomFrames, ...item.scratchFrames]);
     animationImages.current = frames.map((src) => {
       const image = new Image();
       image.src = src;
@@ -868,7 +873,7 @@ export default function Home() {
         return;
       }
       if (refuseMovement()) return;
-      if (move.x) setDirection(move.x < 0 ? "left" : "right");
+      setDirection((current) => getWalkDirection({ x: 0, y: 0 }, move, current));
       setWalkDuration(WALK_CYCLE_MS);
       const obstacles = getSceneObstacles();
       setGame((current) => ({
@@ -963,7 +968,8 @@ export default function Home() {
   const wakeSequenceAssets = [pet.sleep, pet.wake, ...WAKE_YAWN_SEQUENCE.map((frame) => pet.wakeYawnFrames[frame]), pet.idle];
   const activePose: CatPose = resting || lounging ? "sleep" : wakingUp ? "wake" : walking ? "walk" : currentStatusFrame.pose;
   const catAsset = scratching ? pet.scratchFrames[scratchFrame] : resting || lounging ? pet.sleep : wakingUp ? wakeSequenceAssets[wakeFrame] : walking ? pet.walkFrames[walkFrame] : statusAsset;
-  const motionX = walking || resting || lounging || wakingUp || scratching ? 0 : (currentStatusFrame.x ?? 0) * (direction === "left" ? -1 : 1);
+  const facingLeft = direction === "left" || direction === "up-left" || direction === "down-left";
+  const motionX = walking || resting || lounging || wakingUp || scratching ? 0 : (currentStatusFrame.x ?? 0) * (facingLeft ? -1 : 1);
   const motionY = walking || resting || lounging || wakingUp || scratching ? 0 : currentStatusFrame.y ?? 0;
 
   function openOverlay(id: Exclude<OverlayId, null>) {
@@ -1014,7 +1020,6 @@ export default function Home() {
       statsUpdatedAt: Date.now(),
       petStats: { ...current.petStats, [current.pet]: { energy: current.energy, sleepiness: current.sleepiness, statsUpdatedAt: Date.now() } },
       petSleep: { ...current.petSleep, [current.pet]: { endsAt: null, rest: 0, furnitureId: null } },
-      catFurniture: null,
       sleepEndsAt: null,
       sleepRest: 0,
     }));
@@ -1165,7 +1170,8 @@ export default function Home() {
     const step = (index: number) => {
       const point = path[index];
       const duration = Math.round(clamp(Math.hypot(point.x - from.x, point.y - from.y) * 14, WALK_CYCLE_MS * 2, 900));
-      setDirection(point.x < from.x ? "left" : "right");
+      const stepDirection = getWalkDirection(from, point);
+      setDirection(stepDirection);
       setWalkDuration(duration);
       setGame((current) => ({ ...current, catPosition: point, catFurniture: null }));
       from = point;
@@ -1352,6 +1358,8 @@ export default function Home() {
     setStatusIdle(true);
     setStatusTransition(null);
     setStatusTransitionTarget(null);
+    setInspectedPetId(id);
+    setOverlay(null);
     setGame((current) => {
       const currentTargetStats = current.petStats[id] ?? INITIAL_GAME.petStats[id];
       const currentTargetSleep = current.petSleep[id] ?? INITIAL_GAME.petSleep[id];
@@ -1381,10 +1389,11 @@ export default function Home() {
     });
   }
 
-  function cycleInspectedPet() {
-    const index = game.adoptedPets.indexOf(inspectedPetId);
+  function cycleControlledPet() {
+    const index = game.adoptedPets.indexOf(game.pet);
     const id = game.adoptedPets[(index + 1) % game.adoptedPets.length];
-    setInspectedPetId(id);
+    switchControlledPet(id);
+    setToast(`已切换控制 ${game.petNames[id]}`);
   }
 
   function adoptPet(id: PetId) {
@@ -1650,14 +1659,16 @@ export default function Home() {
               </div>;
             }
             return <div
-              className={`scene-cat walking-cat ${walking ? "walking" : "status-animation"} ${jumping ? "jumping" : ""} ${resting ? "resting" : ""} ${lounging ? "lounging" : ""} ${scratching ? "scratching" : ""} ${wakingUp ? "waking-up" : ""} ${headShaking ? "head-shaking" : ""} ${direction === "left" ? "facing-left" : ""}`}
+              className={`scene-cat walking-cat ${walking ? "walking" : "status-animation"} ${jumping ? "jumping" : ""} ${resting ? "resting" : ""} ${lounging ? "lounging" : ""} ${scratching ? "scratching" : ""} ${wakingUp ? "waking-up" : ""} ${headShaking ? "head-shaking" : ""} ${facingLeft ? "facing-left" : ""}`}
               data-cat-status={desiredCatStatus}
               data-active-status={catStatus}
               key={id}
               style={{ left: `${position.x}%`, top: `${position.y}%`, zIndex: game.catFurniture ? Math.round((game.furniturePositions[game.catFurniture] ?? DEFAULT_FURNITURE_POSITIONS[game.catFurniture]).y) + 2 : Math.round(position.y) + 2, transitionDuration: `${walkDuration}ms` }}
             >
-              <img className={`cat-base cat-pose-${activePose}`} src={catAsset} alt={`${cat.name}正在小屋里`} decoding="sync" draggable={false} style={{ transform: `scaleX(${direction === "left" ? -1 : 1})`, translate: `${motionX}px ${motionY}px` }} />
-              <b>{headShaking ? "太困啦…" : wakingUp ? "起床中…" : resting ? `还剩 ${formatSleepRemaining(sleepRemainingMs)}` : scratching ? "玩耍中…" : lounging ? "休息中…" : cat.name}</b>
+              {walking
+                ? <span className="cat-base cat-walk-sprite cat-pose-walk" role="img" aria-label={`${game.petNames[id]}正在行走`} data-walk-direction={direction} data-walk-frame={walkFrame} style={{ backgroundImage: `url(${pet.walkSheet})`, "--walk-frame": walkFrame, "--walk-row": WALK_DIRECTION_ROW[direction] } as CSSProperties} />
+                : <img className={`cat-base cat-pose-${activePose}`} src={catAsset} alt={`${game.petNames[id]}正在小屋里`} decoding="sync" draggable={false} style={{ transform: `scaleX(${facingLeft ? -1 : 1})`, translate: `${motionX}px ${motionY}px` }} />}
+              <b>{headShaking ? "太困啦…" : wakingUp ? "起床中…" : resting ? `还剩 ${formatSleepRemaining(sleepRemainingMs)}` : scratching ? "玩耍中…" : lounging ? "休息中…" : game.petNames[id]}</b>
             </div>;
           })}
 
@@ -1710,7 +1721,7 @@ export default function Home() {
             <div><small><span>{inspectedPet.name}的困倦值</span><b>{inspectedPetStats.sleepiness}</b></small><div className="sleepiness"><i style={{ width: `${inspectedPetStats.sleepiness}%` }} /></div></div>
           </div>
           <div className="pet-status-actions">
-            {game.adoptedPets.length > 1 && <button onClick={cycleInspectedPet} title="切换查看猫咪状态">切换</button>}
+            {game.adoptedPets.length > 1 && <button onClick={cycleControlledPet} title="切换控制猫咪">切换控制</button>}
             <button onClick={() => openOverlay("bag")}>喂食</button>
           </div>
         </aside>
