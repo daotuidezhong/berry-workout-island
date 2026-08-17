@@ -188,6 +188,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 }
 
 .scene-cat img { display: block; width: 100%; max-height: 185px; object-fit: contain; image-rendering: pixelated; transform-origin: 50% 100%; filter: var(--scene-lighting); transition: filter 1.2s ease, translate .12s ease-out; }
+.cat-walk-sprite { display: block; width: 100%; aspect-ratio: 1; background-repeat: no-repeat; background-position: calc(var(--walk-frame) * 33.333333%) calc(var(--walk-row) * 14.285714%); background-size: 400% 800%; image-rendering: pixelated; transform-origin: 50% 100%; filter: var(--scene-lighting); transition: filter 1.2s ease; }
 .walking-cat { transition: left .55s linear, top .55s linear; }
 .roommate-cat { text-align: center; }
 .roommate-cat b { position: absolute; left: 50%; bottom: -5px; transform: translateX(-50%); color: #fff8e9; text-shadow: 0 2px 0 #5b4034; font-size: var(--hud-text-size); white-space: nowrap; }
