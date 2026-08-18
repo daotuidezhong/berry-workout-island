@@ -18,10 +18,33 @@ import { canPetMove, decayPetStatsByTime, formatSleepRemaining, getSleepRemainin
 import { getJournalReward } from "./game/journal-reward";
 import { fetchPlaylist, isRemotePlaybackUrl, type Playlist, type PlaylistTrack } from "./game/music";
 import { getWalkDirection, WALK_DIRECTION_ROW, type WalkDirection } from "./game/movement-direction";
+import {
+  COCKTAIL_METHOD_LABELS,
+  INGREDIENT_CATEGORY_LABELS,
+  INITIAL_INGREDIENT_INVENTORY,
+  cocktailRecipes,
+  createInitialCocktailCollection,
+  evaluateCocktail,
+  formatIngredientAmount,
+  getIngredient,
+  getIngredientStock,
+  getLiquidTotal,
+  ingredientItems,
+  mixIngredientColors,
+  type CocktailCollection,
+  type CocktailMethod,
+  type CocktailResult,
+  type IngredientCategory,
+  type IngredientId,
+  type IngredientInventory,
+  type MixAmounts,
+  type StockedIngredientId,
+} from "./game/cocktails";
 
 type PetId = "mitao" | "doubao" | "xueqiu";
 type OverlayId = "quest" | "history" | "bag" | "pets" | "shop" | "kitchen" | "music" | "bar" | null;
-type ShopCategory = "food" | "furniture";
+type ShopCategory = "food" | "furniture" | "ingredients";
+type IngredientFilter = "all" | IngredientCategory;
 type JournalCategory = "运动" | "学习" | "工作" | "饮食" | "睡眠" | "其他";
 type CheckinRecord = { id: number; date: string; content: string; category: JournalCategory; rating: number | null; reward: number | null; createdAt: string };
 type DesktopUpdate = { phase: "available" | "downloading" | "downloaded" | "error"; name?: string; notes?: string; percent?: number; message?: string };
@@ -31,7 +54,7 @@ type FoodId = StoreFoodId | CookedFoodId;
 type PetStats = { energy: number; sleepiness: number; statsUpdatedAt: number };
 type PetSleep = { endsAt: number | null; rest: number; furnitureId: string | null };
 type GameState = {
-  gameSchemaVersion: 7;
+  gameSchemaVersion: 8;
   statModelVersion: 2;
   berries: number;
   streak: number;
@@ -43,6 +66,8 @@ type GameState = {
   petStats: Record<PetId, PetStats>;
   purchased: string[];
   inventory: Record<FoodId, number>;
+  ingredientInventory: IngredientInventory;
+  cocktailCollection: CocktailCollection;
   energy: number;
   sleepiness: number;
   statsUpdatedAt: number;
@@ -194,7 +219,7 @@ const INITIAL_INVENTORY: Record<FoodId, number> = {
 };
 
 const INITIAL_GAME: GameState = {
-  gameSchemaVersion: 7,
+  gameSchemaVersion: 8,
   statModelVersion: 2,
   berries: 48,
   streak: 0,
@@ -210,6 +235,8 @@ const INITIAL_GAME: GameState = {
   },
   purchased: [],
   inventory: INITIAL_INVENTORY,
+  ingredientInventory: INITIAL_INGREDIENT_INVENTORY,
+  cocktailCollection: createInitialCocktailCollection(),
   energy: 72,
   sleepiness: 24,
   statsUpdatedAt: 0,
@@ -275,6 +302,7 @@ const WAKE_SEQUENCE_LENGTH = WAKE_YAWN_SEQUENCE.length + 3;
 const WALK_FRAME_MS = 90;
 const WALK_CYCLE_MS = WALK_FRAME_MS * 4;
 const STATUS_IDLE_MS = 8000;
+const BAR_CAPACITY_ML = 350;
 const ROOM_SCENE_ASSET_VERSION = "20260817-static-vinyl-wall-furniture-v1";
 
 function localDate(date = new Date()) {
@@ -286,6 +314,10 @@ function localDate(date = new Date()) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function ingredientIconStyle(iconIndex: number): CSSProperties {
+  return { backgroundPosition: `${(iconIndex % 4) * (100 / 3)}% ${Math.floor(iconIndex / 4) * (100 / 3)}%` };
 }
 
 function getLoopedStatusFrame(frames: CatAnimationFrame[], now: number) {
@@ -301,6 +333,18 @@ function getLoopedStatusFrame(frames: CatAnimationFrame[], now: number) {
 export default function Home() {
   const [overlay, setOverlay] = useState<OverlayId>(null);
   const [shopCategory, setShopCategory] = useState<ShopCategory>("food");
+  const [ingredientFilter, setIngredientFilter] = useState<IngredientFilter>("all");
+  const [shopIngredientId, setShopIngredientId] = useState<IngredientId | null>(null);
+  const [purchaseQuantity, setPurchaseQuantity] = useState(1);
+  const [ingredientPurchaseBusy, setIngredientPurchaseBusy] = useState(false);
+  const [barView, setBarView] = useState<"mix" | "collection">("mix");
+  const [mixDraft, setMixDraft] = useState<MixAmounts>({});
+  const [mixMethod, setMixMethod] = useState<CocktailMethod | null>(null);
+  const [mixIngredientId, setMixIngredientId] = useState<IngredientId | null>(null);
+  const [mixIngredientAmount, setMixIngredientAmount] = useState(5);
+  const [pouring, setPouring] = useState(false);
+  const [mixing, setMixing] = useState(false);
+  const [mixResult, setMixResult] = useState<(CocktailResult & { firstUnlock: boolean; consumed: MixAmounts }) | null>(null);
   const [selectedFood, setSelectedFood] = useState<FoodId>("driedFish");
   const [noteText, setNoteText] = useState("");
   const [category, setCategory] = useState<JournalCategory>("其他");
@@ -365,6 +409,10 @@ export default function Home() {
   const sleepInterruptReadyAt = useRef(0);
   const animationImages = useRef<HTMLImageElement[]>([]);
   const scratchTimer = useRef<number | undefined>(undefined);
+  const mixingTimer = useRef<number | undefined>(undefined);
+  const pouringTimer = useRef<number | undefined>(undefined);
+  const ingredientPurchaseLock = useRef(false);
+  const mixingTransactionLock = useRef(false);
   const desiredCatStatus = getCatStatus(game.energy, game.sleepiness);
   const currentTrack = playlist?.tracks.find((track) => track.id === playingTrackId) ?? null;
   const sceneAsset = getSceneAsset(game.scene, weather.kind, timePeriod);
@@ -390,6 +438,15 @@ export default function Home() {
         const parsed = JSON.parse(saved) as Partial<GameState> & { food?: number };
         const legacyFood = typeof parsed.food === "number" ? parsed.food : INITIAL_INVENTORY.driedFish;
         const inventory = { ...INITIAL_INVENTORY, ...(parsed.inventory ?? {}) };
+        const ingredientInventory = Object.fromEntries((Object.keys(INITIAL_INGREDIENT_INVENTORY) as StockedIngredientId[]).map((id) => [
+          id,
+          Math.max(0, Number(parsed.ingredientInventory?.[id] ?? 0)),
+        ])) as IngredientInventory;
+        const initialCocktailCollection = createInitialCocktailCollection();
+        const cocktailCollection = Object.fromEntries(cocktailRecipes.map((recipe) => [
+          recipe.id,
+          { ...initialCocktailCollection[recipe.id], ...(parsed.cocktailCollection?.[recipe.id] ?? {}) },
+        ])) as CocktailCollection;
         const scene: SceneId = parsed.scene === "yard" ? "yard" : "room";
         if (!parsed.inventory) inventory.driedFish = legacyFood;
         const activePet = parsed.pet ?? "mitao";
@@ -405,7 +462,9 @@ export default function Home() {
           ...INITIAL_GAME,
           ...parsed,
           inventory,
-          gameSchemaVersion: 7,
+          ingredientInventory,
+          cocktailCollection,
+          gameSchemaVersion: 8,
           pet: activePet,
           purchased: Array.isArray(parsed.purchased) ? parsed.purchased : [],
           adoptedPets: Array.isArray(parsed.adoptedPets) && parsed.adoptedPets.length ? parsed.adoptedPets : [activePet],
@@ -932,6 +991,8 @@ export default function Home() {
   useEffect(() => () => {
     window.clearTimeout(walkingTimer.current);
     window.clearTimeout(headShakeTimer.current);
+    window.clearTimeout(mixingTimer.current);
+    window.clearTimeout(pouringTimer.current);
   }, []);
 
   const todayRecordCount = history.filter((record) => record.date === today).length;
@@ -945,6 +1006,25 @@ export default function Home() {
   const ownedFurniture = furnitureItems.filter((item) => game.purchased.includes(item.id));
   const totalFood = foodItems.reduce((total, item) => total + game.inventory[item.id], 0);
   const totalProduce = cropItems.reduce((total, crop) => total + game.produce[crop.id], 0);
+  const filteredIngredients = ingredientItems.filter((item) => ingredientFilter === "all" || item.category === ingredientFilter);
+  const selectedShopIngredient = shopIngredientId ? getIngredient(shopIngredientId) : null;
+  const ingredientPurchaseTotal = selectedShopIngredient ? selectedShopIngredient.price * purchaseQuantity : 0;
+  const ingredientPurchaseStockAfter = selectedShopIngredient && selectedShopIngredient.id !== "ice"
+    ? game.ingredientInventory[selectedShopIngredient.id] + selectedShopIngredient.packageAmount * purchaseQuantity
+    : Infinity;
+  const availableBarIngredients = ingredientItems.filter((item) => item.id === "ice" || getIngredientStock(game.ingredientInventory, item.id) > 0);
+  const selectedMixIngredient = mixIngredientId ? getIngredient(mixIngredientId) : null;
+  const mixLiquidTotal = getLiquidTotal(mixDraft);
+  const mixColor = mixIngredientColors(mixDraft);
+  const selectedMixStep = selectedMixIngredient?.unit === "ml" ? 5 : 1;
+  const selectedMixReserved = selectedMixIngredient ? mixDraft[selectedMixIngredient.id] ?? 0 : 0;
+  const selectedMixStock = selectedMixIngredient ? getIngredientStock(game.ingredientInventory, selectedMixIngredient.id) : 0;
+  const selectedMixMax = selectedMixIngredient
+    ? Math.max(0, Math.floor(Math.min(
+      selectedMixStock === Infinity ? 10 : selectedMixStock - selectedMixReserved,
+      selectedMixIngredient.unit === "ml" ? BAR_CAPACITY_ML - mixLiquidTotal : 10,
+    ) / selectedMixStep) * selectedMixStep)
+    : 0;
   const selectedFoodItem = foodItems.find((item) => item.id === selectedFood) ?? foodItems[0];
   const historyDates = [...new Set(history.map((record) => record.date))];
   const historyPageCount = Math.max(1, Math.ceil(historyDates.length / 2));
@@ -978,7 +1058,174 @@ export default function Home() {
       const firstOwned = foodItems.find((item) => game.inventory[item.id] > 0);
       if (firstOwned) setSelectedFood(firstOwned.id);
     }
+    if (id === "bar") {
+      setBarView("mix");
+      setMixDraft({});
+      setMixMethod(null);
+      setMixIngredientId(null);
+      setMixResult(null);
+    }
     setOverlay(id);
+  }
+
+  function closeOverlay() {
+    if (overlay === "bar" && mixing) return;
+    if (overlay === "bar") {
+      setMixDraft({});
+      setMixMethod(null);
+      setMixIngredientId(null);
+      setMixResult(null);
+    }
+    setShopIngredientId(null);
+    setOverlay(null);
+  }
+
+  function openIngredientPurchase(id: IngredientId) {
+    const ingredient = getIngredient(id);
+    if (ingredient.id === "ice") return;
+    setPurchaseQuantity(1);
+    setShopIngredientId(id);
+  }
+
+  function confirmIngredientPurchase() {
+    if (!selectedShopIngredient || selectedShopIngredient.id === "ice" || ingredientPurchaseLock.current) return;
+    const totalPrice = selectedShopIngredient.price * purchaseQuantity;
+    if (game.berries < totalPrice) {
+      setToast("草莓不足");
+      return;
+    }
+    ingredientPurchaseLock.current = true;
+    setIngredientPurchaseBusy(true);
+    const ingredient = selectedShopIngredient;
+    const stockId = ingredient.id as StockedIngredientId;
+    setGame((current) => ({
+      ...current,
+      berries: current.berries - totalPrice,
+      ingredientInventory: {
+        ...current.ingredientInventory,
+        [stockId]: current.ingredientInventory[stockId] + ingredient.packageAmount * purchaseQuantity,
+      },
+    }));
+    setToast(`获得${ingredient.name}${formatIngredientAmount(ingredient.packageAmount * purchaseQuantity, ingredient.unit)}`);
+    window.setTimeout(() => {
+      ingredientPurchaseLock.current = false;
+      setIngredientPurchaseBusy(false);
+      setShopIngredientId(null);
+    }, 260);
+  }
+
+  function openMixIngredient(id: IngredientId) {
+    if (mixing || mixResult) return;
+    const ingredient = getIngredient(id);
+    const stock = getIngredientStock(game.ingredientInventory, id);
+    const reserved = mixDraft[id] ?? 0;
+    const step = ingredient.unit === "ml" ? 5 : 1;
+    const maximum = Math.max(0, Math.floor(Math.min(
+      stock === Infinity ? 10 : stock - reserved,
+      ingredient.unit === "ml" ? BAR_CAPACITY_ML - mixLiquidTotal : 10,
+    ) / step) * step);
+    if (!maximum) {
+      setToast(ingredient.unit === "ml" && mixLiquidTotal >= BAR_CAPACITY_ML ? "容器已经装满啦" : `${ingredient.name}库存不足`);
+      return;
+    }
+    setMixIngredientAmount(Math.min(step, maximum));
+    setMixIngredientId(id);
+  }
+
+  function addMixIngredient() {
+    if (!selectedMixIngredient || mixIngredientAmount <= 0 || mixIngredientAmount > selectedMixMax) return;
+    setMixDraft((current) => ({
+      ...current,
+      [selectedMixIngredient.id]: (current[selectedMixIngredient.id] ?? 0) + mixIngredientAmount,
+    }));
+    window.clearTimeout(pouringTimer.current);
+    setPouring(true);
+    pouringTimer.current = window.setTimeout(() => setPouring(false), 520);
+    setMixIngredientId(null);
+  }
+
+  function removeMixIngredient(id: IngredientId) {
+    if (mixing || mixResult) return;
+    setMixDraft((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+  }
+
+  function clearMix() {
+    if (mixing) return;
+    setMixDraft({});
+    setMixMethod(null);
+    setMixIngredientId(null);
+    setMixResult(null);
+  }
+
+  function startMixing() {
+    const consumed = { ...mixDraft };
+    const used = Object.entries(consumed).filter(([, amount]) => (amount ?? 0) > 0);
+    if (!used.length) {
+      setToast("先往杯子里加入材料吧");
+      return;
+    }
+    if (!mixMethod) {
+      setToast("请选择摇和、搅拌或直接调和");
+      return;
+    }
+    if (mixingTransactionLock.current) return;
+    for (const [id, amount] of used) {
+      if (id !== "ice" && (amount ?? 0) > game.ingredientInventory[id as StockedIngredientId]) {
+        setToast(`${getIngredient(id as IngredientId).name}库存不足`);
+        return;
+      }
+    }
+    const selectedMethod = mixMethod;
+    const result = evaluateCocktail(consumed, selectedMethod);
+    const firstUnlock = result.success && !game.cocktailCollection[result.recipe.id].unlocked;
+    mixingTransactionLock.current = true;
+    setMixing(true);
+    setMixResult(null);
+    const duration = selectedMethod === "shake" ? 1250 : selectedMethod === "stir" ? 1100 : 900;
+    mixingTimer.current = window.setTimeout(() => {
+      setGame((current) => {
+        const ingredientInventory = { ...current.ingredientInventory };
+        for (const [id, amount] of used) {
+          if (id === "ice") continue;
+          const stockId = id as StockedIngredientId;
+          ingredientInventory[stockId] = Math.max(0, ingredientInventory[stockId] - (amount ?? 0));
+        }
+        if (!result.success) return { ...current, ingredientInventory };
+        const previous = current.cocktailCollection[result.recipe.id];
+        const improved = result.score > previous.bestScore;
+        return {
+          ...current,
+          ingredientInventory,
+          cocktailCollection: {
+            ...current.cocktailCollection,
+            [result.recipe.id]: {
+              ...previous,
+              unlocked: true,
+              bestScore: Math.max(previous.bestScore, result.score),
+              bestQuality: improved ? result.quality : previous.bestQuality,
+            },
+          },
+        };
+      });
+      setMixResult({ ...result, firstUnlock, consumed });
+      setMixing(false);
+      mixingTransactionLock.current = false;
+    }, duration);
+  }
+
+  function goToIngredientShop() {
+    if (mixing) return;
+    setMixDraft({});
+    setMixMethod(null);
+    setMixIngredientId(null);
+    setMixResult(null);
+    setIngredientFilter("all");
+    setShopCategory("ingredients");
+    setOverlay("shop");
   }
 
   function resetStatusAnimation() {
@@ -1743,9 +1990,9 @@ export default function Home() {
         </nav>
 
         {overlay && (
-          <div className="window-layer" onPointerDown={() => setOverlay(null)}>
-            <section className={`game-window ${overlay}-window`} onPointerDown={(event) => event.stopPropagation()}>
-              <button className="window-close" onClick={() => setOverlay(null)} aria-label="关闭窗口">×</button>
+          <div className="window-layer" onPointerDown={closeOverlay}>
+            <section className={`game-window ${overlay}-window ${overlay === "bar" && mixing ? "is-mixing" : ""}`} onPointerDown={(event) => event.stopPropagation()}>
+              <button className="window-close" onClick={closeOverlay} disabled={overlay === "bar" && mixing} aria-label="关闭窗口">×</button>
 
               {overlay === "quest" && (
                 <>
@@ -1854,8 +2101,116 @@ export default function Home() {
 
               {overlay === "bar" && (
                 <>
-                  <div className="window-heading"><small>STRAWBERRY BAR</small><h1>莓果调酒台</h1><p>这一区已按最终布局落地，饮品互动会在后续版本开放</p></div>
-                  <div className="bar-preview"><span>COMING SOON</span><h2>今晚想喝点什么？</h2><p>果酒、无酒精特调和猫咪小零食都会在这里慢慢添上。</p></div>
+                  <div className="window-heading with-wallet bar-heading"><span><small>STRAWBERRY BAR</small><h1>莓果调酒台</h1><p>从自己的库存取材，调出今晚的第一杯</p></span><b>🍓 {game.berries}</b></div>
+                  <div className="bar-tabs">
+                    <button type="button" className={barView === "mix" ? "active" : ""} onClick={() => setBarView("mix")} disabled={mixing}>开始调酒</button>
+                    <button type="button" className={barView === "collection" ? "active" : ""} onClick={() => setBarView("collection")} disabled={mixing}>鸡尾酒图鉴 <i>{Object.values(game.cocktailCollection).filter((entry) => entry.unlocked).length}/{cocktailRecipes.length}</i></button>
+                  </div>
+
+                  {barView === "collection" ? (
+                    <div className="cocktail-collection">
+                      {cocktailRecipes.map((recipe) => {
+                        const entry = game.cocktailCollection[recipe.id];
+                        return <article key={recipe.id} className={entry.unlocked ? "unlocked" : "locked"}>
+                          <div className="collection-glass" style={entry.unlocked ? { "--cocktail-color": recipe.color } as CSSProperties : undefined}><i /></div>
+                          {entry.unlocked ? <>
+                            <small>最高品质 · {entry.bestQuality} {entry.bestScore}分</small>
+                            <h2>{recipe.name}</h2>
+                            <p>{recipe.description}</p>
+                            <ul>{recipe.ingredients.map((part) => <li key={part.ingredientId}>{getIngredient(part.ingredientId).name}<b>{formatIngredientAmount(part.amount, getIngredient(part.ingredientId).unit)}</b></li>)}</ul>
+                            <strong>{COCKTAIL_METHOD_LABELS[recipe.method]}</strong>
+                          </> : <>
+                            <small>尚未解锁</small>
+                            <h2>？？？</h2>
+                            <p>{recipe.clue}</p>
+                            <strong>{recipe.baseHint}</strong>
+                          </>}
+                        </article>;
+                      })}
+                    </div>
+                  ) : (
+                    <div className="bar-workbench">
+                      <section className="bar-center">
+                        <div className={`bar-vessel ${pouring ? "pouring" : ""} ${mixing ? `mixing method-${mixMethod}` : ""}`} style={{ "--liquid-color": mixColor, "--liquid-level": `${Math.min(88, (mixLiquidTotal / BAR_CAPACITY_ML) * 88)}%` } as CSSProperties}>
+                          <div className="bar-liquid"><i /><i /></div>
+                          {Object.keys(mixDraft).length > 0 && <span className="glass-garnish">{mixDraft.mint ? "⌁" : mixDraft.ice ? "◇" : ""}</span>}
+                          {mixing && <div className="mix-tool">{mixMethod === "shake" ? "SHAKE" : mixMethod === "stir" ? "STIR" : "BUILD"}</div>}
+                        </div>
+                        <div className="bar-volume"><span>当前液体</span><b>{mixLiquidTotal} / {BAR_CAPACITY_ML}ml</b><progress max={BAR_CAPACITY_ML} value={mixLiquidTotal} /></div>
+                        {mixing && <p className="mixing-message">{mixMethod === "shake" ? "用力摇匀中……" : mixMethod === "stir" ? "让液体慢慢旋转……" : "依次注入杯中……"}</p>}
+                      </section>
+
+                      <section className="bar-ingredients">
+                        <header><span><small>YOUR INGREDIENTS</small><h2>拥有的配料</h2></span><button type="button" onClick={goToIngredientShop} disabled={mixing}>前往商店</button></header>
+                        <div>
+                          {availableBarIngredients.map((ingredient) => {
+                            const stock = getIngredientStock(game.ingredientInventory, ingredient.id);
+                            return <button type="button" key={ingredient.id} onClick={() => openMixIngredient(ingredient.id)} disabled={mixing || Boolean(mixResult) || (stock !== Infinity && stock <= (mixDraft[ingredient.id] ?? 0))}>
+                              <span className="ingredient-icon" style={ingredientIconStyle(ingredient.iconIndex)} />
+                              <b>{ingredient.name}</b>
+                              <small>{stock === Infinity ? "不限量" : formatIngredientAmount(stock, ingredient.unit)}</small>
+                              {mixDraft[ingredient.id] ? <i>已加入 {formatIngredientAmount(mixDraft[ingredient.id]!, ingredient.unit)}</i> : <i>点击添加</i>}
+                            </button>;
+                          })}
+                        </div>
+                        {availableBarIngredients.length === 1 && <p className="bar-empty-stock">还没有可用配料，先去商店补充吧。</p>}
+                      </section>
+
+                      <section className="bar-recipe">
+                        <header><span><small>CURRENT MIX</small><h2>当前配方</h2></span><button type="button" onClick={clearMix} disabled={mixing || !Object.keys(mixDraft).length}>清空全部</button></header>
+                        <div className="mix-list">
+                          {Object.entries(mixDraft).filter(([, amount]) => (amount ?? 0) > 0).map(([id, amount]) => {
+                            const ingredient = getIngredient(id as IngredientId);
+                            return <article key={id}><span className="ingredient-icon" style={ingredientIconStyle(ingredient.iconIndex)} /><b>{ingredient.name}</b><small>{formatIngredientAmount(amount!, ingredient.unit)}</small><button type="button" onClick={() => removeMixIngredient(ingredient.id)} disabled={mixing || Boolean(mixResult)} aria-label={`移除${ingredient.name}`}>×</button></article>;
+                          })}
+                          {!Object.keys(mixDraft).length && <p>从左侧选择配料，材料只会暂时放进杯中。</p>}
+                        </div>
+                        <div className="bar-methods">
+                          {(Object.keys(COCKTAIL_METHOD_LABELS) as CocktailMethod[]).map((method) => <button type="button" key={method} className={mixMethod === method ? "selected" : ""} onClick={() => setMixMethod(method)} disabled={mixing || Boolean(mixResult)}><span>{method === "shake" ? "↔" : method === "stir" ? "↻" : "↓"}</span>{COCKTAIL_METHOD_LABELS[method]}</button>)}
+                        </div>
+                        <button type="button" className="mix-start" onClick={startMixing} disabled={mixing || Boolean(mixResult) || !mixMethod || !Object.keys(mixDraft).length}>{mixing ? "正在调制……" : "开始调制"}</button>
+                        <button type="button" className="bar-exit" onClick={closeOverlay} disabled={mixing}>退出吧台</button>
+                      </section>
+                    </div>
+                  )}
+
+                  {selectedMixIngredient && (
+                    <div className="bar-dialog-layer" onPointerDown={() => !mixing && setMixIngredientId(null)}>
+                      <section className="amount-dialog" role="dialog" aria-modal="true" aria-label={`选择${selectedMixIngredient.name}用量`} onPointerDown={(event) => event.stopPropagation()}>
+                        <button type="button" className="window-close" onClick={() => setMixIngredientId(null)} aria-label="关闭用量面板">×</button>
+                        <span className="ingredient-icon large" style={ingredientIconStyle(selectedMixIngredient.iconIndex)} />
+                        <small>{INGREDIENT_CATEGORY_LABELS[selectedMixIngredient.category]}</small><h2>加入{selectedMixIngredient.name}</h2>
+                        <p>库存 {selectedMixStock === Infinity ? "不限量" : formatIngredientAmount(selectedMixStock, selectedMixIngredient.unit)} · 已占用 {formatIngredientAmount(selectedMixReserved, selectedMixIngredient.unit)}</p>
+                        <div className="amount-stepper">
+                          <button type="button" onClick={() => setMixIngredientAmount((amount) => Math.max(selectedMixStep, amount - selectedMixStep))}>−</button>
+                          <b>{formatIngredientAmount(mixIngredientAmount, selectedMixIngredient.unit)}</b>
+                          <button type="button" onClick={() => setMixIngredientAmount((amount) => Math.min(selectedMixMax, amount + selectedMixStep))}>＋</button>
+                        </div>
+                        {selectedMixIngredient.unit === "ml" && <div className="amount-presets">{[15, 30, 45, 60, 90, 120].filter((amount) => amount <= selectedMixMax).map((amount) => <button type="button" key={amount} className={mixIngredientAmount === amount ? "active" : ""} onClick={() => setMixIngredientAmount(amount)}>{amount}ml</button>)}</div>}
+                        <input type="range" min={selectedMixStep} max={Math.max(selectedMixStep, selectedMixMax)} step={selectedMixStep} value={Math.min(mixIngredientAmount, Math.max(selectedMixStep, selectedMixMax))} onChange={(event) => setMixIngredientAmount(Number(event.target.value))} />
+                        <div className="amount-summary"><span>加入后剩余</span><b>{selectedMixStock === Infinity ? "不限量" : formatIngredientAmount(Math.max(0, selectedMixStock - selectedMixReserved - mixIngredientAmount), selectedMixIngredient.unit)}</b></div>
+                        <button type="button" className="primary-button" onClick={addMixIngredient} disabled={!selectedMixMax || mixIngredientAmount > selectedMixMax}>确认加入</button>
+                      </section>
+                    </div>
+                  )}
+
+                  {mixResult && (
+                    <div className="bar-dialog-layer result-layer">
+                      <section className={`mix-result ${mixResult.success ? "success" : "failure"} ${mixResult.firstUnlock ? "first-unlock" : ""}`} role="dialog" aria-modal="true" aria-label="调酒结果">
+                        {mixResult.firstUnlock && <span className="unlock-ribbon">NEW · 图鉴首次解锁</span>}
+                        <div className="result-glass" style={{ "--cocktail-color": mixResult.success ? mixResult.recipe.color : mixColor } as CSSProperties}><i /></div>
+                        <small>{mixResult.success ? `${mixResult.quality} · 匹配度 ${mixResult.score}%` : `神秘混合饮料 · 接近度 ${mixResult.score}%`}</small>
+                        <h2>{mixResult.success ? mixResult.recipe.name : "神秘混合饮料"}</h2>
+                        <p>{mixResult.feedback}</p>
+                        <div className="consumed-list"><b>本次消耗</b>{Object.entries(mixResult.consumed).filter(([, amount]) => (amount ?? 0) > 0 && amount !== Infinity).map(([id, amount]) => { const ingredient = getIngredient(id as IngredientId); return <span key={id}>{ingredient.name} {formatIngredientAmount(amount!, ingredient.unit)}</span>; })}</div>
+                        <div className="result-actions">
+                          <button type="button" onClick={clearMix}>再调一杯</button>
+                          {mixResult.success && <button type="button" onClick={() => { setMixResult(null); setMixDraft({}); setMixMethod(null); setBarView("collection"); }}>查看图鉴</button>}
+                          <button type="button" onClick={closeOverlay}>离开吧台</button>
+                        </div>
+                      </section>
+                    </div>
+                  )}
                 </>
               )}
 
@@ -1890,19 +2245,24 @@ export default function Home() {
 
               {overlay === "shop" && (
                 <>
-                  <div className="window-heading with-wallet"><span><small>BERRY MINI MALL</small><h1>莓果小商店</h1><p>食物放进背包，家具送进小屋</p></span><b>🍓 {game.berries}</b></div>
+                  <div className="window-heading with-wallet"><span><small>BERRY MINI MALL</small><h1>莓果小商店</h1><p>食物放进背包，家具送进小屋，配料带去吧台</p></span><b>🍓 {game.berries}</b></div>
                   <div className="shop-tabs">
                     <button className={shopCategory === "food" ? "active" : ""} onClick={() => setShopCategory("food")}>猫咪食物</button>
                     <button className={shopCategory === "furniture" ? "active" : ""} onClick={() => setShopCategory("furniture")}>小屋家具</button>
+                    <button className={shopCategory === "ingredients" ? "active" : ""} onClick={() => setShopCategory("ingredients")}>调酒配料</button>
                   </div>
-                  <div className="store-grid">
+                  {shopCategory === "ingredients" && <div className="ingredient-filters">
+                    <button type="button" className={ingredientFilter === "all" ? "active" : ""} onClick={() => setIngredientFilter("all")}>全部</button>
+                    {(Object.keys(INGREDIENT_CATEGORY_LABELS) as IngredientCategory[]).map((category) => <button type="button" key={category} className={ingredientFilter === category ? "active" : ""} onClick={() => setIngredientFilter(category)}>{INGREDIENT_CATEGORY_LABELS[category]}</button>)}
+                  </div>}
+                  <div className={`store-grid ${shopCategory === "ingredients" ? "ingredient-store-grid" : ""}`}>
                     {shopCategory === "food" ? storeFoodItems.map((item) => (
                       <article key={item.id}>
                         <div className="store-art"><img src={item.asset} alt="" /><i>背包 ×{game.inventory[item.id]}</i></div>
                         <div><small>补充活力 +{item.energy}</small><h2>{item.name}</h2><p>{item.detail}</p></div>
                         <button onClick={() => buyFood(item)}>🍓 {item.price}</button>
                       </article>
-                    )) : furnitureItems.map((item) => {
+                    )) : shopCategory === "furniture" ? furnitureItems.map((item) => {
                       const owned = game.purchased.includes(item.id);
                       return (
                         <article key={item.id} className={`${owned ? "owned" : ""} furniture-card-${item.id}`}>
@@ -1911,8 +2271,30 @@ export default function Home() {
                           <button onClick={() => buyFurniture(item)} disabled={owned}>{owned ? "✓ 已拥有" : `🍓 ${item.price}`}</button>
                         </article>
                       );
+                    }) : filteredIngredients.map((ingredient) => {
+                      const stock = getIngredientStock(game.ingredientInventory, ingredient.id);
+                      return <article key={ingredient.id} className={`ingredient-card ${ingredient.id === "ice" ? "unlimited" : ""} ${ingredient.id !== "ice" && game.berries < ingredient.price ? "unaffordable" : ""}`}>
+                        <div className="store-art"><span className="ingredient-icon store-ingredient-icon" style={ingredientIconStyle(ingredient.iconIndex)} /><i>库存 {stock === Infinity ? "不限量" : formatIngredientAmount(stock, ingredient.unit)}</i></div>
+                        <div><small>{INGREDIENT_CATEGORY_LABELS[ingredient.category]} · {ingredient.id === "ice" ? "吧台常备" : `每件 ${formatIngredientAmount(ingredient.packageAmount, ingredient.unit)}`}</small><h2>{ingredient.name}</h2><p>{ingredient.description}</p></div>
+                        <button type="button" onClick={() => openIngredientPurchase(ingredient.id)} disabled={ingredient.id === "ice"}>{ingredient.id === "ice" ? "免费 · 不限量" : `🍓 ${ingredient.price} · 查看购买`}</button>
+                      </article>;
                     })}
                   </div>
+
+                  {selectedShopIngredient && (
+                    <div className="bar-dialog-layer purchase-layer" onPointerDown={() => !ingredientPurchaseBusy && setShopIngredientId(null)}>
+                      <section className="ingredient-purchase" role="dialog" aria-modal="true" aria-label={`购买${selectedShopIngredient.name}`} onPointerDown={(event) => event.stopPropagation()}>
+                        <button type="button" className="window-close" onClick={() => setShopIngredientId(null)} disabled={ingredientPurchaseBusy} aria-label="关闭购买面板">×</button>
+                        <div className="purchase-hero"><span className="ingredient-icon large" style={ingredientIconStyle(selectedShopIngredient.iconIndex)} /><span><small>{INGREDIENT_CATEGORY_LABELS[selectedShopIngredient.category]}</small><h2>{selectedShopIngredient.name}</h2><p>{selectedShopIngredient.description}</p></span></div>
+                        <div className="purchase-facts"><span>单件容量<b>{formatIngredientAmount(selectedShopIngredient.packageAmount, selectedShopIngredient.unit)}</b></span><span>单件价格<b>🍓 × {selectedShopIngredient.price}</b></span><span>当前库存<b>{formatIngredientAmount(game.ingredientInventory[selectedShopIngredient.id as StockedIngredientId], selectedShopIngredient.unit)}</b></span></div>
+                        <div className="purchase-quantity"><span>购买数量</span><div><button type="button" onClick={() => setPurchaseQuantity((quantity) => Math.max(1, quantity - 1))} disabled={purchaseQuantity <= 1}>−</button><b>{purchaseQuantity}</b><button type="button" onClick={() => setPurchaseQuantity((quantity) => Math.min(20, quantity + 1))}>＋</button></div></div>
+                        <div className="purchase-summary"><span>需要消耗<b>🍓 × {ingredientPurchaseTotal}</b></span><span>当前拥有<b>🍓 × {game.berries}</b></span><span>购买后库存<b>{formatIngredientAmount(ingredientPurchaseStockAfter, selectedShopIngredient.unit)}</b></span></div>
+                        <div className="purchase-cocktails"><small>代表性鸡尾酒</small><p>{selectedShopIngredient.relatedCocktails.join(" · ")}</p></div>
+                        {game.berries < ingredientPurchaseTotal && <p className="berry-shortage">草莓不足</p>}
+                        <button type="button" className="primary-button" onClick={confirmIngredientPurchase} disabled={ingredientPurchaseBusy || game.berries < ingredientPurchaseTotal}>{ingredientPurchaseBusy ? "正在装进库存……" : `确认购买 · 🍓 ${ingredientPurchaseTotal}`}</button>
+                      </section>
+                    </div>
+                  )}
                 </>
               )}
 

@@ -27,6 +27,7 @@ project_009_草莓打卡屋/
 │  ├─ game/                   # 无界面的游戏规则
 │  │  ├─ calories.ts          # 热量估算
 │  │  ├─ cat-actions.ts       # 猫咪状态与动画序列
+│  │  ├─ cocktails.ts         # 调酒配料、价格、配方与评分规则
 │  │  ├─ furniture.ts         # 家具落点与移动边界
 │  │  ├─ farm.ts              # 作物、种子与真实时间生长规则
 │  │  ├─ scene.ts             # 室内外边界、障碍与绕行路径
@@ -57,7 +58,7 @@ project_009_草莓打卡屋/
 
 | 编号 | 模块 | 主要职责 | 关键文件 |
 |---|---|---|---|
-| `GAME-UI` | 游戏界面 | 页面状态、弹层、打卡、移动、购买、喂食、睡眠、桌面更新提示 | `app/page.tsx`, `app/globals.css` |
+| `GAME-UI` | 游戏界面 | 页面状态、弹层、打卡、移动、购买、调酒、喂食、睡眠、桌面更新提示 | `app/page.tsx`, `app/globals.css` |
 | `GAME-RULES` | 游戏规则 | 纯计算规则和动画资源映射，不直接操作页面 | `app/game/` |
 | `WEB-API` | 网页接口 | 校验打卡请求，读写网页版历史记录 | `app/api/checkins/route.ts` |
 | `DATA-DB` | 云端数据 | D1 表结构、查询、保存和迁移 | `db/`, `drizzle/` |
@@ -94,7 +95,11 @@ sequenceDiagram
 
 `GAME-UI` 定时读取真实经过时间，调用 `app/game/pet-stats.ts` 计算活力与困倦，再由 `app/game/cat-actions.ts` 选择动画状态。睡眠状态优先于移动和普通待机动画。
 
-### 4.3 天气与房间
+### 4.3 商店与调酒
+
+`app/game/cocktails.ts` 集中定义 16 种配料、草莓价格、包装容量、10 张配方、容差和评分规则。`GAME-UI` 复用原有商店、草莓和本地存档：购买时一次性扣除草莓并增加库存；确认出杯后才一次性扣除实际配料，冰块不限量；关闭吧台或制作失败不会发生重复扣除。已解锁配方和最佳品质随 `berry-workout-game` 一起保存。
+
+### 4.4 天气与房间
 
 `GAME-UI` 获取佛山天气；`app/game/weather.ts` 把天气数据映射为晴、多云、雨或雷暴，再结合 `app/game/time-period.ts` 选择房间素材。天气接口失败时保留当前场景并显示同步失败信息。
 
@@ -165,6 +170,7 @@ sequenceDiagram
 | 2026-08-08 | `ARCH-BASELINE` | 将游戏规则集中到 `app/game/`，文档集中到 `docs/`，建立架构基线与批注入口 | `GAME-RULES`, `DOCS` | 网页构建通过，15 项回归检查通过 |
 | 2026-08-09 | `ISSUE-001`, `ISSUE-002` | 固定手账翻页尺寸，并为 Windows 安装包加入无面部像素草莓图标 | `GAME-UI`, `DESKTOP`, `ASSETS` | 网页构建与 15 项回归检查通过；Windows 安装包构建通过并确认图标已嵌入 |
 | 2026-08-10 | `YARD-FARM` | 新增双向院门、四天气四时段院子、10 件家具和 12 格真实时间种植循环；旧存档自动迁移到 v3 | `GAME-UI`, `GAME-RULES`, `DATA-LOCAL`, `ASSETS` | 网页、规则、资源与桌面渲染构建验收 |
+| 2026-08-18 | `COCKTAIL-BAR` | 新增商店调酒配料、吧台调酒流程、10 张配方图鉴和库存存档迁移 | `GAME-UI`, `GAME-RULES`, `DATA-LOCAL`, `ASSETS`, `TEST` | 网页构建与 40 项回归检查通过；桌面和移动端交互验收通过 |
 
 ### 院子与种植状态
 
