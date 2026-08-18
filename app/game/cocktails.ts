@@ -12,6 +12,8 @@ export type StockedIngredientId = Exclude<IngredientId, "ice">;
 export type IngredientInventory = Record<StockedIngredientId, number>;
 export type MixAmounts = Partial<Record<IngredientId, number>>;
 
+export const ICE_DISPLACEMENT_ML = 18;
+
 export type IngredientDefinition = {
   id: IngredientId;
   name: string;
@@ -92,6 +94,7 @@ export type CocktailRecipe = {
   ingredients: { ingredientId: IngredientId; amount: number; tolerance: number }[];
   method: CocktailMethod;
   color: string;
+  asset: string;
   description: string;
   clue: string;
   baseHint: string;
@@ -99,16 +102,16 @@ export type CocktailRecipe = {
 };
 
 export const cocktailRecipes: CocktailRecipe[] = [
-  { id: "ginTonic", name: "金汤力", ingredients: [{ ingredientId: "gin", amount: 45, tolerance: 5 }, { ingredientId: "tonic", amount: 120, tolerance: 10 }], method: "build", color: "#e9f2d3", description: "杜松子香与汤力气泡交织的清爽经典。", clue: "清爽、微苦，还会冒出细小气泡。", baseHint: "可能需要金酒", difficulty: 1 },
-  { id: "screwdriver", name: "螺丝刀", ingredients: [{ ingredientId: "vodka", amount: 45, tolerance: 5 }, { ingredientId: "orangeJuice", amount: 90, tolerance: 10 }], method: "build", color: "#efa137", description: "橙汁的明亮果香包裹干净的伏特加。", clue: "像一杯带有成熟酒香的橙汁。", baseHint: "可能需要伏特加", difficulty: 1 },
-  { id: "cubaLibre", name: "自由古巴", ingredients: [{ ingredientId: "whiteRum", amount: 45, tolerance: 5 }, { ingredientId: "cola", amount: 120, tolerance: 10 }, { ingredientId: "limeJuice", amount: 10, tolerance: 5 }], method: "build", color: "#6b3726", description: "朗姆、可乐与一抹青柠组成的畅快长饮。", clue: "深色气泡里藏着一点清亮酸香。", baseHint: "可能需要白朗姆酒", difficulty: 2 },
-  { id: "whiskySour", name: "威士忌酸", ingredients: [{ ingredientId: "whisky", amount: 45, tolerance: 5 }, { ingredientId: "lemonJuice", amount: 25, tolerance: 5 }, { ingredientId: "simpleSyrup", amount: 15, tolerance: 5 }], method: "shake", color: "#d39a4c", description: "木香、柠檬与糖浆形成温暖的酸甜平衡。", clue: "木质酒香需要酸与甜一起托住。", baseHint: "可能需要威士忌", difficulty: 2 },
-  { id: "margarita", name: "玛格丽特", ingredients: [{ ingredientId: "tequila", amount: 45, tolerance: 5 }, { ingredientId: "orangeLiqueur", amount: 20, tolerance: 5 }, { ingredientId: "limeJuice", amount: 25, tolerance: 5 }], method: "shake", color: "#d7d36a", description: "龙舌兰、甜橙与青柠构成鲜明爽利的层次。", clue: "柑橘酸香中还需要一层甜橙。", baseHint: "可能需要龙舌兰酒", difficulty: 3 },
-  { id: "mojito", name: "莫吉托", ingredients: [{ ingredientId: "whiteRum", amount: 45, tolerance: 5 }, { ingredientId: "limeJuice", amount: 20, tolerance: 5 }, { ingredientId: "simpleSyrup", amount: 15, tolerance: 5 }, { ingredientId: "mint", amount: 1, tolerance: 0 }, { ingredientId: "soda", amount: 90, tolerance: 10 }], method: "build", color: "#b9d99e", description: "薄荷、青柠和气泡把朗姆酒变得格外轻盈。", clue: "清凉草本、酸甜与气泡缺一不可。", baseHint: "可能需要白朗姆酒", difficulty: 3 },
-  { id: "daiquiri", name: "代基里", ingredients: [{ ingredientId: "whiteRum", amount: 50, tolerance: 5 }, { ingredientId: "limeJuice", amount: 25, tolerance: 5 }, { ingredientId: "simpleSyrup", amount: 15, tolerance: 5 }], method: "shake", color: "#dce5a0", description: "朗姆、青柠与糖浆的简洁三角平衡。", clue: "三种材料，酸甜围绕甘蔗酒香。", baseHint: "可能需要白朗姆酒", difficulty: 2 },
-  { id: "tomCollins", name: "汤姆柯林斯", ingredients: [{ ingredientId: "gin", amount: 45, tolerance: 5 }, { ingredientId: "lemonJuice", amount: 25, tolerance: 5 }, { ingredientId: "simpleSyrup", amount: 15, tolerance: 5 }, { ingredientId: "soda", amount: 90, tolerance: 10 }], method: "shake", color: "#e9df98", description: "金酒酸甜调和后，由苏打水带来轻快气泡。", clue: "杜松子、柠檬、甜味和气泡的组合。", baseHint: "可能需要金酒", difficulty: 3 },
-  { id: "tequilaSunrise", name: "龙舌兰日出", ingredients: [{ ingredientId: "tequila", amount: 45, tolerance: 5 }, { ingredientId: "orangeJuice", amount: 90, tolerance: 10 }, { ingredientId: "grenadine", amount: 15, tolerance: 5 }], method: "build", color: "#e77a39", description: "橙汁与红石榴糖浆在龙舌兰中染出日出渐层。", clue: "橙色果香的杯底需要一抹红。", baseHint: "可能需要龙舌兰酒", difficulty: 2 },
-  { id: "vodkaSoda", name: "伏特加苏打", ingredients: [{ ingredientId: "vodka", amount: 45, tolerance: 5 }, { ingredientId: "soda", amount: 120, tolerance: 10 }, { ingredientId: "limeJuice", amount: 10, tolerance: 5 }], method: "build", color: "#e0f0dc", description: "干净酒体、苏打气泡与一线青柠的极简长饮。", clue: "透明气泡中只留下一点青柠清香。", baseHint: "可能需要伏特加", difficulty: 1 },
+  { id: "ginTonic", name: "金汤力", ingredients: [{ ingredientId: "gin", amount: 45, tolerance: 5 }, { ingredientId: "tonic", amount: 120, tolerance: 10 }], method: "build", color: "#e9f2d3", asset: "/game/cocktails/gin-tonic.png", description: "杜松子香与汤力气泡交织的清爽经典。", clue: "清爽、微苦，还会冒出细小气泡。", baseHint: "可能需要金酒", difficulty: 1 },
+  { id: "screwdriver", name: "螺丝刀", ingredients: [{ ingredientId: "vodka", amount: 45, tolerance: 5 }, { ingredientId: "orangeJuice", amount: 90, tolerance: 10 }], method: "build", color: "#efa137", asset: "/game/cocktails/screwdriver.png", description: "橙汁的明亮果香包裹干净的伏特加。", clue: "像一杯带有成熟酒香的橙汁。", baseHint: "可能需要伏特加", difficulty: 1 },
+  { id: "cubaLibre", name: "自由古巴", ingredients: [{ ingredientId: "whiteRum", amount: 45, tolerance: 5 }, { ingredientId: "cola", amount: 120, tolerance: 10 }, { ingredientId: "limeJuice", amount: 10, tolerance: 5 }], method: "build", color: "#6b3726", asset: "/game/cocktails/cuba-libre.png", description: "朗姆、可乐与一抹青柠组成的畅快长饮。", clue: "深色气泡里藏着一点清亮酸香。", baseHint: "可能需要白朗姆酒", difficulty: 2 },
+  { id: "whiskySour", name: "威士忌酸", ingredients: [{ ingredientId: "whisky", amount: 45, tolerance: 5 }, { ingredientId: "lemonJuice", amount: 25, tolerance: 5 }, { ingredientId: "simpleSyrup", amount: 15, tolerance: 5 }], method: "shake", color: "#d39a4c", asset: "/game/cocktails/whisky-sour.png", description: "木香、柠檬与糖浆形成温暖的酸甜平衡。", clue: "木质酒香需要酸与甜一起托住。", baseHint: "可能需要威士忌", difficulty: 2 },
+  { id: "margarita", name: "玛格丽特", ingredients: [{ ingredientId: "tequila", amount: 45, tolerance: 5 }, { ingredientId: "orangeLiqueur", amount: 20, tolerance: 5 }, { ingredientId: "limeJuice", amount: 25, tolerance: 5 }], method: "shake", color: "#d7d36a", asset: "/game/cocktails/margarita.png", description: "龙舌兰、甜橙与青柠构成鲜明爽利的层次。", clue: "柑橘酸香中还需要一层甜橙。", baseHint: "可能需要龙舌兰酒", difficulty: 3 },
+  { id: "mojito", name: "莫吉托", ingredients: [{ ingredientId: "whiteRum", amount: 45, tolerance: 5 }, { ingredientId: "limeJuice", amount: 20, tolerance: 5 }, { ingredientId: "simpleSyrup", amount: 15, tolerance: 5 }, { ingredientId: "mint", amount: 1, tolerance: 0 }, { ingredientId: "soda", amount: 90, tolerance: 10 }], method: "build", color: "#b9d99e", asset: "/game/cocktails/mojito.png", description: "薄荷、青柠和气泡把朗姆酒变得格外轻盈。", clue: "清凉草本、酸甜与气泡缺一不可。", baseHint: "可能需要白朗姆酒", difficulty: 3 },
+  { id: "daiquiri", name: "代基里", ingredients: [{ ingredientId: "whiteRum", amount: 50, tolerance: 5 }, { ingredientId: "limeJuice", amount: 25, tolerance: 5 }, { ingredientId: "simpleSyrup", amount: 15, tolerance: 5 }], method: "shake", color: "#dce5a0", asset: "/game/cocktails/daiquiri.png", description: "朗姆、青柠与糖浆的简洁三角平衡。", clue: "三种材料，酸甜围绕甘蔗酒香。", baseHint: "可能需要白朗姆酒", difficulty: 2 },
+  { id: "tomCollins", name: "汤姆柯林斯", ingredients: [{ ingredientId: "gin", amount: 45, tolerance: 5 }, { ingredientId: "lemonJuice", amount: 25, tolerance: 5 }, { ingredientId: "simpleSyrup", amount: 15, tolerance: 5 }, { ingredientId: "soda", amount: 90, tolerance: 10 }], method: "shake", color: "#e9df98", asset: "/game/cocktails/tom-collins.png", description: "金酒酸甜调和后，由苏打水带来轻快气泡。", clue: "杜松子、柠檬、甜味和气泡的组合。", baseHint: "可能需要金酒", difficulty: 3 },
+  { id: "tequilaSunrise", name: "龙舌兰日出", ingredients: [{ ingredientId: "tequila", amount: 45, tolerance: 5 }, { ingredientId: "orangeJuice", amount: 90, tolerance: 10 }, { ingredientId: "grenadine", amount: 15, tolerance: 5 }], method: "build", color: "#e77a39", asset: "/game/cocktails/tequila-sunrise.png", description: "橙汁与红石榴糖浆在龙舌兰中染出日出渐层。", clue: "橙色果香的杯底需要一抹红。", baseHint: "可能需要龙舌兰酒", difficulty: 2 },
+  { id: "vodkaSoda", name: "伏特加苏打", ingredients: [{ ingredientId: "vodka", amount: 45, tolerance: 5 }, { ingredientId: "soda", amount: 120, tolerance: 10 }, { ingredientId: "limeJuice", amount: 10, tolerance: 5 }], method: "build", color: "#e0f0dc", asset: "/game/cocktails/vodka-soda.png", description: "干净酒体、苏打气泡与一线青柠的极简长饮。", clue: "透明气泡中只留下一点青柠清香。", baseHint: "可能需要伏特加", difficulty: 1 },
 ];
 
 export type CocktailCollectionEntry = { cocktailId: CocktailId; unlocked: boolean; bestScore: number; bestQuality: CocktailQuality };
@@ -132,6 +135,14 @@ export function formatIngredientAmount(amount: number, unit: IngredientUnit) {
 
 export function getLiquidTotal(amounts: MixAmounts) {
   return Object.entries(amounts).reduce((total, [id, amount]) => total + (getIngredient(id as IngredientId).unit === "ml" ? amount ?? 0 : 0), 0);
+}
+
+export function getIceDisplacement(amounts: MixAmounts) {
+  return Math.max(0, amounts.ice ?? 0) * ICE_DISPLACEMENT_ML;
+}
+
+export function getOccupiedVolume(amounts: MixAmounts) {
+  return getLiquidTotal(amounts) + getIceDisplacement(amounts);
 }
 
 function clampScore(score: number) {

@@ -26,12 +26,16 @@ import {
   createInitialCocktailCollection,
   evaluateCocktail,
   formatIngredientAmount,
+  getIceDisplacement,
   getIngredient,
   getIngredientStock,
   getLiquidTotal,
+  getOccupiedVolume,
+  ICE_DISPLACEMENT_ML,
   ingredientItems,
   mixIngredientColors,
   type CocktailCollection,
+  type CocktailId,
   type CocktailMethod,
   type CocktailResult,
   type IngredientCategory,
@@ -42,7 +46,7 @@ import {
 } from "./game/cocktails";
 
 type PetId = "mitao" | "doubao" | "xueqiu";
-type OverlayId = "quest" | "history" | "bag" | "pets" | "shop" | "kitchen" | "music" | "bar" | null;
+type OverlayId = "quest" | "history" | "bag" | "pets" | "shop" | "kitchen" | "music" | "bar" | "recipe-book" | null;
 type ShopCategory = "food" | "furniture" | "ingredients";
 type IngredientFilter = "all" | IngredientCategory;
 type JournalCategory = "运动" | "学习" | "工作" | "饮食" | "睡眠" | "其他";
@@ -51,10 +55,11 @@ type DesktopUpdate = { phase: "available" | "downloading" | "downloaded" | "erro
 type StoreFoodId = "driedFish" | "chickenCan" | "salmonMousse" | "tunaRice" | "chickenCubes" | "catnipBiscuits";
 type CookedFoodId = "strawberryPuree" | "carrotSoup" | "tomatoSoup" | "catnipCookies" | "sunflowerRice" | "pumpkinPuree";
 type FoodId = StoreFoodId | CookedFoodId;
+type CocktailInventory = Record<CocktailId, number>;
 type PetStats = { energy: number; sleepiness: number; statsUpdatedAt: number };
 type PetSleep = { endsAt: number | null; rest: number; furnitureId: string | null };
 type GameState = {
-  gameSchemaVersion: 8;
+  gameSchemaVersion: 9;
   statModelVersion: 2;
   berries: number;
   streak: number;
@@ -68,6 +73,7 @@ type GameState = {
   inventory: Record<FoodId, number>;
   ingredientInventory: IngredientInventory;
   cocktailCollection: CocktailCollection;
+  cocktailInventory: CocktailInventory;
   energy: number;
   sleepiness: number;
   statsUpdatedAt: number;
@@ -85,8 +91,9 @@ type GameState = {
   cooking: { dishId: CookedFoodId; startedAt: number; endsAt: number } | null;
 };
 
-const RELEASE_VERSION = "0.5.4";
+const RELEASE_VERSION = "0.6.0";
 const RELEASE_NOTES = [
+  { version: "0.6.0", items: ["新增调酒配料商店与吧台小游戏，支持真实水位、冰块排水和三种调制方式", "新增80草莓调酒书、十款鸡尾酒成品图与完整配方，购买后收进背包", "调制成功的鸡尾酒会保存到背包，未解锁酒保持剪影，并修复高水位冰块与容量提示"] },
   { version: "0.5.4", items: ["新增三只猫咪的八方向行走动画，方向切换与移动轨迹保持一致", "状态面板切换现在会切换到对应猫咪的控制权，场景名字与状态名字保持同步", "修复取消睡眠后猫咪被猫窝图层遮挡的问题"] },
   { version: "0.5.3", items: ["修复歌曲地址过期后无法继续播放的问题，自动刷新地址并从原进度恢复", "修复猫咪进入吧台、查看状态时切换控制猫咪，以及家具无法紧贴墙壁的问题", "移除房间唱片碎片动画，并让唱片柜黑胶始终保持完整圆形"] },
   { version: "0.5.2", items: ["开启桌面版本地音频流支持，修复内置备用歌曲加载失败的问题", "确认用户提供的 22 首 MP3 已逐首完整收录并映射到对应唱片"] },
@@ -152,6 +159,22 @@ const cookedDishes = [
   { id: "pumpkinPuree" as CookedFoodId, cropId: "pumpkin" as CropId, name: "金黄南瓜泥", detail: "绵软香甜的南瓜泥", energy: 30, cookMinutes: 20, asset: "/game/dish-pumpkin-puree.png" },
 ];
 const foodItems = [...storeFoodItems, ...cookedDishes];
+
+const COCKTAIL_BOOK = {
+  id: "cocktailRecipeBook",
+  name: "莓果调酒书",
+  detail: "收录全部鸡尾酒的配料、比例与调制步骤",
+  price: 80,
+  asset: "/game/cocktail-recipe-book.png",
+};
+
+const INITIAL_COCKTAIL_INVENTORY = Object.fromEntries(cocktailRecipes.map((recipe) => [recipe.id, 0])) as CocktailInventory;
+
+const COCKTAIL_BOOK_STEPS: Record<CocktailMethod, string[]> = {
+  build: ["杯中加入适量冰块。", "依次倒入配方中的材料。", "轻轻调和，让风味融合。"],
+  shake: ["将配料与冰块放入摇壶。", "充分摇和至壶身冰凉。", "滤入准备好的杯中。"],
+  stir: ["将配料与冰块放入调酒杯。", "沿同一方向缓缓搅拌。", "滤入杯中后即可享用。"],
+};
 
 const furnitureItems = [
   { id: "rug", name: "草莓地毯", detail: "柔软的大地毯", price: 35, asset: "/game/furniture-rug.png", standHeight: 0 },
@@ -219,7 +242,7 @@ const INITIAL_INVENTORY: Record<FoodId, number> = {
 };
 
 const INITIAL_GAME: GameState = {
-  gameSchemaVersion: 8,
+  gameSchemaVersion: 9,
   statModelVersion: 2,
   berries: 48,
   streak: 0,
@@ -237,6 +260,7 @@ const INITIAL_GAME: GameState = {
   inventory: INITIAL_INVENTORY,
   ingredientInventory: INITIAL_INGREDIENT_INVENTORY,
   cocktailCollection: createInitialCocktailCollection(),
+  cocktailInventory: INITIAL_COCKTAIL_INVENTORY,
   energy: 72,
   sleepiness: 24,
   statsUpdatedAt: 0,
@@ -303,6 +327,12 @@ const WALK_FRAME_MS = 90;
 const WALK_CYCLE_MS = WALK_FRAME_MS * 4;
 const STATUS_IDLE_MS = 8000;
 const BAR_CAPACITY_ML = 350;
+const ICE_CUBE_LAYOUT = [
+  { x: -34, rotation: -13 }, { x: 1, rotation: 8 }, { x: 34, rotation: -5 },
+  { x: -18, rotation: 15 }, { x: 20, rotation: -17 }, { x: -39, rotation: 5 },
+  { x: 39, rotation: 13 }, { x: -7, rotation: -8 }, { x: 25, rotation: 19 },
+  { x: -28, rotation: -20 },
+];
 const ROOM_SCENE_ASSET_VERSION = "20260817-static-vinyl-wall-furniture-v1";
 
 function localDate(date = new Date()) {
@@ -342,9 +372,10 @@ export default function Home() {
   const [mixMethod, setMixMethod] = useState<CocktailMethod | null>(null);
   const [mixIngredientId, setMixIngredientId] = useState<IngredientId | null>(null);
   const [mixIngredientAmount, setMixIngredientAmount] = useState(5);
-  const [pouring, setPouring] = useState(false);
+  const [pouring, setPouring] = useState<"liquid" | "ice" | null>(null);
   const [mixing, setMixing] = useState(false);
   const [mixResult, setMixResult] = useState<(CocktailResult & { firstUnlock: boolean; consumed: MixAmounts }) | null>(null);
+  const [recipeBookIndex, setRecipeBookIndex] = useState(0);
   const [selectedFood, setSelectedFood] = useState<FoodId>("driedFish");
   const [noteText, setNoteText] = useState("");
   const [category, setCategory] = useState<JournalCategory>("其他");
@@ -447,6 +478,10 @@ export default function Home() {
           recipe.id,
           { ...initialCocktailCollection[recipe.id], ...(parsed.cocktailCollection?.[recipe.id] ?? {}) },
         ])) as CocktailCollection;
+        const cocktailInventory = Object.fromEntries(cocktailRecipes.map((recipe) => [
+          recipe.id,
+          Math.max(0, Number(parsed.cocktailInventory?.[recipe.id] ?? (cocktailCollection[recipe.id].unlocked ? 1 : 0))),
+        ])) as CocktailInventory;
         const scene: SceneId = parsed.scene === "yard" ? "yard" : "room";
         if (!parsed.inventory) inventory.driedFish = legacyFood;
         const activePet = parsed.pet ?? "mitao";
@@ -464,7 +499,8 @@ export default function Home() {
           inventory,
           ingredientInventory,
           cocktailCollection,
-          gameSchemaVersion: 8,
+          cocktailInventory,
+          gameSchemaVersion: 9,
           pet: activePet,
           purchased: Array.isArray(parsed.purchased) ? parsed.purchased : [],
           adoptedPets: Array.isArray(parsed.adoptedPets) && parsed.adoptedPets.length ? parsed.adoptedPets : [activePet],
@@ -1004,8 +1040,12 @@ export default function Home() {
   const inspectedPetStats = inspectedPetId === game.pet ? game : game.petStats[inspectedPetId];
   const nextMilestone = milestones.find((day) => day > game.streak);
   const ownedFurniture = furnitureItems.filter((item) => game.purchased.includes(item.id));
+  const ownsCocktailBook = game.purchased.includes(COCKTAIL_BOOK.id);
+  const selectedBookRecipe = cocktailRecipes[recipeBookIndex] ?? cocktailRecipes[0];
   const totalFood = foodItems.reduce((total, item) => total + game.inventory[item.id], 0);
   const totalProduce = cropItems.reduce((total, crop) => total + game.produce[crop.id], 0);
+  const totalCocktails = Object.values(game.cocktailInventory).reduce((total, amount) => total + amount, 0);
+  const totalBackpackItems = totalFood + totalProduce + totalCocktails + (ownsCocktailBook ? 1 : 0);
   const filteredIngredients = ingredientItems.filter((item) => ingredientFilter === "all" || item.category === ingredientFilter);
   const selectedShopIngredient = shopIngredientId ? getIngredient(shopIngredientId) : null;
   const ingredientPurchaseTotal = selectedShopIngredient ? selectedShopIngredient.price * purchaseQuantity : 0;
@@ -1015,14 +1055,23 @@ export default function Home() {
   const availableBarIngredients = ingredientItems.filter((item) => item.id === "ice" || getIngredientStock(game.ingredientInventory, item.id) > 0);
   const selectedMixIngredient = mixIngredientId ? getIngredient(mixIngredientId) : null;
   const mixLiquidTotal = getLiquidTotal(mixDraft);
+  const mixIceDisplacement = getIceDisplacement(mixDraft);
+  const mixOccupiedVolume = getOccupiedVolume(mixDraft);
+  const mixIceCount = Math.floor(mixDraft.ice ?? 0);
+  const mixLiquidLevel = mixLiquidTotal > 0 ? Math.min(.88, (mixOccupiedVolume / BAR_CAPACITY_ML) * .88) : 0;
+  const mixFillHeight = Math.min(181, (mixOccupiedVolume / BAR_CAPACITY_ML) * 181);
   const mixColor = mixIngredientColors(mixDraft);
   const selectedMixStep = selectedMixIngredient?.unit === "ml" ? 5 : 1;
   const selectedMixReserved = selectedMixIngredient ? mixDraft[selectedMixIngredient.id] ?? 0 : 0;
   const selectedMixStock = selectedMixIngredient ? getIngredientStock(game.ingredientInventory, selectedMixIngredient.id) : 0;
   const selectedMixMax = selectedMixIngredient
     ? Math.max(0, Math.floor(Math.min(
-      selectedMixStock === Infinity ? 10 : selectedMixStock - selectedMixReserved,
-      selectedMixIngredient.unit === "ml" ? BAR_CAPACITY_ML - mixLiquidTotal : 10,
+      selectedMixStock === Infinity ? Math.max(0, 10 - selectedMixReserved) : selectedMixStock - selectedMixReserved,
+      selectedMixIngredient.unit === "ml"
+        ? BAR_CAPACITY_ML - mixOccupiedVolume
+        : selectedMixIngredient.id === "ice"
+          ? Math.floor((BAR_CAPACITY_ML - mixOccupiedVolume) / ICE_DISPLACEMENT_ML)
+          : 10,
     ) / selectedMixStep) * selectedMixStep)
     : 0;
   const selectedFoodItem = foodItems.find((item) => item.id === selectedFood) ?? foodItems[0];
@@ -1120,12 +1169,20 @@ export default function Home() {
     const stock = getIngredientStock(game.ingredientInventory, id);
     const reserved = mixDraft[id] ?? 0;
     const step = ingredient.unit === "ml" ? 5 : 1;
+    const remainingVolume = Math.max(0, BAR_CAPACITY_ML - mixOccupiedVolume);
     const maximum = Math.max(0, Math.floor(Math.min(
-      stock === Infinity ? 10 : stock - reserved,
-      ingredient.unit === "ml" ? BAR_CAPACITY_ML - mixLiquidTotal : 10,
+      stock === Infinity ? Math.max(0, 10 - reserved) : stock - reserved,
+      ingredient.unit === "ml"
+        ? remainingVolume
+        : ingredient.id === "ice"
+          ? Math.floor(remainingVolume / ICE_DISPLACEMENT_ML)
+          : 10,
     ) / step) * step);
     if (!maximum) {
-      setToast(ingredient.unit === "ml" && mixLiquidTotal >= BAR_CAPACITY_ML ? "容器已经装满啦" : `${ingredient.name}库存不足`);
+      const lacksCapacity = ingredient.id === "ice"
+        ? remainingVolume < ICE_DISPLACEMENT_ML
+        : ingredient.unit === "ml" && remainingVolume < step;
+      setToast(lacksCapacity ? ingredient.id === "ice" ? "杯内空间不足，不能再放冰块" : "容器已经装满啦" : `${ingredient.name}库存不足`);
       return;
     }
     setMixIngredientAmount(Math.min(step, maximum));
@@ -1139,8 +1196,8 @@ export default function Home() {
       [selectedMixIngredient.id]: (current[selectedMixIngredient.id] ?? 0) + mixIngredientAmount,
     }));
     window.clearTimeout(pouringTimer.current);
-    setPouring(true);
-    pouringTimer.current = window.setTimeout(() => setPouring(false), 520);
+    setPouring(selectedMixIngredient.id === "ice" ? "ice" : selectedMixIngredient.unit === "ml" ? "liquid" : null);
+    pouringTimer.current = window.setTimeout(() => setPouring(null), selectedMixIngredient.id === "ice" ? 900 : 520);
     setMixIngredientId(null);
   }
 
@@ -1208,6 +1265,10 @@ export default function Home() {
               bestScore: Math.max(previous.bestScore, result.score),
               bestQuality: improved ? result.quality : previous.bestQuality,
             },
+          },
+          cocktailInventory: {
+            ...current.cocktailInventory,
+            [result.recipe.id]: current.cocktailInventory[result.recipe.id] + 1,
           },
         };
       });
@@ -1537,6 +1598,34 @@ export default function Home() {
       furniturePositions: { ...current.furniturePositions, [item.id]: DEFAULT_FURNITURE_POSITIONS[item.id] },
     }));
     setToast(`${item.name} 已送到小屋`);
+  }
+
+  function openCocktailBook() {
+    if (!ownsCocktailBook) return;
+    setRecipeBookIndex(0);
+    setOverlay("recipe-book");
+  }
+
+  function buyCocktailBook() {
+    if (ownsCocktailBook) {
+      openCocktailBook();
+      return;
+    }
+    if (game.berries < COCKTAIL_BOOK.price) {
+      setToast("草莓不够，再写几篇日记吧！");
+      return;
+    }
+    setGame((current) => {
+      if (current.purchased.includes(COCKTAIL_BOOK.id) || current.berries < COCKTAIL_BOOK.price) return current;
+      return {
+        ...current,
+        berries: current.berries - COCKTAIL_BOOK.price,
+        purchased: [...current.purchased, COCKTAIL_BOOK.id],
+      };
+    });
+    setRecipeBookIndex(0);
+    setOverlay("bag");
+    setToast("莓果调酒书已放进背包");
   }
 
   function feedPet(foodId: FoodId) {
@@ -1983,7 +2072,7 @@ export default function Home() {
 
         <nav className="game-dock" aria-label="游戏菜单">
           <button className={overlay === "quest" || overlay === "history" ? "active" : ""} onClick={() => openOverlay("quest")}><span>📓</span><b>记录</b></button>
-          <button className={overlay === "bag" ? "active" : ""} onClick={() => openOverlay("bag")}><span>🎒</span><b>背包</b><i>{totalFood + totalProduce}</i></button>
+          <button className={overlay === "bag" ? "active" : ""} onClick={() => openOverlay("bag")}><span>🎒</span><b>背包</b><i>{totalBackpackItems}</i></button>
           <button className={overlay === "shop" ? "active" : ""} onClick={() => openOverlay("shop")}><span>🛒</span><b>商店</b></button>
           <button className={overlay === "pets" ? "active" : ""} onClick={() => openOverlay("pets")}><span>🐾</span><b>伙伴</b></button>
           <button className={decorating ? "active" : ""} disabled={game.scene === "yard"} onClick={() => { setOverlay(null); setDecorating((value) => !value); setJumping(false); resetStatusAnimation(); }}><span>🪑</span><b>{game.scene === "yard" ? "回屋布置" : "布置"}</b></button>
@@ -2112,7 +2201,7 @@ export default function Home() {
                       {cocktailRecipes.map((recipe) => {
                         const entry = game.cocktailCollection[recipe.id];
                         return <article key={recipe.id} className={entry.unlocked ? "unlocked" : "locked"}>
-                          <div className="collection-glass" style={entry.unlocked ? { "--cocktail-color": recipe.color } as CSSProperties : undefined}><i /></div>
+                          <div className="collection-drink-art"><img src={recipe.asset} alt={entry.unlocked ? `${recipe.name}像素插图` : "尚未解锁的鸡尾酒剪影"} /></div>
                           {entry.unlocked ? <>
                             <small>最高品质 · {entry.bestQuality} {entry.bestScore}分</small>
                             <h2>{recipe.name}</h2>
@@ -2131,12 +2220,23 @@ export default function Home() {
                   ) : (
                     <div className="bar-workbench">
                       <section className="bar-center">
-                        <div className={`bar-vessel ${pouring ? "pouring" : ""} ${mixing ? `mixing method-${mixMethod}` : ""}`} style={{ "--liquid-color": mixColor, "--liquid-level": `${Math.min(88, (mixLiquidTotal / BAR_CAPACITY_ML) * 88)}%` } as CSSProperties}>
-                          <div className="bar-liquid"><i /><i /></div>
-                          {Object.keys(mixDraft).length > 0 && <span className="glass-garnish">{mixDraft.mint ? "⌁" : mixDraft.ice ? "◇" : ""}</span>}
+                        <div className={`bar-vessel ${pouring === "liquid" ? "pouring-liquid" : ""} ${pouring === "ice" ? "dropping-ice" : ""} ${mixing ? `mixing method-${mixMethod}` : ""}`} style={{ "--liquid-color": mixColor, "--liquid-level": `${mixLiquidLevel * 100}%` } as CSSProperties}>
+                          <div className="bar-liquid-clip">
+                            <div className="bar-liquid" style={{ clipPath: `inset(${(1 - mixLiquidLevel) * 100}% 0 0)` }}><i /><i /></div>
+                            <span className="bar-liquid-surface" style={{ opacity: mixLiquidLevel ? 1 : 0, transform: `translate3d(0, ${-mixLiquidLevel * 192}px, 0)` }} />
+                          </div>
+                          <div className="ice-field" aria-hidden="true">
+                            {Array.from({ length: mixIceCount }, (_, index) => {
+                              const layout = ICE_CUBE_LAYOUT[index % ICE_CUBE_LAYOUT.length];
+                              const row = Math.floor(index / 3);
+                              const restY = mixLiquidTotal > 0 ? Math.min(148, Math.max(10, mixFillHeight - 19 - row * 20)) : 9 + row * 23;
+                              return <span key={`ice-${index}`} className="ice-cube-slot" style={{ "--ice-x": `${layout.x}px`, "--ice-y": `${restY}px`, "--ice-rotation": `${layout.rotation}deg`, "--ice-delay": `${Math.min(index, 4) * 70}ms` } as CSSProperties}><i className="ice-cube-drop"><b className="ice-cube-core" /></i></span>;
+                            })}
+                          </div>
+                          {mixDraft.mint ? <span className="glass-garnish">⌁</span> : null}
                           {mixing && <div className="mix-tool">{mixMethod === "shake" ? "SHAKE" : mixMethod === "stir" ? "STIR" : "BUILD"}</div>}
                         </div>
-                        <div className="bar-volume"><span>当前液体</span><b>{mixLiquidTotal} / {BAR_CAPACITY_ML}ml</b><progress max={BAR_CAPACITY_ML} value={mixLiquidTotal} /></div>
+                        <div className="bar-volume"><span>杯内占用</span><b>{Math.min(BAR_CAPACITY_ML, mixOccupiedVolume)} / {BAR_CAPACITY_ML}ml</b><small>液体 {mixLiquidTotal}ml{mixIceDisplacement ? ` + 冰块排水 ${mixIceDisplacement}ml` : ""}</small><progress max={BAR_CAPACITY_ML} value={mixOccupiedVolume} /></div>
                         {mixing && <p className="mixing-message">{mixMethod === "shake" ? "用力摇匀中……" : mixMethod === "stir" ? "让液体慢慢旋转……" : "依次注入杯中……"}</p>}
                       </section>
 
@@ -2198,10 +2298,11 @@ export default function Home() {
                     <div className="bar-dialog-layer result-layer">
                       <section className={`mix-result ${mixResult.success ? "success" : "failure"} ${mixResult.firstUnlock ? "first-unlock" : ""}`} role="dialog" aria-modal="true" aria-label="调酒结果">
                         {mixResult.firstUnlock && <span className="unlock-ribbon">NEW · 图鉴首次解锁</span>}
-                        <div className="result-glass" style={{ "--cocktail-color": mixResult.success ? mixResult.recipe.color : mixColor } as CSSProperties}><i /></div>
+                        {mixResult.success ? <img className="result-drink-art" src={mixResult.recipe.asset} alt={`${mixResult.recipe.name}像素插图`} /> : <div className="result-glass" style={{ "--cocktail-color": mixColor } as CSSProperties}><i /></div>}
                         <small>{mixResult.success ? `${mixResult.quality} · 匹配度 ${mixResult.score}%` : `神秘混合饮料 · 接近度 ${mixResult.score}%`}</small>
                         <h2>{mixResult.success ? mixResult.recipe.name : "神秘混合饮料"}</h2>
                         <p>{mixResult.feedback}</p>
+                        {mixResult.success && <p className="bag-result-note">成品已放进背包</p>}
                         <div className="consumed-list"><b>本次消耗</b>{Object.entries(mixResult.consumed).filter(([, amount]) => (amount ?? 0) > 0 && amount !== Infinity).map(([id, amount]) => { const ingredient = getIngredient(id as IngredientId); return <span key={id}>{ingredient.name} {formatIngredientAmount(amount!, ingredient.unit)}</span>; })}</div>
                         <div className="result-actions">
                           <button type="button" onClick={clearMix}>再调一杯</button>
@@ -2216,7 +2317,7 @@ export default function Home() {
 
               {overlay === "bag" && (
                 <>
-                  <div className="window-heading"><small>MY BACKPACK</small><h1>我的背包</h1><p>收获的作物可以带去厨房烹饪，菜品可以喂给 {inspectedPet.name}</p></div>
+                  <div className="window-heading"><small>MY BACKPACK</small><h1>我的背包</h1><p>作物可以带去厨房烹饪，菜品可以喂给 {inspectedPet.name}，收藏可以直接打开</p></div>
                   <div className="produce-strip">
                     <b>新鲜作物</b>
                     {cropItems.map((crop) => <span key={crop.id} className={game.produce[crop.id] ? "" : "empty"}><img src={`/game/crop-${crop.id}-mature.png`} alt="" /><em>{crop.name}</em><i>×{game.produce[crop.id]}</i></span>)}
@@ -2224,6 +2325,11 @@ export default function Home() {
                   </div>
                   <div className="backpack-layout">
                     <div className="inventory-grid">
+                      {ownsCocktailBook && (
+                        <button type="button" className="backpack-book" onClick={openCocktailBook} aria-label="打开莓果调酒书">
+                          <img src={COCKTAIL_BOOK.asset} alt="棕色封面的莓果调酒书" /><b>{COCKTAIL_BOOK.name}</b><span>×1</span>
+                        </button>
+                      )}
                       {foodItems.map((item) => (
                         <button key={item.id} className={`${selectedFood === item.id ? "selected" : ""} ${game.inventory[item.id] ? "" : "empty"}`} onClick={() => setSelectedFood(item.id)}>
                           <img src={item.asset} alt="" /><b>{item.name}</b><span>×{game.inventory[item.id]}</span>
@@ -2239,6 +2345,19 @@ export default function Home() {
                       {!totalFood && <button className="text-button" onClick={() => { setShopCategory("food"); setOverlay("shop"); }}>去商店买食物 →</button>}
                     </div>
                   </div>
+                  <section className="bag-cocktails" aria-label="背包里的鸡尾酒">
+                    <header><b>调酒收藏 {Object.values(game.cocktailCollection).filter((entry) => entry.unlocked).length}/{cocktailRecipes.length}</b><small>成功调出的成品会保存在这里</small></header>
+                    <div>
+                      {cocktailRecipes.map((recipe) => {
+                        const unlocked = game.cocktailCollection[recipe.id].unlocked;
+                        return <article key={recipe.id} className={unlocked ? "unlocked" : "locked"}>
+                          <img src={recipe.asset} alt={unlocked ? `${recipe.name}像素插图` : "尚未解锁的鸡尾酒剪影"} />
+                          <b>{unlocked ? recipe.name : "？？？"}</b>
+                          <span>{unlocked ? `×${game.cocktailInventory[recipe.id]}` : "未解锁"}</span>
+                        </article>;
+                      })}
+                    </div>
+                  </section>
                   <div className="bag-furniture"><b>家具收藏 {ownedFurniture.length}/{furnitureItems.length}</b><div>{ownedFurniture.map((item) => <img key={item.id} src={item.asset} alt={item.name} />)}</div></div>
                 </>
               )}
@@ -2271,14 +2390,21 @@ export default function Home() {
                           <button onClick={() => buyFurniture(item)} disabled={owned}>{owned ? "✓ 已拥有" : `🍓 ${item.price}`}</button>
                         </article>
                       );
-                    }) : filteredIngredients.map((ingredient) => {
-                      const stock = getIngredientStock(game.ingredientInventory, ingredient.id);
-                      return <article key={ingredient.id} className={`ingredient-card ${ingredient.id === "ice" ? "unlimited" : ""} ${ingredient.id !== "ice" && game.berries < ingredient.price ? "unaffordable" : ""}`}>
-                        <div className="store-art"><span className="ingredient-icon store-ingredient-icon" style={ingredientIconStyle(ingredient.iconIndex)} /><i>库存 {stock === Infinity ? "不限量" : formatIngredientAmount(stock, ingredient.unit)}</i></div>
-                        <div><small>{INGREDIENT_CATEGORY_LABELS[ingredient.category]} · {ingredient.id === "ice" ? "吧台常备" : `每件 ${formatIngredientAmount(ingredient.packageAmount, ingredient.unit)}`}</small><h2>{ingredient.name}</h2><p>{ingredient.description}</p></div>
-                        <button type="button" onClick={() => openIngredientPurchase(ingredient.id)} disabled={ingredient.id === "ice"}>{ingredient.id === "ice" ? "免费 · 不限量" : `🍓 ${ingredient.price} · 查看购买`}</button>
-                      </article>;
-                    })}
+                    }) : <>
+                      {ingredientFilter === "all" && !ownsCocktailBook && <article className={`cocktail-book-card ${game.berries < COCKTAIL_BOOK.price ? "unaffordable" : ""}`}>
+                        <div className="store-art cocktail-book-art"><img src={COCKTAIL_BOOK.asset} alt="棕色封面的莓果调酒书" /><i>{cocktailRecipes.length} 款酒谱</i></div>
+                        <div><small>吧台收藏 · 完整配方</small><h2>{COCKTAIL_BOOK.name}</h2><p>{COCKTAIL_BOOK.detail}</p></div>
+                        <button type="button" onClick={buyCocktailBook}>🍓 {COCKTAIL_BOOK.price} · 购买调酒书</button>
+                      </article>}
+                      {filteredIngredients.map((ingredient) => {
+                        const stock = getIngredientStock(game.ingredientInventory, ingredient.id);
+                        return <article key={ingredient.id} className={`ingredient-card ${ingredient.id === "ice" ? "unlimited" : ""} ${ingredient.id !== "ice" && game.berries < ingredient.price ? "unaffordable" : ""}`}>
+                          <div className="store-art"><span className="ingredient-icon store-ingredient-icon" style={ingredientIconStyle(ingredient.iconIndex)} /><i>库存 {stock === Infinity ? "不限量" : formatIngredientAmount(stock, ingredient.unit)}</i></div>
+                          <div><small>{INGREDIENT_CATEGORY_LABELS[ingredient.category]} · {ingredient.id === "ice" ? "吧台常备" : `每件 ${formatIngredientAmount(ingredient.packageAmount, ingredient.unit)}`}</small><h2>{ingredient.name}</h2><p>{ingredient.description}</p></div>
+                          <button type="button" onClick={() => openIngredientPurchase(ingredient.id)} disabled={ingredient.id === "ice"}>{ingredient.id === "ice" ? "免费 · 不限量" : `🍓 ${ingredient.price} · 查看购买`}</button>
+                        </article>;
+                      })}
+                    </>}
                   </div>
 
                   {selectedShopIngredient && (
@@ -2295,6 +2421,50 @@ export default function Home() {
                       </section>
                     </div>
                   )}
+                </>
+              )}
+
+              {overlay === "recipe-book" && ownsCocktailBook && (
+                <>
+                  <div className="recipe-book-heading">
+                    <button type="button" onClick={() => setOverlay("bag")}>返回背包</button>
+                    <span><small>STRAWBERRY COCKTAIL RECIPES</small><h1>莓果调酒书</h1></span>
+                  </div>
+                  <section className="recipe-book-spread" aria-label={`调酒书，当前配方${selectedBookRecipe.name}`}>
+                    <div className="recipe-book-page recipe-book-directory">
+                      <header><small>COCKTAIL INDEX</small><h2>调酒配方</h2></header>
+                      <div className="recipe-book-grid">
+                        {cocktailRecipes.map((recipe, index) => <button type="button" key={recipe.id} className={recipe.id === selectedBookRecipe.id ? "selected" : ""} onClick={() => setRecipeBookIndex(index)} aria-pressed={recipe.id === selectedBookRecipe.id}>
+                          <img src={recipe.asset} alt="" />
+                          <span><b>{recipe.name}</b><small>难度 {"★".repeat(recipe.difficulty)}</small></span>
+                        </button>)}
+                      </div>
+                      <footer><i />01<i /></footer>
+                    </div>
+
+                    <div className="recipe-book-binding" aria-hidden="true" />
+
+                    <div className="recipe-book-page recipe-book-detail">
+                      <header><small>SELECTED RECIPE</small><h2>{selectedBookRecipe.name}</h2><p>{selectedBookRecipe.description}</p></header>
+                      <div className="recipe-book-summary">
+                        <div className="recipe-book-ingredients">
+                          {selectedBookRecipe.ingredients.map((part) => {
+                            const ingredient = getIngredient(part.ingredientId);
+                            return <div key={part.ingredientId}><span className="ingredient-icon" style={ingredientIconStyle(ingredient.iconIndex)} /><b>{ingredient.name}</b><em>{formatIngredientAmount(part.amount, ingredient.unit)}</em></div>;
+                          })}
+                        </div>
+                        <img className="recipe-book-drink" src={selectedBookRecipe.asset} alt={`${selectedBookRecipe.name}成品`} />
+                      </div>
+                      <div className="recipe-book-fact"><b>比例</b><span>{selectedBookRecipe.ingredients.map((part) => part.amount).join(" : ")}</span></div>
+                      <div className="recipe-book-fact"><b>方法</b><span>{COCKTAIL_METHOD_LABELS[selectedBookRecipe.method]}</span></div>
+                      <div className="recipe-book-steps"><b>步骤</b><ol>{COCKTAIL_BOOK_STEPS[selectedBookRecipe.method].map((step) => <li key={step}>{step}</li>)}</ol></div>
+                      <nav className="recipe-book-navigation" aria-label="切换酒谱">
+                        <button type="button" onClick={() => setRecipeBookIndex((index) => (index - 1 + cocktailRecipes.length) % cocktailRecipes.length)}>上一杯</button>
+                        <span>{String(recipeBookIndex + 1).padStart(2, "0")} / {String(cocktailRecipes.length).padStart(2, "0")}</span>
+                        <button type="button" onClick={() => setRecipeBookIndex((index) => (index + 1) % cocktailRecipes.length)}>下一杯</button>
+                      </nav>
+                    </div>
+                  </section>
                 </>
               )}
 
