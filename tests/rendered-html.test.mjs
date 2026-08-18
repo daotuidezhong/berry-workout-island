@@ -15,6 +15,18 @@ import { CAT_STATUS_ANIMATIONS, getCatStatus, getCatStatusTransition } from "../
 import { canPetMove, decayPetStats, decayPetStatsByTime, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "../app/game/pet-stats.ts";
 import { getJournalReward } from "../app/game/journal-reward.ts";
 import { getWalkDirection, WALK_DIRECTION_ROW } from "../app/game/movement-direction.ts";
+import {
+  INITIAL_INGREDIENT_INVENTORY,
+  cocktailRecipes,
+  createInitialCocktailCollection,
+  evaluateCocktail,
+  getIceDisplacement,
+  getLiquidTotal,
+  getOccupiedVolume,
+  ICE_DISPLACEMENT_ML,
+  ingredientItems,
+  mixIngredientColors,
+} from "../app/game/cocktails.ts";
 
 const { createStorage } = createRequire(import.meta.url)("../electron/storage.cjs");
 const { LOCAL_PLAYBACK_PATHS: DESKTOP_PLAYBACK_PATHS, loadDesktopPlaylist } = createRequire(import.meta.url)("../electron/netease.cjs");
@@ -120,6 +132,136 @@ test("keeps yard movement out of large obstacles", () => {
   const path = getWalkPath({ x: 30, y: 76 }, { x: 92, y: 60 }, "yard", YARD_OBSTACLES);
   assert.ok(path.length >= 1 && path.length <= 2);
   assert.ok(path.every((point) => point.x >= 7 && point.x <= 94 && point.y >= 45 && point.y <= 89));
+});
+
+test("shares sixteen strawberry-priced ingredients between the shop and bar", () => {
+  assert.equal(ingredientItems.length, 16);
+  assert.equal(ingredientItems.filter((item) => item.id !== "ice").every((item) => item.price > 0), true);
+  assert.deepEqual(ingredientItems.find((item) => item.id === "gin"), {
+    id: "gin",
+    name: "金酒",
+    category: "base_spirit",
+    packageAmount: 750,
+    unit: "ml",
+    price: 36,
+    iconIndex: 0,
+    description: "清新的杜松子香气，适合清爽长饮。",
+    relatedCocktails: ["金汤力", "汤姆柯林斯"],
+    properties: { alcohol: 40, sweetness: 0, acidity: 0, bitterness: 2, color: "#dff4f1", carbonated: false },
+  });
+  assert.deepEqual(ingredientItems.find((item) => item.id === "ice"), {
+    id: "ice",
+    name: "冰块",
+    category: "garnish",
+    packageAmount: 0,
+    unit: "portion",
+    price: 0,
+    iconIndex: 15,
+    description: "吧台常备，免费且不限量。",
+    relatedCocktails: ["全部长饮"],
+    properties: { alcohol: 0, sweetness: 0, acidity: 0, bitterness: 0, color: "#dff5ff", carbonated: false },
+  });
+  assert.equal(Object.keys(INITIAL_INGREDIENT_INVENTORY).length, 15);
+  assert.equal(Object.values(INITIAL_INGREDIENT_INVENTORY).every((amount) => amount === 0), true);
+});
+
+test("sells and persists an eighty-strawberry cocktail recipe book", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  const bookArtwork = await readFile(new URL("../public/game/cocktail-recipe-book.png", import.meta.url));
+  assert.match(source, /const COCKTAIL_BOOK = \{[\s\S]*id: "cocktailRecipeBook"[\s\S]*price: 80[\s\S]*asset: "\/game\/cocktail-recipe-book\.png"/);
+  assert.match(source, /function buyCocktailBook\(\)[\s\S]*berries: current\.berries - COCKTAIL_BOOK\.price[\s\S]*purchased: \[\.\.\.current\.purchased, COCKTAIL_BOOK\.id\]/);
+  assert.match(source, /ownsCocktailBook = game\.purchased\.includes\(COCKTAIL_BOOK\.id\)/);
+  assert.match(source, /totalBackpackItems = totalFood \+ totalProduce \+ totalCocktails \+ \(ownsCocktailBook \? 1 : 0\)/);
+  assert.match(source, /莓果调酒书已放进背包/);
+  assert.match(source, /ownsCocktailBook && \([\s\S]*className="backpack-book"[\s\S]*onClick=\{openCocktailBook\}/);
+  assert.match(source, /ingredientFilter === "all" && !ownsCocktailBook && <article/);
+  assert.match(source, />返回背包<\/button>/);
+  assert.match(source, /overlay === "recipe-book"[\s\S]*cocktailRecipes\.map[\s\S]*selectedBookRecipe\.ingredients\.map[\s\S]*COCKTAIL_BOOK_STEPS\[selectedBookRecipe\.method\]/);
+  assert.match(source, /购买调酒书/);
+  assert.match(css, /\.recipe-book-spread[\s\S]*\.recipe-book-directory[\s\S]*\.recipe-book-detail/);
+  assert.match(css, /\.store-art \{[^}]*grid-template-rows: minmax\(0, 1fr\) auto[^}]*overflow: hidden/);
+  assert.match(css, /\.store-art i \{[^}]*position: static[^}]*grid-row: 2[^}]*text-align: center/);
+  assert.match(css, /\.store-grid :is\(small, p\) \{ font-size: 14px; \}/);
+  assert.match(css, /\.store-grid :is\(small, h2, p\) \{ overflow-wrap: anywhere; \}/);
+  assert.equal(bookArtwork.toString("ascii", 1, 4), "PNG");
+  assert.equal(bookArtwork[25], 6);
+});
+
+test("scores recipes by ingredients, ratios, extras, and method", () => {
+  const perfect = evaluateCocktail({ gin: 45, tonic: 120 }, "build");
+  assert.equal(perfect.recipe.name, "金汤力");
+  assert.equal(perfect.score, 100);
+  assert.equal(perfect.quality, "完美");
+  assert.equal(perfect.success, true);
+
+  const perfectWithIce = evaluateCocktail({ gin: 45, tonic: 120, ice: 1 }, "build");
+  assert.equal(perfectWithIce.score, 100);
+  assert.equal(perfectWithIce.success, true);
+
+  const imprecise = evaluateCocktail({ gin: 45, tonic: 80 }, "build");
+  assert.equal(imprecise.recipe.name, "金汤力");
+  assert.ok(imprecise.score < perfect.score);
+  assert.equal(imprecise.success, true);
+
+  const wrongMethod = evaluateCocktail({ gin: 45, tonic: 120 }, "shake");
+  assert.ok(wrongMethod.score < perfect.score);
+  assert.equal(wrongMethod.success, true);
+
+  const mystery = evaluateCocktail({ gin: 45, tonic: 120, limeJuice: 20 }, "build");
+  assert.equal(mystery.success, false);
+  assert.equal(mystery.quality, "失败");
+  assert.match(mystery.feedback, /不协调/);
+  assert.equal(getLiquidTotal({ gin: 45, mint: 1, ice: 2 }), 45);
+  assert.equal(ICE_DISPLACEMENT_ML, 18);
+  assert.equal(getIceDisplacement({ gin: 45, ice: 3 }), 54);
+  assert.equal(getOccupiedVolume({ gin: 45, ice: 3 }), 99);
+  assert.equal(getOccupiedVolume({ gin: 330, ice: 1 }), 348);
+  assert.match(mixIngredientColors({ grenadine: 15, orangeJuice: 90 }), /^rgb\(/);
+});
+
+test("persists ingredient stock and cocktail collection and settles each transaction once", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  const sprite = await readFile(new URL("../public/game/cocktail-ingredients-v1.png", import.meta.url));
+  const collection = createInitialCocktailCollection();
+  assert.equal(Object.keys(collection).length, cocktailRecipes.length);
+  assert.equal(Object.values(collection).every((entry) => !entry.unlocked && entry.bestScore === 0), true);
+  assert.match(source, /gameSchemaVersion: 9[\s\S]*ingredientInventory: IngredientInventory[\s\S]*cocktailCollection: CocktailCollection[\s\S]*cocktailInventory: CocktailInventory/);
+  assert.match(source, /const ingredientInventory = Object\.fromEntries[\s\S]*const cocktailCollection = Object\.fromEntries[\s\S]*const cocktailInventory = Object\.fromEntries/);
+  assert.match(source, /function confirmIngredientPurchase\(\)[\s\S]*ingredientPurchaseLock\.current = true[\s\S]*setGame\(\(current\) => \(\{[\s\S]*berries: current\.berries - totalPrice[\s\S]*ingredientInventory:/);
+  assert.match(source, /function startMixing\(\)[\s\S]*mixingTransactionLock\.current = true[\s\S]*ingredientInventory\[stockId\] = Math\.max\(0, ingredientInventory\[stockId\] - \(amount \?\? 0\)\)/);
+  assert.match(source, /setMixResult\(\{ \.\.\.result, firstUnlock, consumed \}\)[\s\S]*mixingTransactionLock\.current = false/);
+  assert.match(source, /cocktailInventory: \{[\s\S]*\[result\.recipe\.id\]: current\.cocktailInventory\[result\.recipe\.id\] \+ 1/);
+  assert.match(source, /className=\{unlocked \? "unlocked" : "locked"\}[\s\S]*尚未解锁的鸡尾酒剪影[\s\S]*game\.cocktailInventory\[recipe\.id\]/);
+  assert.match(css, /\.bag-cocktails article\.locked img \{[^}]*filter: brightness\(0\)/);
+  assert.match(source, /调酒配料/);
+  assert.match(source, /鸡尾酒图鉴/);
+  assert.match(source, /开始调制/);
+  assert.match(source, /mixIceDisplacement[\s\S]*mixOccupiedVolume/);
+  assert.match(source, /className="ice-cube-slot"/);
+  assert.match(source, /pouring === "ice" \? "dropping-ice"/);
+  assert.match(source, /remainingVolume < ICE_DISPLACEMENT_ML[\s\S]*杯内空间不足，不能再放冰块/);
+  assert.match(source, /Math\.min\(148, Math\.max\(10, mixFillHeight - 19 - row \* 20\)\)/);
+  assert.doesNotMatch(source, /金币|钻石|积分/);
+  assert.match(css, /\.bar-vessel\.method-shake[\s\S]*\.bar-vessel\.method-stir[\s\S]*\.bar-vessel\.method-build/);
+  assert.match(css, /@keyframes ice-gravity-drop[\s\S]*@keyframes ice-buoyancy[\s\S]*@keyframes ice-splash/);
+  assert.match(source, /className="bar-liquid-clip"[\s\S]*className="bar-liquid"/);
+  assert.match(css, /\.bar-liquid-clip \{[^}]*inset: 7px[^}]*overflow: hidden[^}]*border-radius: 8px 8px 39px 39px/);
+  assert.match(css, /\.bar-liquid \{[^}]*overflow: hidden/);
+  assert.match(source, /className="bar-liquid-surface"[\s\S]*translate3d/);
+  assert.match(css, /\.bar-liquid \{[^}]*transition: clip-path \.24s var\(--ease-out\)/);
+  assert.doesNotMatch(css, /\.bar-liquid \{[^}]*transition: height/);
+  assert.match(css, /\.bar-vessel\.dropping-ice \.ice-field::after/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
+  assert.equal(sprite.toString("ascii", 1, 4), "PNG");
+  assert.equal(sprite[25], 6);
+  assert.equal(new Set(cocktailRecipes.map((recipe) => recipe.asset)).size, cocktailRecipes.length);
+  for (const recipe of cocktailRecipes) {
+    const artwork = await readFile(new URL(`../public${recipe.asset}`, import.meta.url));
+    assert.equal(artwork.toString("ascii", 1, 4), "PNG");
+    assert.equal(artwork[25], 6);
+  }
 });
 
 test("maps movement vectors to all eight walking directions", () => {
@@ -501,7 +643,7 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(schema, /category: text\("category"\)/);
   assert.match(checkins, /name === "rating"[\s\S]*ALTER TABLE checkins ADD rating INTEGER[\s\S]*ALTER TABLE checkins ADD reward INTEGER/);
   assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*user-data\.json[\s\S]*createStorage\(dataFile\)[\s\S]*storage:load[\s\S]*storage:save/);
-  assert.match(packageJson, /"version": "0\.5\.4"[\s\S]*"appId": "com\.berryworkout\.island"[\s\S]*"productName": "OH"/);
+  assert.match(packageJson, /"version": "0\.6\.0"[\s\S]*"appId": "com\.berryworkout\.island"[\s\S]*"productName": "OH"/);
   assert.match(preload, /storage:[\s\S]*sendSync\("storage:load"[\s\S]*send\("storage:save"/);
 });
 
