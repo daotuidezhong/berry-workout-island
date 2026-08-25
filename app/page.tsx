@@ -110,7 +110,7 @@ type GameState = {
 
 const RELEASE_VERSION = "0.7.0";
 const RELEASE_NOTES = [
-  { version: "0.7.0", items: ["新增 25 分钟专注 + 5 分钟休息的番茄钟，每完成一次专注奖励 5 颗草莓", "新增番茄钟累计次数、今日次数与累计奖励记忆，关闭界面后计时仍会继续", "计时器重绘为完整红色番茄机身与绿色叶冠，并加入完成庆祝动画", "新增网页与 Windows 后台到时提醒"] },
+  { version: "0.7.0", items: ["新增 25 分钟专注 + 5 分钟休息的番茄钟，每完成一次专注奖励 5 颗草莓", "新增番茄钟累计次数、今日次数与累计奖励记忆，关闭界面后计时仍会继续", "计时器重绘为深色圆形仪表盘、亮色进度环与中央番茄，并加入完成庆祝动画", "新增网页与 Windows 后台到时提醒"] },
   { version: "0.6.0", items: ["新增调酒配料商店与吧台小游戏，支持真实水位、冰块排水和三种调制方式", "新增80草莓调酒书、十款鸡尾酒成品图与完整配方，购买后收进背包", "调制成功的鸡尾酒会保存到背包，未解锁酒保持剪影，并修复高水位冰块与容量提示"] },
   { version: "0.5.4", items: ["新增三只猫咪的八方向行走动画，方向切换与移动轨迹保持一致", "状态面板切换现在会切换到对应猫咪的控制权，场景名字与状态名字保持同步", "修复取消睡眠后猫咪被猫窝图层遮挡的问题"] },
   { version: "0.5.3", items: ["修复歌曲地址过期后无法继续播放的问题，自动刷新地址并从原进度恢复", "修复猫咪进入吧台、查看状态时切换控制猫咪，以及家具无法紧贴墙壁的问题", "移除房间唱片碎片动画，并让唱片柜黑胶始终保持完整圆形"] },
@@ -1172,7 +1172,7 @@ export default function Home() {
   const historyPageDates = historyDates.slice(historyPage * 2, historyPage * 2 + 2);
   const pomodoroRemaining = getPomodoroRemaining(game.pomodoro, pomodoroNow);
   const pomodoroDuration = game.pomodoro.phase === "focus" ? POMODORO_FOCUS_MS : POMODORO_BREAK_MS;
-  const pomodoroProgress = Math.min(1, Math.max(0, 1 - pomodoroRemaining / pomodoroDuration));
+  const pomodoroProgress = Math.min(1, Math.max(0, pomodoroRemaining / pomodoroDuration));
   const pomodoroStyle = { "--pomodoro-progress": `${pomodoroProgress * 360}deg` } as CSSProperties;
   const pomodoroActive = game.pomodoro.status === "running";
   const desktopPomodoroAvailable = typeof window !== "undefined" && Boolean(window.gameUpdater?.pomodoro);
@@ -2222,11 +2222,13 @@ export default function Home() {
                   <div className="window-heading with-wallet pomodoro-heading"><span><small>BERRY FOCUS CLOCK</small><h1>莓果番茄钟</h1><p>专注 25 分钟，休息 5 分钟；完成一次专注奖励 5 颗草莓</p></span><b>🍓 {game.berries}</b></div>
                   <div className={`pomodoro-layout phase-${game.pomodoro.phase}`}>
                     <section className="pomodoro-clock-card" aria-label={`${game.pomodoro.phase === "focus" ? "专注" : "休息"}计时器`}>
-                      <div className={`pomodoro-ring ${pomodoroActive ? "is-running" : ""}`}>
-                        <div className="pomodoro-crown" aria-hidden="true"><i /><i /><i /><i /><i /><b /></div>
+                      <div className={`pomodoro-dial ${pomodoroActive ? "is-running" : ""}`}>
                         <div className="pomodoro-progress-shell" style={pomodoroStyle}>
-                          <div className="pomodoro-ring-inner" key={game.pomodoro.phase}>
-                            <span>{game.pomodoro.phase === "focus" ? "专注时间" : "莓果休息站"}</span>
+                          <div className="pomodoro-dial-face" key={game.pomodoro.phase}>
+                            <span className="pomodoro-phase-label">{game.pomodoro.phase === "focus" ? "专注时间" : "莓果休息站"}</span>
+                            <div className="pomodoro-tomato-mark" aria-hidden="true">
+                              <span className="pomodoro-tomato-leaves"><i /><i /><i /><i /><i /></span>
+                            </div>
                             <strong aria-live="off">{formatPomodoroTime(pomodoroRemaining)}</strong>
                             <small>{game.pomodoro.status === "running" ? "计时中" : game.pomodoro.status === "paused" ? "已暂停" : "准备开始"}</small>
                           </div>
