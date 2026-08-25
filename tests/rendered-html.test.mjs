@@ -171,7 +171,9 @@ test("runs a persistent 25 plus 5 pomodoro cycle and rewards five strawberries o
   assert.match(source, /BERRY FOCUS CLOCK/);
   assert.match(source, /berries: current\.berries \+ result\.reward/);
   assert.match(source, /Notification\.requestPermission/);
-  assert.match(css, /\.pomodoro-ring[\s\S]*conic-gradient/);
+  assert.match(source, /className="pomodoro-crown"[\s\S]*className="pomodoro-progress-shell"/);
+  assert.doesNotMatch(source, /crop-tomato-mature\.png[\s\S]*专注时间/);
+  assert.match(css, /\.pomodoro-ring \{[^}]*background: radial-gradient[\s\S]*\.pomodoro-crown i[\s\S]*\.pomodoro-progress-shell \{[^}]*conic-gradient/);
   assert.match(css, /@keyframes pomodoro-berry-burst/);
   assert.match(desktopMain, /pomodoro:schedule[\s\S]*new Notification/);
 });
