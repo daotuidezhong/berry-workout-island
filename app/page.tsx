@@ -110,7 +110,7 @@ type GameState = {
 
 const RELEASE_VERSION = "0.7.0";
 const RELEASE_NOTES = [
-  { version: "0.7.0", items: ["新增 25 分钟专注 + 5 分钟休息的番茄钟，每完成一次专注奖励 5 颗草莓", "新增番茄钟累计次数、今日次数与累计奖励记忆，关闭界面后计时仍会继续", "计时器重绘为深色圆形仪表盘、亮色进度环与中央番茄，并加入完成庆祝动画", "新增网页与 Windows 后台到时提醒"] },
+  { version: "0.7.0", items: ["新增 25 分钟专注 + 5 分钟休息的番茄钟，每完成一次专注奖励 5 颗草莓", "新增番茄钟累计次数、今日次数与累计奖励记忆，关闭界面后计时仍会继续", "计时器重绘为深色圆形仪表盘、亮色进度环与中央番茄，并加入完成庆祝动画", "专注和休息结束时播放提示音并显示确认弹窗，后台同时发送系统通知"] },
   { version: "0.6.0", items: ["新增调酒配料商店与吧台小游戏，支持真实水位、冰块排水和三种调制方式", "新增80草莓调酒书、十款鸡尾酒成品图与完整配方，购买后收进背包", "调制成功的鸡尾酒会保存到背包，未解锁酒保持剪影，并修复高水位冰块与容量提示"] },
   { version: "0.5.4", items: ["新增三只猫咪的八方向行走动画，方向切换与移动轨迹保持一致", "状态面板切换现在会切换到对应猫咪的控制权，场景名字与状态名字保持同步", "修复取消睡眠后猫咪被猫窝图层遮挡的问题"] },
   { version: "0.5.3", items: ["修复歌曲地址过期后无法继续播放的问题，自动刷新地址并从原进度恢复", "修复猫咪进入吧台、查看状态时切换控制猫咪，以及家具无法紧贴墙壁的问题", "移除房间唱片碎片动画，并让唱片柜黑胶始终保持完整圆形"] },
@@ -455,10 +455,11 @@ export default function Home() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolume] = useState(.7);
   const [pomodoroNow, setPomodoroNow] = useState(Date.now());
-  const [pomodoroCelebration, setPomodoroCelebration] = useState(false);
+  const [pomodoroAlert, setPomodoroAlert] = useState<PomodoroPhase | null>(null);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">("unsupported");
   const roomRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const pomodoroAudioContextRef = useRef<AudioContext | null>(null);
   const recoveringTrackId = useRef<number | null>(null);
   const lastPlaybackRecovery = useRef<{ trackId: number; attemptedAt: number } | null>(null);
   const sceneCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -771,24 +772,21 @@ export default function Home() {
 
       if (result.event === "focus") {
         setToast(`专注完成！获得 🍓 ${POMODORO_REWARD}，休息 5 分钟吧`);
-        setPomodoroCelebration(true);
+        setPomodoroAlert("focus");
+        playPomodoroChime("focus");
         if (!window.gameUpdater?.pomodoro && "Notification" in window && Notification.permission === "granted") {
           new Notification("专注完成 · 草莓到账", { body: `完成 1 个番茄循环，获得 ${POMODORO_REWARD} 颗草莓。现在休息 5 分钟吧！` });
         }
       } else if (result.event === "break") {
         setToast("休息结束，可以开始下一次专注啦");
+        setPomodoroAlert("break");
+        playPomodoroChime("break");
         if (!window.gameUpdater?.pomodoro && "Notification" in window && Notification.permission === "granted") {
           new Notification("休息结束", { body: "新的 25 分钟专注已经准备好。" });
         }
       }
     });
   }, [game.pomodoro, pomodoroNow, ready]);
-
-  useEffect(() => {
-    if (!pomodoroCelebration) return;
-    const timer = window.setTimeout(() => setPomodoroCelebration(false), 1800);
-    return () => window.clearTimeout(timer);
-  }, [pomodoroCelebration]);
 
   useEffect(() => {
     const updateFarm = () => setFarmNow(Date.now());
@@ -1205,6 +1203,33 @@ export default function Home() {
     setNotificationPermission(permission);
   }
 
+  function preparePomodoroAudio() {
+    if (!pomodoroAudioContextRef.current) pomodoroAudioContextRef.current = new AudioContext();
+    if (pomodoroAudioContextRef.current.state === "suspended") void pomodoroAudioContextRef.current.resume();
+  }
+
+  function playPomodoroChime(phase: PomodoroPhase) {
+    const audioContext = pomodoroAudioContextRef.current;
+    if (!audioContext) return;
+    void audioContext.resume().then(() => {
+      const notes = phase === "focus" ? [659.25, 783.99, 987.77] : [783.99, 659.25];
+      notes.forEach((frequency, index) => {
+        const oscillator = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        const startsAt = audioContext.currentTime + index * .16;
+        oscillator.type = "sine";
+        oscillator.frequency.value = frequency;
+        gain.gain.setValueAtTime(.0001, startsAt);
+        gain.gain.exponentialRampToValueAtTime(.16, startsAt + .02);
+        gain.gain.exponentialRampToValueAtTime(.0001, startsAt + .24);
+        oscillator.connect(gain);
+        gain.connect(audioContext.destination);
+        oscillator.start(startsAt);
+        oscillator.stop(startsAt + .25);
+      });
+    });
+  }
+
   function startPomodoroTimer() {
     const now = Date.now();
     const currentDate = localDate(new Date(now));
@@ -1213,6 +1238,7 @@ export default function Home() {
       const pomodoro = normalizePomodoro(current.pomodoro, currentDate);
       return { ...current, pomodoro: startPomodoro(pomodoro, now) };
     });
+    preparePomodoroAudio();
     void enablePomodoroNotifications();
   }
 
@@ -1225,12 +1251,13 @@ export default function Home() {
   function resetPomodoroTimer() {
     setPomodoroNow(Date.now());
     setGame((current) => ({ ...current, pomodoro: resetPomodoro(current.pomodoro) }));
-    setPomodoroCelebration(false);
+    setPomodoroAlert(null);
   }
 
   function skipCurrentBreak() {
     setPomodoroNow(Date.now());
     setGame((current) => ({ ...current, pomodoro: skipPomodoroBreak(current.pomodoro) }));
+    setPomodoroAlert(null);
     setToast("休息已结束，准备好后开始下一次专注吧");
   }
 
@@ -2261,7 +2288,6 @@ export default function Home() {
                       </div>
                     </aside>
                   </div>
-                  {pomodoroCelebration && <div className="pomodoro-celebration" role="status" aria-live="polite"><div>{[0, 1, 2, 3, 4].map((item) => <span key={item}>🍓</span>)}</div><strong>专注完成　+{POMODORO_REWARD}</strong><small>草莓已经放进钱包</small></div>}
                 </>
               )}
 
@@ -2669,6 +2695,17 @@ export default function Home() {
           </div>
         )}
       </section>
+      {pomodoroAlert && (
+        <div className="pomodoro-alert-layer">
+          <section className={`pomodoro-celebration phase-${pomodoroAlert}`} role="alertdialog" aria-modal="true" aria-live="assertive" aria-label={pomodoroAlert === "focus" ? "专注完成提醒" : "休息结束提醒"}>
+            {pomodoroAlert === "focus" && <div aria-hidden="true">{[0, 1, 2, 3, 4].map((item) => <span key={item}>🍓</span>)}</div>}
+            <em aria-hidden="true">{pomodoroAlert === "focus" ? "🍅" : "🔔"}</em>
+            <strong>{pomodoroAlert === "focus" ? `专注完成　+${POMODORO_REWARD}` : "休息结束"}</strong>
+            <small>{pomodoroAlert === "focus" ? "5 分钟休息已经自动开始，草莓也放进钱包啦" : "新的 25 分钟专注已经准备好"}</small>
+            <button type="button" onClick={() => setPomodoroAlert(null)}>知道了</button>
+          </section>
+        </div>
+      )}
       <div className={`toast ${toast ? "show" : ""}`} role="status" aria-live="polite">{toast}</div>
     </main>
   );

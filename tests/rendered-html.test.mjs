@@ -171,6 +171,10 @@ test("runs a persistent 25 plus 5 pomodoro cycle and rewards five strawberries o
   assert.match(source, /BERRY FOCUS CLOCK/);
   assert.match(source, /berries: current\.berries \+ result\.reward/);
   assert.match(source, /Notification\.requestPermission/);
+  assert.match(source, /className="pomodoro-alert-layer"[\s\S]*role="alertdialog"[\s\S]*知道了/);
+  assert.match(source, /new AudioContext\(\)/);
+  assert.match(source, /playPomodoroChime\("focus"\)/);
+  assert.match(source, /playPomodoroChime\("break"\)/);
   assert.match(source, /className="pomodoro-progress-shell"[\s\S]*className="pomodoro-tomato-mark"/);
   assert.doesNotMatch(source, /className="pomodoro-crown"/);
   assert.doesNotMatch(source, /crop-tomato-mature\.png[\s\S]*专注时间/);

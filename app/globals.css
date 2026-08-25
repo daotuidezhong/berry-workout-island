@@ -733,7 +733,8 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .pomodoro-notice-status b { color: var(--sage-dark); font-size: 9px; }
 .pomodoro-notice-status small { margin-top: 3px; color: var(--muted); font-size: 7px; }
 .pomodoro-notice-status button { padding: 8px 10px; border: 2px solid var(--sage-dark); border-radius: 9px; background: var(--sage); color: #fff; box-shadow: 0 3px 0 var(--sage-dark); cursor: pointer; font-size: 8px; transition: transform 160ms var(--ease-out); }
-.pomodoro-celebration { position: absolute; z-index: 8; top: 50%; left: 50%; width: min(360px, calc(100% - 30px)); padding: 25px; display: grid; place-items: center; transform: translate(-50%, -50%); border: 4px solid #704b42; border-radius: 20px; background: #fff4dc; box-shadow: 0 8px 0 #704b42, 0 22px 55px rgba(55, 34, 28, .42), inset 0 0 0 3px #ffd1c2; text-align: center; animation: pomodoro-celebration-in 250ms var(--ease-out) both; }
+.pomodoro-alert-layer { position: fixed; z-index: 300; inset: 0; background: rgba(36, 24, 22, .58); backdrop-filter: blur(6px); }
+.pomodoro-celebration { position: absolute; top: 50%; left: 50%; width: min(390px, calc(100% - 30px)); padding: 28px 25px 24px; display: grid; place-items: center; transform: translate(-50%, -50%); border: 4px solid #704b42; border-radius: 20px; background: #fff4dc; box-shadow: 0 8px 0 #704b42, 0 22px 55px rgba(55, 34, 28, .42), inset 0 0 0 3px #ffd1c2; text-align: center; animation: pomodoro-celebration-in 250ms var(--ease-out) both; }
 .pomodoro-celebration > div { position: absolute; inset: 0; pointer-events: none; }
 .pomodoro-celebration > div span { --berry-x: 0px; --berry-y: -76px; position: absolute; top: 48%; left: 48%; font-size: 24px; animation: pomodoro-berry-burst 700ms var(--ease-out) both; }
 .pomodoro-celebration > div span:nth-child(1) { --berry-x: -120px; --berry-y: -50px; }
@@ -741,8 +742,12 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .pomodoro-celebration > div span:nth-child(3) { --berry-x: 0px; --berry-y: -112px; animation-delay: 100ms; }
 .pomodoro-celebration > div span:nth-child(4) { --berry-x: 65px; --berry-y: -100px; animation-delay: 150ms; }
 .pomodoro-celebration > div span:nth-child(5) { --berry-x: 120px; --berry-y: -50px; animation-delay: 200ms; }
+.pomodoro-celebration > em { margin-bottom: 9px; font-size: 42px; font-style: normal; filter: drop-shadow(0 4px 0 rgba(104, 56, 47, .25)); }
 .pomodoro-celebration strong { color: var(--berry-dark); font-size: 19px; }
-.pomodoro-celebration small { margin-top: 9px; color: var(--muted); font-size: 9px; }
+.pomodoro-celebration.phase-break strong { color: var(--sage-dark); }
+.pomodoro-celebration small { margin-top: 9px; color: var(--muted); font-size: 9px; line-height: 1.7; }
+.pomodoro-celebration > button { min-width: 120px; margin-top: 18px; padding: 11px 16px; border: 2px solid #765247; border-radius: 11px; background: var(--berry); color: #fff; box-shadow: 0 4px 0 var(--berry-dark); cursor: pointer; font-size: 10px; }
+.pomodoro-celebration.phase-break > button { background: var(--sage); box-shadow: 0 4px 0 var(--sage-dark); }
 
 @keyframes pomodoro-window-in { from { opacity: 0; transform: scale(.96); } }
 @keyframes pomodoro-phase-in { from { opacity: 0; transform: scale(.97); } }
