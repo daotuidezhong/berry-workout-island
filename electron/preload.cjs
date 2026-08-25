@@ -13,4 +13,13 @@ contextBridge.exposeInMainWorld("gameUpdater", {
     load: (key) => ipcRenderer.sendSync("storage:load", key),
     save: (key, value) => ipcRenderer.send("storage:save", key, value),
   },
+  pomodoro: {
+    schedule: (endsAt, phase) => ipcRenderer.send("pomodoro:schedule", endsAt, phase),
+    cancel: () => ipcRenderer.send("pomodoro:cancel"),
+    onFinished(callback) {
+      const listener = (_event, phase) => callback(phase);
+      ipcRenderer.on("pomodoro:finished", listener);
+      return () => ipcRenderer.removeListener("pomodoro:finished", listener);
+    },
+  },
 });

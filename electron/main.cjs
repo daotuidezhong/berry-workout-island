@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, net, protocol } = require("electron");
+const { app, BrowserWindow, ipcMain, net, Notification, protocol } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
@@ -39,10 +39,31 @@ app.whenReady().then(() => {
     webPreferences: { preload: path.join(__dirname, "preload.cjs") },
   });
   const sendUpdate = (status) => window.webContents.send("update:status", status);
+  let pomodoroTimer = null;
+  const cancelPomodoroTimer = () => {
+    if (pomodoroTimer) clearTimeout(pomodoroTimer);
+    pomodoroTimer = null;
+  };
   const dataFile = path.join(app.getPath("userData"), "user-data.json");
   const storage = createStorage(dataFile);
   ipcMain.on("storage:load", (event, key) => { event.returnValue = storage.load(key); });
   ipcMain.on("storage:save", (_event, key, value) => storage.save(key, value));
+  ipcMain.on("pomodoro:schedule", (event, endsAt, phase) => {
+    if (event.sender !== window.webContents || !Number.isFinite(endsAt) || (phase !== "focus" && phase !== "break")) return;
+    cancelPomodoroTimer();
+    const delay = Math.max(0, Math.min(endsAt - Date.now(), 2_147_483_647));
+    pomodoroTimer = setTimeout(() => {
+      pomodoroTimer = null;
+      const focusFinished = phase === "focus";
+      new Notification({
+        title: focusFinished ? "专注完成 · 草莓到账" : "休息结束",
+        body: focusFinished ? "完成 1 个番茄循环，获得 5 颗草莓。现在休息 5 分钟吧！" : "新的 25 分钟专注已经准备好。",
+        icon: app.isPackaged ? path.join(process.resourcesPath, "build/icon.png") : path.join(__dirname, "../build/icon.png"),
+      }).show();
+      if (!window.isDestroyed()) window.webContents.send("pomodoro:finished", phase);
+    }, delay);
+  });
+  ipcMain.on("pomodoro:cancel", (event) => { if (event.sender === window.webContents) cancelPomodoroTimer(); });
   autoUpdater.autoDownload = false;
   autoUpdater.on("update-available", (info) => sendUpdate({
     phase: "available",
@@ -58,6 +79,7 @@ app.whenReady().then(() => {
   window.webContents.setUserAgent(`${window.webContents.getUserAgent()} BerryWorkoutDesktop`);
   window.webContents.once("did-finish-load", () => { if (app.isPackaged) autoUpdater.checkForUpdates().catch(() => {}); });
   window.loadURL("berry://game/");
+  window.on("closed", cancelPomodoroTimer);
 });
 
 app.on("window-all-closed", () => app.quit());

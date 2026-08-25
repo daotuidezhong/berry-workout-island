@@ -19,6 +19,22 @@ import { getJournalReward } from "./game/journal-reward";
 import { fetchPlaylist, isRemotePlaybackUrl, type Playlist, type PlaylistTrack } from "./game/music";
 import { getWalkDirection, WALK_DIRECTION_ROW, type WalkDirection } from "./game/movement-direction";
 import {
+  formatPomodoroTime,
+  getPomodoroRemaining,
+  INITIAL_POMODORO,
+  normalizePomodoro,
+  pausePomodoro,
+  POMODORO_BREAK_MS,
+  POMODORO_FOCUS_MS,
+  POMODORO_REWARD,
+  resetPomodoro,
+  settlePomodoro,
+  skipPomodoroBreak,
+  startPomodoro,
+  type PomodoroPhase,
+  type PomodoroState,
+} from "./game/pomodoro";
+import {
   COCKTAIL_METHOD_LABELS,
   INGREDIENT_CATEGORY_LABELS,
   INITIAL_INGREDIENT_INVENTORY,
@@ -46,7 +62,7 @@ import {
 } from "./game/cocktails";
 
 type PetId = "mitao" | "doubao" | "xueqiu";
-type OverlayId = "quest" | "history" | "bag" | "pets" | "shop" | "kitchen" | "music" | "bar" | "recipe-book" | null;
+type OverlayId = "quest" | "history" | "bag" | "pets" | "shop" | "kitchen" | "music" | "bar" | "recipe-book" | "pomodoro" | null;
 type ShopCategory = "food" | "furniture" | "ingredients";
 type IngredientFilter = "all" | IngredientCategory;
 type JournalCategory = "运动" | "学习" | "工作" | "饮食" | "睡眠" | "其他";
@@ -59,7 +75,7 @@ type CocktailInventory = Record<CocktailId, number>;
 type PetStats = { energy: number; sleepiness: number; statsUpdatedAt: number };
 type PetSleep = { endsAt: number | null; rest: number; furnitureId: string | null };
 type GameState = {
-  gameSchemaVersion: 9;
+  gameSchemaVersion: 10;
   statModelVersion: 2;
   berries: number;
   streak: number;
@@ -89,10 +105,12 @@ type GameState = {
   seeds: SeedInventory;
   produce: ProduceInventory;
   cooking: { dishId: CookedFoodId; startedAt: number; endsAt: number } | null;
+  pomodoro: PomodoroState;
 };
 
-const RELEASE_VERSION = "0.6.0";
+const RELEASE_VERSION = "0.7.0";
 const RELEASE_NOTES = [
+  { version: "0.7.0", items: ["新增 25 分钟专注 + 5 分钟休息的番茄钟，每完成一次专注奖励 5 颗草莓", "新增番茄钟累计次数、今日次数与累计奖励记忆，关闭界面后计时仍会继续", "新增同风格动态计时界面、完成庆祝动画与网页／Windows 后台到时提醒"] },
   { version: "0.6.0", items: ["新增调酒配料商店与吧台小游戏，支持真实水位、冰块排水和三种调制方式", "新增80草莓调酒书、十款鸡尾酒成品图与完整配方，购买后收进背包", "调制成功的鸡尾酒会保存到背包，未解锁酒保持剪影，并修复高水位冰块与容量提示"] },
   { version: "0.5.4", items: ["新增三只猫咪的八方向行走动画，方向切换与移动轨迹保持一致", "状态面板切换现在会切换到对应猫咪的控制权，场景名字与状态名字保持同步", "修复取消睡眠后猫咪被猫窝图层遮挡的问题"] },
   { version: "0.5.3", items: ["修复歌曲地址过期后无法继续播放的问题，自动刷新地址并从原进度恢复", "修复猫咪进入吧台、查看状态时切换控制猫咪，以及家具无法紧贴墙壁的问题", "移除房间唱片碎片动画，并让唱片柜黑胶始终保持完整圆形"] },
@@ -114,6 +132,11 @@ declare global {
       install: () => void;
       version: () => Promise<string>;
       storage: { load: (key: string) => string | null; save: (key: string, value: string) => void };
+      pomodoro?: {
+        schedule: (endsAt: number, phase: PomodoroPhase) => void;
+        cancel: () => void;
+        onFinished: (callback: (phase: PomodoroPhase) => void) => () => void;
+      };
     };
   }
 }
@@ -242,7 +265,7 @@ const INITIAL_INVENTORY: Record<FoodId, number> = {
 };
 
 const INITIAL_GAME: GameState = {
-  gameSchemaVersion: 9,
+  gameSchemaVersion: 10,
   statModelVersion: 2,
   berries: 48,
   streak: 0,
@@ -280,6 +303,7 @@ const INITIAL_GAME: GameState = {
   seeds: INITIAL_SEEDS,
   produce: INITIAL_PRODUCE,
   cooking: null,
+  pomodoro: INITIAL_POMODORO,
 };
 
 const milestones = [3, 7, 14, 30];
@@ -430,6 +454,9 @@ export default function Home() {
   const [playingTrackId, setPlayingTrackId] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolume] = useState(.7);
+  const [pomodoroNow, setPomodoroNow] = useState(Date.now());
+  const [pomodoroCelebration, setPomodoroCelebration] = useState(false);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">("unsupported");
   const roomRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const recoveringTrackId = useRef<number | null>(null);
@@ -444,6 +471,7 @@ export default function Home() {
   const pouringTimer = useRef<number | undefined>(undefined);
   const ingredientPurchaseLock = useRef(false);
   const mixingTransactionLock = useRef(false);
+  const handledPomodoroDeadline = useRef<number | null>(null);
   const desiredCatStatus = getCatStatus(game.energy, game.sleepiness);
   const currentTrack = playlist?.tracks.find((track) => track.id === playingTrackId) ?? null;
   const sceneAsset = getSceneAsset(game.scene, weather.kind, timePeriod);
@@ -500,7 +528,7 @@ export default function Home() {
           ingredientInventory,
           cocktailCollection,
           cocktailInventory,
-          gameSchemaVersion: 9,
+          gameSchemaVersion: 10,
           pet: activePet,
           purchased: Array.isArray(parsed.purchased) ? parsed.purchased : [],
           adoptedPets: Array.isArray(parsed.adoptedPets) && parsed.adoptedPets.length ? parsed.adoptedPets : [activePet],
@@ -521,6 +549,7 @@ export default function Home() {
           farmPlots: Array.from({ length: 12 }, (_, index) => parsed.farmPlots?.[index] ?? null),
           seeds: { ...INITIAL_SEEDS, ...(parsed.seeds ?? {}) },
           produce: { ...INITIAL_PRODUCE, ...(parsed.produce ?? {}) },
+          pomodoro: normalizePomodoro(parsed.pomodoro, current),
         };
         if (parsed.statModelVersion !== 2) {
           merged.sleepiness = 100 - clamp(merged.sleepiness, 0, 100);
@@ -589,9 +618,10 @@ export default function Home() {
         setGame(merged);
         setInspectedPetId(merged.pet);
       } catch {
-        setGame(INITIAL_GAME);
+        setGame({ ...INITIAL_GAME, pomodoro: normalizePomodoro(undefined, current) });
       }
-    } else setGame({ ...INITIAL_GAME, statsUpdatedAt: now.getTime() });
+    } else setGame({ ...INITIAL_GAME, statsUpdatedAt: now.getTime(), pomodoro: normalizePomodoro(undefined, current) });
+    setNotificationPermission("Notification" in window ? Notification.permission : "unsupported");
     setReady(true);
   }, []);
 
@@ -697,6 +727,68 @@ export default function Home() {
   useEffect(() => {
     if (ready) writePersisted("berry-workout-game", JSON.stringify(game));
   }, [game, ready]);
+
+  useEffect(() => {
+    const desktopPomodoro = window.gameUpdater?.pomodoro;
+    if (!ready || game.pomodoro.status !== "running" || game.pomodoro.endsAt === null) {
+      desktopPomodoro?.cancel();
+      return;
+    }
+    const updatePomodoroNow = () => setPomodoroNow(Date.now());
+    handledPomodoroDeadline.current = handledPomodoroDeadline.current === game.pomodoro.endsAt
+      ? handledPomodoroDeadline.current
+      : null;
+    desktopPomodoro?.schedule(game.pomodoro.endsAt, game.pomodoro.phase);
+    updatePomodoroNow();
+    const timer = window.setInterval(updatePomodoroNow, 250);
+    window.addEventListener("focus", updatePomodoroNow);
+    document.addEventListener("visibilitychange", updatePomodoroNow);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", updatePomodoroNow);
+      document.removeEventListener("visibilitychange", updatePomodoroNow);
+    };
+  }, [game.pomodoro.endsAt, game.pomodoro.phase, game.pomodoro.status, ready]);
+
+  useEffect(() => {
+    const desktopPomodoro = window.gameUpdater?.pomodoro;
+    if (!desktopPomodoro) return;
+    return desktopPomodoro.onFinished(() => setPomodoroNow(Date.now()));
+  }, []);
+
+  useEffect(() => {
+    const deadline = game.pomodoro.endsAt;
+    if (!ready || game.pomodoro.status !== "running" || deadline === null || pomodoroNow < deadline || handledPomodoroDeadline.current === deadline) return;
+    handledPomodoroDeadline.current = deadline;
+    const currentDate = localDate(new Date(pomodoroNow));
+    const result = settlePomodoro(game.pomodoro, currentDate, pomodoroNow);
+    queueMicrotask(() => {
+      setGame((current) => current.pomodoro.endsAt === deadline ? {
+        ...current,
+        berries: current.berries + result.reward,
+        pomodoro: result.state,
+      } : current);
+
+      if (result.event === "focus") {
+        setToast(`专注完成！获得 🍓 ${POMODORO_REWARD}，休息 5 分钟吧`);
+        setPomodoroCelebration(true);
+        if (!window.gameUpdater?.pomodoro && "Notification" in window && Notification.permission === "granted") {
+          new Notification("专注完成 · 草莓到账", { body: `完成 1 个番茄循环，获得 ${POMODORO_REWARD} 颗草莓。现在休息 5 分钟吧！` });
+        }
+      } else if (result.event === "break") {
+        setToast("休息结束，可以开始下一次专注啦");
+        if (!window.gameUpdater?.pomodoro && "Notification" in window && Notification.permission === "granted") {
+          new Notification("休息结束", { body: "新的 25 分钟专注已经准备好。" });
+        }
+      }
+    });
+  }, [game.pomodoro, pomodoroNow, ready]);
+
+  useEffect(() => {
+    if (!pomodoroCelebration) return;
+    const timer = window.setTimeout(() => setPomodoroCelebration(false), 1800);
+    return () => window.clearTimeout(timer);
+  }, [pomodoroCelebration]);
 
   useEffect(() => {
     const updateFarm = () => setFarmNow(Date.now());
@@ -1078,6 +1170,12 @@ export default function Home() {
   const historyDates = [...new Set(history.map((record) => record.date))];
   const historyPageCount = Math.max(1, Math.ceil(historyDates.length / 2));
   const historyPageDates = historyDates.slice(historyPage * 2, historyPage * 2 + 2);
+  const pomodoroRemaining = getPomodoroRemaining(game.pomodoro, pomodoroNow);
+  const pomodoroDuration = game.pomodoro.phase === "focus" ? POMODORO_FOCUS_MS : POMODORO_BREAK_MS;
+  const pomodoroProgress = Math.min(1, Math.max(0, 1 - pomodoroRemaining / pomodoroDuration));
+  const pomodoroStyle = { "--pomodoro-progress": `${pomodoroProgress * 360}deg` } as CSSProperties;
+  const pomodoroActive = game.pomodoro.status === "running";
+  const desktopPomodoroAvailable = typeof window !== "undefined" && Boolean(window.gameUpdater?.pomodoro);
   const statusFrames = statusTransition ?? CAT_STATUS_ANIMATIONS[catStatus].frames;
   const currentStatusFrame: CatAnimationFrame = statusIdle
     ? { pose: catStatus === "low-high" ? "sleep" : "idle", duration: STATUS_IDLE_MS }
@@ -1100,6 +1198,41 @@ export default function Home() {
   const facingLeft = direction === "left" || direction === "up-left" || direction === "down-left";
   const motionX = walking || resting || lounging || wakingUp || scratching ? 0 : (currentStatusFrame.x ?? 0) * (facingLeft ? -1 : 1);
   const motionY = walking || resting || lounging || wakingUp || scratching ? 0 : currentStatusFrame.y ?? 0;
+
+  async function enablePomodoroNotifications() {
+    if (window.gameUpdater?.pomodoro || !("Notification" in window) || Notification.permission !== "default") return;
+    const permission = await Notification.requestPermission();
+    setNotificationPermission(permission);
+  }
+
+  function startPomodoroTimer() {
+    const now = Date.now();
+    const currentDate = localDate(new Date(now));
+    setPomodoroNow(now);
+    setGame((current) => {
+      const pomodoro = normalizePomodoro(current.pomodoro, currentDate);
+      return { ...current, pomodoro: startPomodoro(pomodoro, now) };
+    });
+    void enablePomodoroNotifications();
+  }
+
+  function pausePomodoroTimer() {
+    const now = Date.now();
+    setPomodoroNow(now);
+    setGame((current) => ({ ...current, pomodoro: pausePomodoro(current.pomodoro, now) }));
+  }
+
+  function resetPomodoroTimer() {
+    setPomodoroNow(Date.now());
+    setGame((current) => ({ ...current, pomodoro: resetPomodoro(current.pomodoro) }));
+    setPomodoroCelebration(false);
+  }
+
+  function skipCurrentBreak() {
+    setPomodoroNow(Date.now());
+    setGame((current) => ({ ...current, pomodoro: skipPomodoroBreak(current.pomodoro) }));
+    setToast("休息已结束，准备好后开始下一次专注吧");
+  }
 
   function openOverlay(id: Exclude<OverlayId, null>) {
     setDecorating(false);
@@ -2072,6 +2205,7 @@ export default function Home() {
 
         <nav className="game-dock" aria-label="游戏菜单">
           <button className={overlay === "quest" || overlay === "history" ? "active" : ""} onClick={() => openOverlay("quest")}><span>📓</span><b>记录</b></button>
+          <button className={`pomodoro-dock ${overlay === "pomodoro" ? "active" : ""} ${pomodoroActive ? "is-running" : ""}`} onClick={() => openOverlay("pomodoro")}><span>🍅</span><b>番茄钟</b>{game.pomodoro.status !== "idle" && <em>{formatPomodoroTime(pomodoroRemaining)}</em>}</button>
           <button className={overlay === "bag" ? "active" : ""} onClick={() => openOverlay("bag")}><span>🎒</span><b>背包</b><i>{totalBackpackItems}</i></button>
           <button className={overlay === "shop" ? "active" : ""} onClick={() => openOverlay("shop")}><span>🛒</span><b>商店</b></button>
           <button className={overlay === "pets" ? "active" : ""} onClick={() => openOverlay("pets")}><span>🐾</span><b>伙伴</b></button>
@@ -2082,6 +2216,50 @@ export default function Home() {
           <div className="window-layer" onPointerDown={closeOverlay}>
             <section className={`game-window ${overlay}-window ${overlay === "bar" && mixing ? "is-mixing" : ""}`} onPointerDown={(event) => event.stopPropagation()}>
               <button className="window-close" onClick={closeOverlay} disabled={overlay === "bar" && mixing} aria-label="关闭窗口">×</button>
+
+              {overlay === "pomodoro" && (
+                <>
+                  <div className="window-heading with-wallet pomodoro-heading"><span><small>BERRY FOCUS CLOCK</small><h1>莓果番茄钟</h1><p>专注 25 分钟，休息 5 分钟；完成一次专注奖励 5 颗草莓</p></span><b>🍓 {game.berries}</b></div>
+                  <div className={`pomodoro-layout phase-${game.pomodoro.phase}`}>
+                    <section className="pomodoro-clock-card" aria-label={`${game.pomodoro.phase === "focus" ? "专注" : "休息"}计时器`}>
+                      <div className={`pomodoro-ring ${pomodoroActive ? "is-running" : ""}`} style={pomodoroStyle}>
+                        <div className="pomodoro-ring-inner" key={game.pomodoro.phase}>
+                          <div className="pomodoro-tomato" aria-hidden="true"><img src="/game/crop-tomato-mature.png" alt="" /></div>
+                          <span>{game.pomodoro.phase === "focus" ? "专注时间" : "莓果休息站"}</span>
+                          <strong aria-live="off">{formatPomodoroTime(pomodoroRemaining)}</strong>
+                          <small>{game.pomodoro.status === "running" ? "计时中" : game.pomodoro.status === "paused" ? "已暂停" : "准备开始"}</small>
+                        </div>
+                      </div>
+                      <div className="pomodoro-controls">
+                        <button type="button" className="pomodoro-primary" onClick={pomodoroActive ? pausePomodoroTimer : startPomodoroTimer}>{pomodoroActive ? "暂停" : game.pomodoro.status === "paused" ? "继续" : game.pomodoro.phase === "focus" ? "开始专注" : "开始休息"}</button>
+                        <button type="button" onClick={resetPomodoroTimer}>重置</button>
+                        {game.pomodoro.phase === "break" && <button type="button" onClick={skipCurrentBreak}>跳过休息</button>}
+                      </div>
+                      <p className="pomodoro-background-note"><span aria-hidden="true">◉</span> 关闭番茄钟窗口或把游戏放到后台，计时都会继续</p>
+                    </section>
+
+                    <aside className="pomodoro-memory">
+                      <header><small>FOCUS MEMORY</small><h2>我的专注记忆</h2></header>
+                      <div className="pomodoro-stats">
+                        <article><span>今天完成</span><b>{game.pomodoro.todayCycles}</b><small>个循环</small></article>
+                        <article><span>累计完成</span><b>{game.pomodoro.totalCycles}</b><small>个循环</small></article>
+                        <article><span>累计收获</span><b>{game.pomodoro.earnedBerries}</b><small>颗草莓</small></article>
+                      </div>
+                      <div className="pomodoro-rhythm" aria-label="番茄钟循环规则">
+                        <div><span>25</span><b>分钟专注</b><small>完成后 🍓 +5</small></div>
+                        <i aria-hidden="true">→</i>
+                        <div><span>5</span><b>分钟休息</b><small>自动开始</small></div>
+                      </div>
+                      <div className="pomodoro-notice-status">
+                        <span aria-hidden="true">🔔</span>
+                        <div><b>{desktopPomodoroAvailable ? "Windows 到时提醒已开启" : notificationPermission === "granted" ? "后台到时提醒已开启" : notificationPermission === "denied" ? "浏览器通知未授权" : notificationPermission === "unsupported" ? "当前环境仅提供窗口内提醒" : "开启后台到时提醒"}</b><small>{notificationPermission === "denied" ? "可在浏览器网站设置中重新允许通知" : "专注结束和休息结束都会提醒你"}</small></div>
+                        {!desktopPomodoroAvailable && notificationPermission === "default" && <button type="button" onClick={() => void enablePomodoroNotifications()}>开启</button>}
+                      </div>
+                    </aside>
+                  </div>
+                  {pomodoroCelebration && <div className="pomodoro-celebration" role="status" aria-live="polite"><div>{[0, 1, 2, 3, 4].map((item) => <span key={item}>🍓</span>)}</div><strong>专注完成　+{POMODORO_REWARD}</strong><small>草莓已经放进钱包</small></div>}
+                </>
+              )}
 
               {overlay === "quest" && (
                 <>

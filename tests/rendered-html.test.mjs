@@ -16,6 +16,17 @@ import { canPetMove, decayPetStats, decayPetStatsByTime, formatSleepRemaining, g
 import { getJournalReward } from "../app/game/journal-reward.ts";
 import { getWalkDirection, WALK_DIRECTION_ROW } from "../app/game/movement-direction.ts";
 import {
+  formatPomodoroTime,
+  INITIAL_POMODORO,
+  normalizePomodoro,
+  pausePomodoro,
+  POMODORO_BREAK_MS,
+  POMODORO_FOCUS_MS,
+  POMODORO_REWARD,
+  settlePomodoro,
+  startPomodoro,
+} from "../app/game/pomodoro.ts";
+import {
   INITIAL_INGREDIENT_INVENTORY,
   cocktailRecipes,
   createInitialCocktailCollection,
@@ -127,6 +138,44 @@ test("tracks cooking progress up to the twenty minute recipe", () => {
   assert.equal(formatCookingTime(20 * 60_000, 0), "20:00");
 });
 
+test("runs a persistent 25 plus 5 pomodoro cycle and rewards five strawberries once", async () => {
+  assert.equal(POMODORO_FOCUS_MS, 25 * 60_000);
+  assert.equal(POMODORO_BREAK_MS, 5 * 60_000);
+  assert.equal(POMODORO_REWARD, 5);
+  const started = startPomodoro({ ...INITIAL_POMODORO, todayDate: "2026-08-25" }, 1_000);
+  assert.equal(started.endsAt, 1_000 + POMODORO_FOCUS_MS);
+  assert.equal(formatPomodoroTime(POMODORO_FOCUS_MS), "25:00");
+
+  const paused = pausePomodoro(started, 61_000);
+  assert.equal(paused.status, "paused");
+  assert.equal(paused.remainingMs, 24 * 60_000);
+
+  const finished = settlePomodoro(started, "2026-08-25", started.endsAt);
+  assert.equal(finished.reward, 5);
+  assert.equal(finished.event, "focus");
+  assert.equal(finished.state.phase, "break");
+  assert.equal(finished.state.status, "running");
+  assert.equal(finished.state.totalCycles, 1);
+  assert.equal(finished.state.todayCycles, 1);
+  assert.equal(finished.state.earnedBerries, 5);
+  assert.equal(settlePomodoro(finished.state, "2026-08-25", started.endsAt).reward, 0);
+
+  const restoredNextDay = normalizePomodoro(finished.state, "2026-08-26");
+  assert.equal(restoredNextDay.todayCycles, 0);
+  assert.equal(restoredNextDay.totalCycles, 1);
+  assert.equal(restoredNextDay.earnedBerries, 5);
+
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  const desktopMain = await readFile(new URL("../electron/main.cjs", import.meta.url), "utf8");
+  assert.match(source, /BERRY FOCUS CLOCK/);
+  assert.match(source, /berries: current\.berries \+ result\.reward/);
+  assert.match(source, /Notification\.requestPermission/);
+  assert.match(css, /\.pomodoro-ring[\s\S]*conic-gradient/);
+  assert.match(css, /@keyframes pomodoro-berry-burst/);
+  assert.match(desktopMain, /pomodoro:schedule[\s\S]*new Notification/);
+});
+
 test("keeps yard movement out of large obstacles", () => {
   assert.deepEqual(clampToScene({ x: 10, y: 45 }, "yard", YARD_OBSTACLES), { x: 10, y: 51 });
   const path = getWalkPath({ x: 30, y: 76 }, { x: 92, y: 60 }, "yard", YARD_OBSTACLES);
@@ -227,7 +276,7 @@ test("persists ingredient stock and cocktail collection and settles each transac
   const collection = createInitialCocktailCollection();
   assert.equal(Object.keys(collection).length, cocktailRecipes.length);
   assert.equal(Object.values(collection).every((entry) => !entry.unlocked && entry.bestScore === 0), true);
-  assert.match(source, /gameSchemaVersion: 9[\s\S]*ingredientInventory: IngredientInventory[\s\S]*cocktailCollection: CocktailCollection[\s\S]*cocktailInventory: CocktailInventory/);
+  assert.match(source, /gameSchemaVersion: 10[\s\S]*ingredientInventory: IngredientInventory[\s\S]*cocktailCollection: CocktailCollection[\s\S]*cocktailInventory: CocktailInventory/);
   assert.match(source, /const ingredientInventory = Object\.fromEntries[\s\S]*const cocktailCollection = Object\.fromEntries[\s\S]*const cocktailInventory = Object\.fromEntries/);
   assert.match(source, /function confirmIngredientPurchase\(\)[\s\S]*ingredientPurchaseLock\.current = true[\s\S]*setGame\(\(current\) => \(\{[\s\S]*berries: current\.berries - totalPrice[\s\S]*ingredientInventory:/);
   assert.match(source, /function startMixing\(\)[\s\S]*mixingTransactionLock\.current = true[\s\S]*ingredientInventory\[stockId\] = Math\.max\(0, ingredientInventory\[stockId\] - \(amount \?\? 0\)\)/);
@@ -643,7 +692,7 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(schema, /category: text\("category"\)/);
   assert.match(checkins, /name === "rating"[\s\S]*ALTER TABLE checkins ADD rating INTEGER[\s\S]*ALTER TABLE checkins ADD reward INTEGER/);
   assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*user-data\.json[\s\S]*createStorage\(dataFile\)[\s\S]*storage:load[\s\S]*storage:save/);
-  assert.match(packageJson, /"version": "0\.6\.0"[\s\S]*"appId": "com\.berryworkout\.island"[\s\S]*"productName": "OH"/);
+  assert.match(packageJson, /"version": "0\.7\.0"[\s\S]*"appId": "com\.berryworkout\.island"[\s\S]*"productName": "OH"/);
   assert.match(preload, /storage:[\s\S]*sendSync\("storage:load"[\s\S]*send\("storage:save"/);
 });
 
@@ -681,7 +730,8 @@ test("switches movement control and independent stats with the selected pet", as
   assert.match(source, /function switchControlledPet\(id: PetId\)[\s\S]*pet: id[\s\S]*\[current\.pet\]: \{ energy: current\.energy[\s\S]*\[id\]: nextStats/);
   assert.match(source, /catPosition: current\.petPositions\[id\] \?\? ROOMMATE_POSITIONS\[id\][\s\S]*\[current\.pet\]: current\.catPosition/);
   assert.match(source, /game\.adoptedPets\.map\(\(id\) => \{[\s\S]*const controlled = id === game\.pet[\s\S]*const position = controlled \? game\.catPosition : game\.petPositions\[id\] \?\? ROOMMATE_POSITIONS\[id\]/);
-  const controlledCatSource = source.slice(source.indexOf("return <div\n              className={`scene-cat walking-cat"), source.indexOf("\n          })}", source.indexOf("return <div\n              className={`scene-cat walking-cat")));
+  const controlledCatStart = source.indexOf("className={`scene-cat walking-cat");
+  const controlledCatSource = source.slice(controlledCatStart, source.indexOf("})}", controlledCatStart));
   assert.match(controlledCatSource, /aria-label=\{`\$\{game\.petNames\[id\]\}正在行走`\}[\s\S]*alt=\{`\$\{game\.petNames\[id\]\}正在小屋里`\}[\s\S]*game\.petNames\[id\]/);
   assert.doesNotMatch(controlledCatSource, /cat\.name/);
   assert.match(source, /function cycleControlledPet\(\)[\s\S]*className=\{`scene-cat roommate-cat[\s\S]*title="切换控制猫咪"/);
