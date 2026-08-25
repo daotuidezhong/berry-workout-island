@@ -702,7 +702,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .pomodoro-tomato-leaves i:nth-child(3) { transform: rotate(-79deg); }
 .pomodoro-tomato-leaves i:nth-child(4) { transform: rotate(-36deg); }
 .pomodoro-tomato-leaves i:nth-child(5) { transform: rotate(7deg); }
-.pomodoro-dial-face > strong { position: relative; z-index: 3; margin-top: 8%; color: #fffdf7; font-size: clamp(40px, 5.2vw, 54px); line-height: 1; letter-spacing: -1px; font-variant-numeric: tabular-nums; white-space: nowrap; text-shadow: 0 4px 0 rgba(84, 20, 25, .58), 0 7px 13px rgba(0,0,0,.46); }
+.pomodoro-dial-face > strong { position: relative; z-index: 3; width: 82%; margin-top: 8%; color: #fffdf7; font-size: clamp(36px, 4.5vw, 48px); line-height: 1; letter-spacing: -1px; font-variant-numeric: tabular-nums; text-align: center; white-space: nowrap; text-shadow: 0 4px 0 rgba(84, 20, 25, .58), 0 7px 13px rgba(0,0,0,.46); }
 .pomodoro-dial-face > small { position: absolute; z-index: 3; bottom: 10%; padding: 6px 10px; border: 1px solid rgba(255,255,255,.16); border-radius: 9px; background: rgba(18,18,22,.72); color: #f4dec8; font-size: 9px; }
 .pomodoro-dial.is-running .pomodoro-tomato-mark { animation: pomodoro-tomato-breathe 2.4s var(--ease-in-out) infinite; }
 .pomodoro-controls { width: 100%; margin-top: 24px; display: flex; justify-content: center; flex-wrap: wrap; gap: 9px; }
