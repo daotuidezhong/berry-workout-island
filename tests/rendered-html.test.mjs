@@ -175,6 +175,8 @@ test("runs a persistent 25 plus 5 pomodoro cycle and rewards five strawberries o
   assert.match(source, /new AudioContext\(\)/);
   assert.match(source, /playPomodoroChime\("focus"\)/);
   assert.match(source, /playPomodoroChime\("break"\)/);
+  assert.match(source, /id === "pomodoro"\) preparePomodoroAudio\(\)/);
+  assert.match(source, /试听提示音/);
   assert.match(source, /className="pomodoro-progress-shell"[\s\S]*className="pomodoro-tomato-mark"/);
   assert.doesNotMatch(source, /className="pomodoro-crown"/);
   assert.doesNotMatch(source, /crop-tomato-mature\.png[\s\S]*专注时间/);

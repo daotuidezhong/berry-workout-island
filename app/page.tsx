@@ -1216,18 +1216,23 @@ export default function Home() {
       notes.forEach((frequency, index) => {
         const oscillator = audioContext.createOscillator();
         const gain = audioContext.createGain();
-        const startsAt = audioContext.currentTime + index * .16;
-        oscillator.type = "sine";
+        const startsAt = audioContext.currentTime + index * .18;
+        oscillator.type = "triangle";
         oscillator.frequency.value = frequency;
         gain.gain.setValueAtTime(.0001, startsAt);
-        gain.gain.exponentialRampToValueAtTime(.16, startsAt + .02);
-        gain.gain.exponentialRampToValueAtTime(.0001, startsAt + .24);
+        gain.gain.exponentialRampToValueAtTime(.28, startsAt + .02);
+        gain.gain.exponentialRampToValueAtTime(.0001, startsAt + .32);
         oscillator.connect(gain);
         gain.connect(audioContext.destination);
         oscillator.start(startsAt);
-        oscillator.stop(startsAt + .25);
+        oscillator.stop(startsAt + .33);
       });
     });
+  }
+
+  function previewPomodoroChime() {
+    preparePomodoroAudio();
+    playPomodoroChime("focus");
   }
 
   function startPomodoroTimer() {
@@ -1263,6 +1268,7 @@ export default function Home() {
 
   function openOverlay(id: Exclude<OverlayId, null>) {
     setDecorating(false);
+    if (id === "pomodoro") preparePomodoroAudio();
     if (id === "bag") {
       const firstOwned = foodItems.find((item) => game.inventory[item.id] > 0);
       if (firstOwned) setSelectedFood(firstOwned.id);
@@ -2283,8 +2289,11 @@ export default function Home() {
                       </div>
                       <div className="pomodoro-notice-status">
                         <span aria-hidden="true">🔔</span>
-                        <div><b>{desktopPomodoroAvailable ? "Windows 到时提醒已开启" : notificationPermission === "granted" ? "后台到时提醒已开启" : notificationPermission === "denied" ? "浏览器通知未授权" : notificationPermission === "unsupported" ? "当前环境仅提供窗口内提醒" : "开启后台到时提醒"}</b><small>{notificationPermission === "denied" ? "可在浏览器网站设置中重新允许通知" : "专注结束和休息结束都会提醒你"}</small></div>
-                        {!desktopPomodoroAvailable && notificationPermission === "default" && <button type="button" onClick={() => void enablePomodoroNotifications()}>开启</button>}
+                        <div><b>{desktopPomodoroAvailable ? "Windows 到时提醒已开启" : notificationPermission === "granted" ? "后台到时提醒已开启" : notificationPermission === "denied" ? "浏览器通知未授权" : notificationPermission === "unsupported" ? "当前环境仅提供窗口内提醒" : "开启后台到时提醒"}</b><small>{notificationPermission === "denied" ? "提示音仍会正常播放；可在浏览器设置中重新允许系统通知" : "专注结束和休息结束都会播放提示音"}</small></div>
+                        <div className="pomodoro-notice-actions">
+                          {!desktopPomodoroAvailable && notificationPermission === "default" && <button type="button" onClick={() => void enablePomodoroNotifications()}>开启通知</button>}
+                          <button type="button" onClick={previewPomodoroChime}>试听提示音</button>
+                        </div>
                       </div>
                     </aside>
                   </div>
