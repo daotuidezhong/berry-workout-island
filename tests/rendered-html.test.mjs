@@ -176,14 +176,16 @@ test("runs a persistent 25 plus 5 pomodoro cycle and rewards five strawberries o
   assert.match(source, /playPomodoroChime\("focus"\)/);
   assert.match(source, /playPomodoroChime\("break"\)/);
   assert.match(source, /id === "pomodoro"\) preparePomodoroAudio\(\)/);
-  assert.match(source, /试听提示音/);
+  assert.doesNotMatch(source, /试听提示音/);
+  assert.match(source, /Windows 弹窗提醒已开启/);
   assert.match(source, /className="pomodoro-progress-shell"[\s\S]*className="pomodoro-tomato-mark"/);
   assert.doesNotMatch(source, /className="pomodoro-crown"/);
   assert.doesNotMatch(source, /crop-tomato-mature\.png[\s\S]*专注时间/);
   assert.match(css, /\.pomodoro-dial \{[^}]*background: radial-gradient[\s\S]*\.pomodoro-progress-shell \{[^}]*conic-gradient[\s\S]*\.pomodoro-tomato-mark \{[^}]*background: radial-gradient/);
   assert.match(css, /\.pomodoro-dial-face > strong \{[^}]*color: #fffdf7/);
   assert.match(css, /@keyframes pomodoro-berry-burst/);
-  assert.match(desktopMain, /pomodoro:schedule[\s\S]*new Notification/);
+  assert.match(desktopMain, /setAppUserModelId\("com\.berryworkout\.island"\)/);
+  assert.match(desktopMain, /pomodoro:schedule[\s\S]*new Notification[\s\S]*notification\.on\("click"[\s\S]*window\.focus\(\)/);
 });
 
 test("keeps yard movement out of large obstacles", () => {

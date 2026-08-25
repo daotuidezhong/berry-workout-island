@@ -6,6 +6,7 @@ const { loadDesktopPlaylist } = require("./netease.cjs");
 const { createStorage } = require("./storage.cjs");
 
 app.setName("OH");
+app.setAppUserModelId("com.berryworkout.island");
 
 protocol.registerSchemesAsPrivileged([{
   scheme: "berry",
@@ -55,11 +56,19 @@ app.whenReady().then(() => {
     pomodoroTimer = setTimeout(() => {
       pomodoroTimer = null;
       const focusFinished = phase === "focus";
-      new Notification({
+      const notification = new Notification({
         title: focusFinished ? "专注完成 · 草莓到账" : "休息结束",
         body: focusFinished ? "完成 1 个番茄循环，获得 5 颗草莓。现在休息 5 分钟吧！" : "新的 25 分钟专注已经准备好。",
         icon: app.isPackaged ? path.join(process.resourcesPath, "build/icon.png") : path.join(__dirname, "../build/icon.png"),
-      }).show();
+        silent: false,
+      });
+      notification.on("click", () => {
+        if (window.isDestroyed()) return;
+        if (window.isMinimized()) window.restore();
+        window.show();
+        window.focus();
+      });
+      notification.show();
       if (!window.isDestroyed()) window.webContents.send("pomodoro:finished", phase);
     }, delay);
   });
