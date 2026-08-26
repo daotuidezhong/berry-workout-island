@@ -3,8 +3,8 @@ import { defineConfig } from "vite";
 import path from "node:path";
 
 export default defineConfig({
-  root: __dirname,
-  publicDir: path.resolve(__dirname, "../public"),
+  root: import.meta.dirname,
+  publicDir: path.resolve(import.meta.dirname, "../public"),
   plugins: [react()],
-  build: { outDir: path.resolve(__dirname, "../desktop-dist"), emptyOutDir: true },
+  build: { outDir: path.resolve(import.meta.dirname, "../desktop-dist"), emptyOutDir: true },
 });

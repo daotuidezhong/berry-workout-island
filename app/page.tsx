@@ -66,7 +66,8 @@ type OverlayId = "quest" | "history" | "bag" | "pets" | "shop" | "kitchen" | "mu
 type ShopCategory = "food" | "furniture" | "ingredients";
 type IngredientFilter = "all" | IngredientCategory;
 type JournalCategory = "运动" | "学习" | "工作" | "饮食" | "睡眠" | "其他";
-type JournalPhoto = { fileName: string; width: number; height: number };
+type JournalPhoto = { fileName?: string; key?: string; width: number; height: number };
+type PhotoPreview = JournalPhoto & { src: string; alt: string };
 type CheckinRecord = { id: number; date: string; content: string; category: JournalCategory; rating: number | null; reward: number | null; createdAt: string; photo?: JournalPhoto | null };
 type DesktopUpdate = { phase: "available" | "downloading" | "downloaded" | "error"; name?: string; notes?: string; percent?: number; message?: string };
 type BackupActionResult = { status: "exported" | "imported" | "cancelled" | "error"; message?: string; importedKeys?: number };
@@ -111,8 +112,9 @@ type GameState = {
   pomodoro: PomodoroState;
 };
 
-const RELEASE_VERSION = "0.9.0";
+const RELEASE_VERSION = "0.9.1";
 const RELEASE_NOTES = [
+  { version: "0.9.1", items: ["网页版日记现在支持上传照片，照片会保存到内部并等比例显示", "上传后和历史记录中都可以预览照片，点击可查看大图", "加强完整备份校验与失败回滚，避免照片缺失或导入中断造成存档不一致", "修复网络中断时可能误删已保存照片的问题，并更新运行与打包组件的安全补丁"] },
   { version: "0.9.0", items: ["日记新增照片功能，每篇记录可导入一张照片", "照片会复制到应用内部，并按最长边 1600 像素等比例处理，不裁切、不拉伸", "完整备份现在会连同日记照片一起从 Windows 迁移到 Mac"] },
   { version: "0.8.0", items: ["新增 macOS 桌面版，同时支持 Apple 芯片和 Intel Mac", "新增完整数据导出与导入，可将 Windows 的日记、草莓、猫咪、家具、农场、调酒收藏和番茄钟进度迁移到 Mac", "导入前会自动保留当前存档，避免误覆盖后无法恢复"] },
   { version: "0.7.0", items: ["新增 25 分钟专注 + 5 分钟休息的番茄钟，每完成一次专注奖励 5 颗草莓", "新增番茄钟累计次数、今日次数与累计奖励记忆，关闭界面后计时仍会继续", "计时器重绘为深色圆形仪表盘、亮色进度环与中央番茄，并加入完成庆祝动画", "专注和休息结束时播放提示音并显示确认弹窗，后台同时发送系统通知"] },
@@ -345,7 +347,8 @@ function writePersisted(key: string, value: string) {
 }
 
 function journalPhotoUrl(photo: JournalPhoto) {
-  return `berry://journal-photo/${encodeURIComponent(photo.fileName)}`;
+  if (photo.key) return `/api/journal-photos?key=${encodeURIComponent(photo.key)}`;
+  return photo.fileName ? `berry://journal-photo/${encodeURIComponent(photo.fileName)}` : "";
 }
 
 const PLOT_POSITIONS = [
@@ -424,6 +427,9 @@ export default function Home() {
   const [rating, setRating] = useState(5);
   const [journalPhoto, setJournalPhoto] = useState<JournalPhoto | null>(null);
   const [importingPhoto, setImportingPhoto] = useState(false);
+  const [webJournalPhotoBlob, setWebJournalPhotoBlob] = useState<Blob | null>(null);
+  const [webJournalPhotoPreview, setWebJournalPhotoPreview] = useState("");
+  const [photoPreview, setPhotoPreview] = useState<PhotoPreview | null>(null);
   const [deviceId, setDeviceId] = useState("");
   const [history, setHistory] = useState<CheckinRecord[]>([]);
   const [historyPage, setHistoryPage] = useState(0);
@@ -479,6 +485,7 @@ export default function Home() {
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">("unsupported");
   const [dataTransferBusy, setDataTransferBusy] = useState<"export" | "import" | null>(null);
   const roomRef = useRef<HTMLDivElement>(null);
+  const journalPhotoInputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const pomodoroAudioContextRef = useRef<AudioContext | null>(null);
   const recoveringTrackId = useRef<number | null>(null);
@@ -944,6 +951,15 @@ export default function Home() {
   }, [toast]);
 
   useEffect(() => {
+    if (!photoPreview) return;
+    const closePreview = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPhotoPreview(null);
+    };
+    window.addEventListener("keydown", closePreview);
+    return () => window.removeEventListener("keydown", closePreview);
+  }, [photoPreview]);
+
+  useEffect(() => {
     const frames = pets.flatMap((item) => [item.idle, item.sleep, item.wake, item.walkSheet, ...item.wakeYawnFrames, ...item.walkFrames, ...item.groomFrames, ...item.scratchFrames]);
     animationImages.current = frames.map((src) => {
       const image = new Image();
@@ -1201,7 +1217,6 @@ export default function Home() {
   const pomodoroActive = game.pomodoro.status === "running";
   const desktopPomodoroAvailable = typeof window !== "undefined" && Boolean(window.gameUpdater?.pomodoro);
   const desktopDataAvailable = typeof window !== "undefined" && Boolean(window.gameUpdater?.storage.exportBackup);
-  const desktopPhotoAvailable = typeof window !== "undefined" && Boolean(window.gameUpdater?.journalPhotos);
   const statusFrames = statusTransition ?? CAT_STATUS_ANIMATIONS[catStatus].frames;
   const currentStatusFrame: CatAnimationFrame = statusIdle
     ? { pose: catStatus === "low-high" ? "sleep" : "idle", duration: STATUS_IDLE_MS }
@@ -1315,19 +1330,25 @@ export default function Home() {
       setMixResult(null);
     }
     setShopIngredientId(null);
-    if ((overlay === "quest" || overlay === "history") && journalPhoto) void window.gameUpdater?.journalPhotos?.remove(journalPhoto.fileName);
-    if (overlay === "quest" || overlay === "history") setJournalPhoto(null);
+    if ((overlay === "quest" || overlay === "history") && journalPhoto) removeJournalPhoto();
     setOverlay(null);
   }
 
   async function selectJournalPhoto() {
     const journalPhotos = window.gameUpdater?.journalPhotos;
-    if (!journalPhotos || importingPhoto) return;
+    if (!journalPhotos) {
+      journalPhotoInputRef.current?.click();
+      return;
+    }
+    if (importingPhoto) return;
     setImportingPhoto(true);
     const result = await journalPhotos.select().catch(() => ({ status: "error", message: "照片导入失败" } as PhotoActionResult));
     setImportingPhoto(false);
     if (result.status === "selected" && result.photo) {
-      if (journalPhoto) await journalPhotos.remove(journalPhoto.fileName).catch(() => false);
+      if (journalPhoto?.fileName) await journalPhotos.remove(journalPhoto.fileName).catch(() => false);
+      if (webJournalPhotoPreview) URL.revokeObjectURL(webJournalPhotoPreview);
+      setWebJournalPhotoBlob(null);
+      setWebJournalPhotoPreview("");
       setJournalPhoto(result.photo);
       setToast("照片已导入应用内部，会保持原始比例显示");
     } else if (result.status === "error") setToast(result.message ?? "照片导入失败");
@@ -1335,8 +1356,45 @@ export default function Home() {
 
   function removeJournalPhoto() {
     if (!journalPhoto) return;
-    void window.gameUpdater?.journalPhotos?.remove(journalPhoto.fileName);
+    if (journalPhoto.fileName) void window.gameUpdater?.journalPhotos?.remove(journalPhoto.fileName);
+    if (webJournalPhotoPreview) URL.revokeObjectURL(webJournalPhotoPreview);
+    setWebJournalPhotoBlob(null);
+    setWebJournalPhotoPreview("");
     setJournalPhoto(null);
+  }
+
+  async function selectWebJournalPhoto(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/") || file.size > 20_000_000) {
+      setToast("请选择不超过 20 MB 的照片");
+      return;
+    }
+    setImportingPhoto(true);
+    try {
+      const image = await createImageBitmap(file);
+      const scale = Math.min(1, 1600 / Math.max(image.width, image.height));
+      const width = Math.max(1, Math.round(image.width * scale));
+      const height = Math.max(1, Math.round(image.height * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error();
+      context.drawImage(image, 0, 0, width, height);
+      image.close();
+      const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error()), "image/jpeg", .85));
+      if (webJournalPhotoPreview) URL.revokeObjectURL(webJournalPhotoPreview);
+      setWebJournalPhotoBlob(blob);
+      setWebJournalPhotoPreview(URL.createObjectURL(blob));
+      setJournalPhoto({ width, height });
+      setToast("照片已导入，会保持原始比例显示");
+    } catch {
+      setToast("这张照片无法读取，请换一张试试");
+    } finally {
+      setImportingPhoto(false);
+    }
   }
 
   async function exportDesktopBackup() {
@@ -1774,7 +1832,7 @@ export default function Home() {
     event.preventDefault();
     const content = noteText.trim();
     if (!ready || !content || !deviceId || savingCheckin) return;
-    const firstRecordToday = todayRecordCount === 0;
+    const firstRecordToday = game.lastCheckin !== today;
     const next = game.streak + 1;
     let reward = getJournalReward(todayRecordCount + 1);
     setSavingCheckin(true);
@@ -1785,10 +1843,21 @@ export default function Home() {
         const records = [record, ...history];
         writePersisted("berry-workout-history", JSON.stringify(records));
       } else {
+        let photo: JournalPhoto | null = null;
+        if (webJournalPhotoBlob && journalPhoto) {
+          const photoData = new FormData();
+          photoData.set("deviceId", deviceId);
+          photoData.set("width", String(journalPhoto.width));
+          photoData.set("height", String(journalPhoto.height));
+          photoData.set("photo", webJournalPhotoBlob, "journal-photo.jpg");
+          const photoResponse = await fetch("/api/journal-photos", { method: "POST", body: photoData });
+          if (!photoResponse.ok) throw new Error();
+          photo = (await photoResponse.json() as { photo: JournalPhoto }).photo;
+        }
         const response = await fetch("/api/checkins", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ deviceId, date: today, content, category, rating }),
+          body: JSON.stringify({ deviceId, date: today, content, category, rating, photo }),
         });
         if (!response.ok) throw new Error();
         record = (await response.json() as { record: CheckinRecord }).record;
@@ -1797,6 +1866,9 @@ export default function Home() {
       setHistory((records) => [record, ...records]);
       setGame((current) => ({ ...current, berries: current.berries + reward, streak: firstRecordToday ? next : current.streak, lastCheckin: today, lastActivity: content }));
       setNoteText("");
+      if (webJournalPhotoPreview) URL.revokeObjectURL(webJournalPhotoPreview);
+      setWebJournalPhotoBlob(null);
+      setWebJournalPhotoPreview("");
       setJournalPhoto(null);
       writePersisted("berry-journal-category", category);
       setToast(reward ? `今天的记忆已经收好啦，获得 ${reward} 个草莓 🍓` : "今天的三次记录奖励已经领完，记忆仍然收好啦");
@@ -2397,12 +2469,16 @@ export default function Home() {
                       <small>{noteText.length}/300</small>
                     </div>
                     <fieldset className="journal-options"><legend>记录分类</legend><div className="category-options">{journalCategories.map((item) => <button key={item.name} className={category === item.name ? "selected" : ""} type="button" onClick={() => setCategory(item.name)}><span>{item.icon}</span>{item.name}</button>)}</div></fieldset>
-                    {desktopPhotoAvailable && <section className="journal-photo-field" aria-label="日记照片">
+                    <section className="journal-photo-field" aria-label="日记照片">
+                      <input ref={journalPhotoInputRef} className="journal-photo-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void selectWebJournalPhoto(event)} />
                       {journalPhoto ? <div className="journal-photo-preview">
-                        <img src={journalPhotoUrl(journalPhoto)} width={journalPhoto.width} height={journalPhoto.height} alt="即将保存的日记照片" />
-                        <button type="button" onClick={removeJournalPhoto} aria-label="移除照片">×</button>
-                      </div> : <button className="journal-photo-picker" type="button" onClick={() => void selectJournalPhoto()} disabled={importingPhoto}><span>📷</span><b>{importingPhoto ? "正在导入……" : "添加一张照片"}</b><small>照片会复制到应用内部，并保持原始比例</small></button>}
-                    </section>}
+                        <button className="journal-photo-open" type="button" onClick={() => setPhotoPreview({ ...journalPhoto, src: webJournalPhotoPreview || journalPhotoUrl(journalPhoto), alt: "即将保存的日记照片" })} aria-label="预览即将保存的照片">
+                          <img src={webJournalPhotoPreview || journalPhotoUrl(journalPhoto)} width={journalPhoto.width} height={journalPhoto.height} alt="即将保存的日记照片" />
+                          <small>点击查看大图</small>
+                        </button>
+                        <button className="journal-photo-remove" type="button" onClick={removeJournalPhoto} aria-label="移除照片">×</button>
+                      </div> : <button className="journal-photo-picker" type="button" onClick={() => void selectJournalPhoto()} disabled={importingPhoto}><span>📷</span><b>{importingPhoto ? "正在导入……" : "添加一张照片"}</b><small>照片会保存到内部，并保持原始比例</small></button>}
+                    </section>
                     <label className="rating-field">今天给自己打几分？<span><input type="range" min="1" max="10" value={rating} onChange={(event) => setRating(Number(event.target.value))} /><b>{rating} 分</b></span></label>
                     <div className="reward-line"><span>{nextJournalReward ? `今日第 ${todayRecordCount + 1} 条记录奖励` : "今日三次记录奖励已全部领取"}</span><b>🍓 +{nextJournalReward}</b></div>
                     <button className="primary-button" type="submit" disabled={!ready || !noteText.trim() || savingCheckin}>{savingCheckin ? "正在保存……" : "保存今日记录"}</button>
@@ -2433,7 +2509,10 @@ export default function Home() {
                             const categoryInfo = journalCategories.find((item) => item.name === record.category) ?? journalCategories.at(-1)!;
                             return <div className="notebook-entry" key={record.id}>
                               <div className="entry-meta"><span>{categoryInfo.icon} {categoryInfo.name}</span><time dateTime={record.createdAt}>{new Date(record.createdAt || `${record.date}T00:00:00`).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time></div>
-                              {record.photo && <img className="notebook-photo" src={journalPhotoUrl(record.photo)} width={record.photo.width} height={record.photo.height} alt={`${record.date} 的日记照片`} loading="lazy" />}
+                              {record.photo && <button className="notebook-photo-button" type="button" onClick={() => setPhotoPreview({ ...record.photo!, src: journalPhotoUrl(record.photo!), alt: `${record.date} 的日记照片` })} aria-label={`预览 ${record.date} 的日记照片`}>
+                                <img className="notebook-photo" src={journalPhotoUrl(record.photo)} width={record.photo.width} height={record.photo.height} alt={`${record.date} 的日记照片`} loading="lazy" />
+                                <small>点击查看大图</small>
+                              </button>}
                               <p>{record.content}</p>
                               {record.rating && <small>⭐ 今日自评分：{record.rating}/10{record.reward ? `　🍓 +${record.reward}` : ""}</small>}
                             </div>;
@@ -2807,6 +2886,15 @@ export default function Home() {
             <small>{pomodoroAlert === "focus" ? "5 分钟休息已经自动开始，草莓也放进钱包啦" : "新的 25 分钟专注已经准备好"}</small>
             <button type="button" onClick={() => setPomodoroAlert(null)}>知道了</button>
           </section>
+        </div>
+      )}
+      {photoPreview && (
+        <div className="photo-lightbox" role="dialog" aria-modal="true" aria-label="照片预览" onClick={() => setPhotoPreview(null)}>
+          <button className="photo-lightbox-close" type="button" onClick={() => setPhotoPreview(null)} aria-label="关闭照片预览">×</button>
+          <figure onClick={(event) => event.stopPropagation()}>
+            <img src={photoPreview.src} width={photoPreview.width} height={photoPreview.height} alt={photoPreview.alt} />
+            <figcaption>按 Esc 或点击空白处关闭</figcaption>
+          </figure>
         </div>
       )}
       <div className={`toast ${toast ? "show" : ""}`} role="status" aria-live="polite">{toast}</div>

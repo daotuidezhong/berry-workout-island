@@ -1,6 +1,6 @@
 {
   "name": "berry-workout-island",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -18,13 +18,13 @@
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
-    "electron-updater": "^6.6.2",
-    "next": "16.2.6",
-    "react": "19.2.6",
-    "react-dom": "19.2.6"
+    "electron-updater": "6.8.9",
+    "next": "16.3.3",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "1.37.1",
+    "@cloudflare/vite-plugin": "1.54.0",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
@@ -32,16 +32,16 @@
     "@vitejs/plugin-react": "6.0.2",
     "@vitejs/plugin-rsc": "0.5.26",
     "drizzle-kit": "0.31.10",
-    "electron": "37.2.6",
-    "electron-builder": "26.0.12",
+    "electron": "44.0.0",
+    "electron-builder": "26.15.3",
     "eslint": "9.39.4",
-    "eslint-config-next": "16.2.6",
-    "react-server-dom-webpack": "19.2.6",
+    "eslint-config-next": "16.3.3",
+    "react-server-dom-webpack": "19.2.8",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
     "vinext": "0.0.50",
-    "vite": "8.0.13",
-    "wrangler": "4.92.0"
+    "vite": "8.2.2",
+    "wrangler": "4.126.0"
   },
   "type": "module",
   "main": "electron/main.cjs",

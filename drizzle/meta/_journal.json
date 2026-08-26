@@ -22,6 +22,13 @@
       "when": 1786453200000,
       "tag": "0002_daily_journal",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1787746428949,
+      "tag": "0003_skinny_dreadnoughts",
+      "breakpoints": true
     }
   ]
 }

@@ -24,11 +24,11 @@ npm test
 npm run desktop:build
 ```
 
-安装包输出到 `outputs/Berry-Workout-Island-Setup-0.9.0.exe`。桌面版在本机保存游戏进度、日记历史、日记照片、自评分、番茄钟记忆和猫咪名字，并支持检查 GitHub Releases 更新。日记照片会导入应用内部，最长边等比例缩至 1600 像素，不裁切、不拉伸。
+安装包输出到 `outputs/Berry-Workout-Island-Setup-0.9.1.exe`。桌面版在本机保存游戏进度、日记历史、日记照片、自评分、番茄钟记忆和猫咪名字，并支持检查 GitHub Releases 更新。日记照片会导入应用内部，最长边等比例缩至 1600 像素，不裁切、不拉伸。
 
 ## macOS 安装版
 
-macOS 安装包必须在 Mac 上构建。在 GitHub Actions 中手动运行 `Build macOS installers`，会分别生成 Apple 芯片的 `OH-0.9.0-arm64.dmg` 和 Intel Mac 的 `OH-0.9.0-x64.dmg`。未签名安装包首次打开时需在 macOS“隐私与安全性”中确认允许。
+macOS 安装包必须在 Mac 上构建。在 GitHub Actions 中手动运行 `Build macOS installers`，会分别生成 Apple 芯片的 `OH-0.9.1-arm64.dmg` 和 Intel Mac 的 `OH-0.9.1-x64.dmg`。未签名安装包首次打开时需在 macOS“隐私与安全性”中确认允许。
 
 ```bash
 npm run desktop:build:mac -- --arm64 --publish never
@@ -37,7 +37,7 @@ npm run desktop:build:mac -- --x64 --publish never
 
 ## 数据位置
 
-- 网页版：游戏状态保存在浏览器，打卡记录保存在 Sites D1。
+- 网页版：游戏状态保存在浏览器，打卡记录保存在 Sites D1，日记照片保存在 Sites R2。
 - Windows / macOS 版：游戏状态、打卡记录与自评分同时写入网页存储和独立本地数据文件，不会上传给屋主。
 - 桌面版左上角的“数据备份”可导出 `.ohbackup` 完整存档；把文件复制到新电脑后导入，即可在 Windows 和 Mac 之间迁移全部数据，包括日记照片。
 - 桌面版更新完成后，首次启动会自动弹出当前版本的更新说明。

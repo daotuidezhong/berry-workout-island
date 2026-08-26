@@ -677,6 +677,8 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   const checkins = await readFile(new URL("../db/checkins.ts", import.meta.url), "utf8");
   const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
   const api = await readFile(new URL("../app/api/checkins/route.ts", import.meta.url), "utf8");
+  const photoApi = await readFile(new URL("../app/api/journal-photos/route.ts", import.meta.url), "utf8");
+  const photoStore = await readFile(new URL("../db/journal-photos.ts", import.meta.url), "utf8");
   const electronMain = await readFile(new URL("../electron/main.cjs", import.meta.url), "utf8");
   const preload = await readFile(new URL("../electron/preload.cjs", import.meta.url), "utf8");
   const packageJson = await readFile(new URL("../package.json", import.meta.url), "utf8");
@@ -689,6 +691,7 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(source, /let reward = getJournalReward\(todayRecordCount \+ 1\)/);
   assert.match(source, /berries: current\.berries \+ reward, streak: firstRecordToday \? next : current\.streak/);
   assert.match(api, /countCheckinsForDate[\s\S]*getJournalReward\(\(await countCheckinsForDate\(deviceId, date\)\) \+ 1\)/);
+  assert.match(api, /journalPhotoExists[\s\S]*照片不存在，请重新选择/);
   assert.doesNotMatch(source, /calorie|卡路里|千卡|智能估算/i);
   assert.doesNotMatch(api, /calorie|estimateCalories/i);
   assert.doesNotMatch(source, /backup-consent|syncDesktopRecord|BACKUP_ORIGIN|云备份/);
@@ -705,14 +708,21 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(schema, /category: text\("category"\)/);
   assert.match(checkins, /name === "rating"[\s\S]*ALTER TABLE checkins ADD rating INTEGER[\s\S]*ALTER TABLE checkins ADD reward INTEGER/);
   assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*user-data\.json[\s\S]*createStorage\(dataFile, \{ journalPhotosDirectory \}\)[\s\S]*storage:load[\s\S]*storage:save/);
-  assert.match(packageJson, /"version": "0\.9\.0"[\s\S]*"appId": "com\.berryworkout\.island"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
+  assert.match(packageJson, /"version": "0\.9\.1"[\s\S]*"appId": "com\.berryworkout\.island"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
   assert.match(macWorkflow, /macos-15[\s\S]*arch: \[arm64, x64\][\s\S]*desktop:build:mac[\s\S]*outputs\/\*\.dmg/);
   assert.match(electronMain, /showSaveDialog[\s\S]*\.ohbackup[\s\S]*storage\.exportPayload[\s\S]*showOpenDialog[\s\S]*storage\.importPayload/);
   assert.match(preload, /storage:[\s\S]*sendSync\("storage:load"[\s\S]*send\("storage:save"[\s\S]*storage:export[\s\S]*storage:import/);
   assert.match(source, /数据备份[\s\S]*导出 \.ohbackup 文件[\s\S]*选择备份并导入/);
-  assert.match(source, /添加一张照片[\s\S]*照片会复制到应用内部，并保持原始比例/);
+  assert.match(source, /添加一张照片[\s\S]*照片会保存到内部，并保持原始比例/);
+  assert.match(source, /createImageBitmap\(file\)[\s\S]*1600 \/ Math\.max\(image\.width, image\.height\)[\s\S]*canvas\.toBlob/);
+  assert.match(source, /\/api\/journal-photos[\s\S]*photoData[\s\S]*photo: JournalPhoto/);
+  assert.doesNotMatch(source, /uploadedPhotoKey[\s\S]*method: "DELETE"/);
+  assert.match(photoApi, /saveJournalPhoto[\s\S]*getJournalPhoto[\s\S]*deleteJournalPhoto/);
+  assert.match(photoStore, /JOURNAL_PHOTOS[\s\S]*\.head\(key\)[\s\S]*\.put\(key[\s\S]*\.delete\(key\)/);
   assert.match(source, /notebook-photo[\s\S]*journalPhotoUrl\(record\.photo\)/);
-  assert.match(css, /\.journal-photo-preview img \{[^}]*max-width: 100%[^}]*max-height: 260px[^}]*object-fit: contain/);
+  assert.match(css, /\.journal-photo-open img \{[^}]*max-width: 100%[^}]*max-height: 260px[^}]*object-fit: contain/);
+  assert.match(source, /预览即将保存的照片[\s\S]*预览 \$\{record\.date\} 的日记照片[\s\S]*photo-lightbox/);
+  assert.match(css, /\.photo-lightbox \{[^}]*position: fixed[^}]*place-items: center[\s\S]*\.photo-lightbox img \{[^}]*object-fit: contain/);
   assert.match(electronMain, /journal-photo:select[\s\S]*nativeImage\.createFromPath[\s\S]*longestSide > 1600[\s\S]*toJPEG\(85\)/);
   assert.match(preload, /journalPhotos:[\s\S]*journal-photo:select[\s\S]*journal-photo:remove/);
 });
@@ -742,11 +752,12 @@ test("moves the complete Windows save into macOS and preserves the replaced Mac 
   const windowsPhotos = join(directory, "windows", "journal-photos");
   const macPhotos = join(directory, "mac", "journal-photos");
   const photoFile = "journal-11111111-1111-4111-8111-111111111111.jpg";
+  const photoBytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0xff, 0xd9]);
   const windowsGame = JSON.stringify({ gameSchemaVersion: 8, berries: 888, pet: "xueqiu", pomodoro: { totalCycles: 12 } });
   const windowsHistory = JSON.stringify([{ id: 7, date: "2026-08-26", content: "Windows 迁移记录", category: "工作", rating: 9, reward: 18, photo: { fileName: photoFile, width: 1200, height: 800 } }]);
   try {
     await mkdir(windowsPhotos, { recursive: true });
-    await writeFile(join(windowsPhotos, photoFile), "photo-from-windows");
+    await writeFile(join(windowsPhotos, photoFile), photoBytes);
     const windowsStorage = createStorage(windowsDataFile, { journalPhotosDirectory: windowsPhotos });
     windowsStorage.save("berry-workout-game", windowsGame);
     windowsStorage.save("berry-workout-history", windowsHistory);
@@ -756,7 +767,7 @@ test("moves the complete Windows save into macOS and preserves the replaced Mac 
     assert.equal(payload.format, "oh-user-data");
     assert.equal(payload.version, 2);
     assert.equal(payload.sourcePlatform, "win32");
-    assert.equal(Buffer.from(payload.assets.journalPhotos[photoFile], "base64").toString(), "photo-from-windows");
+    assert.deepEqual(Buffer.from(payload.assets.journalPhotos[photoFile], "base64"), photoBytes);
 
     await mkdir(macPhotos, { recursive: true });
     await writeFile(join(macPhotos, "journal-22222222-2222-4222-8222-222222222222.jpg"), "old-mac-photo");
@@ -766,10 +777,16 @@ test("moves the complete Windows save into macOS and preserves the replaced Mac 
     assert.deepEqual(importedKeys.sort(), ["berry-workout-device", "berry-workout-game", "berry-workout-history"]);
     assert.equal(macStorage.load("berry-workout-game"), windowsGame);
     assert.equal(macStorage.load("berry-workout-history"), windowsHistory);
-    assert.equal((await readFile(join(macPhotos, photoFile))).toString(), "photo-from-windows");
+    assert.deepEqual(await readFile(join(macPhotos, photoFile)), photoBytes);
     assert.ok((await readdir(join(directory, "mac"))).some((file) => file.startsWith("user-data.pre-import-")));
     assert.ok((await readdir(join(directory, "mac"))).some((file) => file.startsWith("journal-photos.pre-import-")));
     assert.throws(() => macStorage.importPayload({ format: "other", version: 1, data: payload.data }), /可识别的 OH 备份/);
+    const missingPhotoPayload = JSON.parse(JSON.stringify(payload));
+    missingPhotoPayload.assets.journalPhotos = {};
+    assert.throws(() => macStorage.importPayload(missingPhotoPayload), /日记照片不完整/);
+    const invalidPhotoPayload = JSON.parse(JSON.stringify(payload));
+    invalidPhotoPayload.assets.journalPhotos[photoFile] = Buffer.from("not-a-jpeg").toString("base64");
+    assert.throws(() => macStorage.importPayload(invalidPhotoPayload), /日记照片格式不正确/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

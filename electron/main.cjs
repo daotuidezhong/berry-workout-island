@@ -28,7 +28,7 @@ app.whenReady().then(() => {
     if (url.hostname === "journal-photo") {
       const name = path.basename(pathname);
       const file = path.join(journalPhotosDirectory, name);
-      if (!/^journal-[0-9a-f-]+\.jpg$/.test(name) || !fs.existsSync(file)) return new Response("Not found", { status: 404 });
+      if (!/^journal-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.jpg$/i.test(name) || !fs.existsSync(file)) return new Response("Not found", { status: 404 });
       return net.fetch(pathToFileURL(file).toString());
     }
     if (pathname === "/api/netease-playlist") {
@@ -118,7 +118,7 @@ app.whenReady().then(() => {
     }
   });
   ipcMain.handle("journal-photo:remove", (event, fileName) => {
-    if (event.sender !== window.webContents || !/^journal-[0-9a-f-]+\.jpg$/.test(fileName)) return false;
+    if (event.sender !== window.webContents || !/^journal-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.jpg$/i.test(fileName)) return false;
     fs.rmSync(path.join(journalPhotosDirectory, fileName), { force: true });
     return true;
   });
