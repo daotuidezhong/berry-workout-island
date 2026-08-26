@@ -1,5 +1,6 @@
-const { app, BrowserWindow, ipcMain, net, Notification, protocol } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, net, Notification, protocol } = require("electron");
 const { autoUpdater } = require("electron-updater");
+const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { loadDesktopPlaylist } = require("./netease.cjs");
@@ -49,6 +50,38 @@ app.whenReady().then(() => {
   const storage = createStorage(dataFile);
   ipcMain.on("storage:load", (event, key) => { event.returnValue = storage.load(key); });
   ipcMain.on("storage:save", (_event, key, value) => storage.save(key, value));
+  ipcMain.handle("storage:export", async (event) => {
+    if (event.sender !== window.webContents) return { status: "error", message: "无法读取当前游戏数据" };
+    try {
+      const date = new Date().toISOString().slice(0, 10);
+      const result = await dialog.showSaveDialog(window, {
+        title: "导出 OH 完整备份",
+        defaultPath: `OH-backup-${date}.ohbackup`,
+        filters: [{ name: "OH 备份", extensions: ["ohbackup"] }],
+      });
+      if (result.canceled || !result.filePath) return { status: "cancelled" };
+      const payload = storage.exportPayload({ sourcePlatform: process.platform, appVersion: app.getVersion() });
+      fs.writeFileSync(result.filePath, JSON.stringify(payload, null, 2), "utf8");
+      return { status: "exported" };
+    } catch (error) {
+      return { status: "error", message: error instanceof Error ? error.message : "备份导出失败" };
+    }
+  });
+  ipcMain.handle("storage:import", async (event) => {
+    if (event.sender !== window.webContents) return { status: "error", message: "无法写入当前游戏数据" };
+    try {
+      const result = await dialog.showOpenDialog(window, {
+        title: "导入 OH 完整备份",
+        properties: ["openFile"],
+        filters: [{ name: "OH 备份", extensions: ["ohbackup", "json"] }],
+      });
+      if (result.canceled || !result.filePaths[0]) return { status: "cancelled" };
+      const keys = storage.importPayload(JSON.parse(fs.readFileSync(result.filePaths[0], "utf8")));
+      return { status: "imported", importedKeys: keys.length };
+    } catch (error) {
+      return { status: "error", message: error instanceof Error ? error.message : "备份导入失败" };
+    }
+  });
   ipcMain.on("pomodoro:schedule", (event, endsAt, phase) => {
     if (event.sender !== window.webContents || !Number.isFinite(endsAt) || (phase !== "focus" && phase !== "break")) return;
     cancelPomodoroTimer();

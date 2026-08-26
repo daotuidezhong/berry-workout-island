@@ -6,7 +6,7 @@
 
 ## 1. 架构总览
 
-项目共用一套 React 游戏界面，同时输出网页版和 Windows 桌面版。
+项目共用一套 React 游戏界面，同时输出网页版、Windows 和 macOS 桌面版。
 
 ```mermaid
 flowchart LR
@@ -39,7 +39,7 @@ project_009_草莓打卡屋/
 │  └─ page.tsx                # 游戏界面、交互和状态协调
 ├─ db/                        # D1 访问与表结构
 ├─ desktop/                   # 桌面版 React 构建入口
-├─ electron/                  # Windows 窗口、更新和安全桥接
+├─ electron/                  # Windows / macOS 窗口、更新、存档和安全桥接
 ├─ drizzle/                   # 数据库迁移记录
 ├─ public/game/               # 房间、猫咪、家具等游戏素材
 ├─ tests/                     # 构建后回归检查
@@ -62,9 +62,9 @@ project_009_草莓打卡屋/
 | `GAME-RULES` | 游戏规则 | 纯计算规则和动画资源映射，不直接操作页面 | `app/game/` |
 | `WEB-API` | 网页接口 | 校验打卡请求，读写网页版历史记录 | `app/api/checkins/route.ts` |
 | `DATA-DB` | 云端数据 | D1 表结构、查询、保存和迁移 | `db/`, `drizzle/` |
-| `DATA-LOCAL` | 本地数据 | 保存设备编号、游戏状态和桌面版历史记录 | `app/page.tsx` 中的 `localStorage` 逻辑 |
+| `DATA-LOCAL` | 本地数据 | 保存设备编号、游戏状态和桌面版历史记录，支持跨平台完整备份 | `app/page.tsx`, `electron/storage.cjs` |
 | `WEB` | 网页运行层 | vinext 构建、Worker 运行、Sites 资源绑定 | `vite.config.ts`, `worker/index.ts`, `.openai/hosting.json` |
-| `DESKTOP` | Windows 运行层 | 复用游戏界面、创建窗口、本地协议、应用更新 | `desktop/`, `electron/` |
+| `DESKTOP` | Windows / macOS 运行层 | 复用游戏界面、创建窗口、本地协议、存档迁移、应用更新 | `desktop/`, `electron/`, `.github/workflows/macos-build.yml` |
 | `ASSETS` | 游戏素材 | 房间、猫咪动画、家具、食品、鼠标指针 | `public/game/` |
 | `TEST` | 回归检查 | 构建产物、规则、资源与关键页面结构检查 | `tests/rendered-html.test.mjs` |
 | `DOCS` | 项目文档 | 架构基线、问题清单、设计验收记录 | `docs/` |
@@ -85,7 +85,7 @@ sequenceDiagram
         P->>A: POST /api/checkins
         A->>D: 保存到 D1
         D-->>P: 返回打卡记录
-    else Windows 版
+    else Windows / macOS 版
         P->>D: 保存到 localStorage
     end
     P-->>U: 更新连续天数、莓果和历史
@@ -105,15 +105,16 @@ sequenceDiagram
 
 ### 4.5 番茄钟
 
-`app/game/pomodoro.ts` 集中定义 25 分钟专注、5 分钟休息、每次 5 颗草莓奖励，以及开始、暂停、恢复和跨后台结算规则。计时使用绝对结束时间，不依赖前台逐秒累减；状态随 `berry-workout-game` 保存。网页版通过系统通知提示，Windows 版由 Electron 主进程调度本地通知，窗口最小化后仍会继续计时。
+`app/game/pomodoro.ts` 集中定义 25 分钟专注、5 分钟休息、每次 5 颗草莓奖励，以及开始、暂停、恢复和跨后台结算规则。计时使用绝对结束时间，不依赖前台逐秒累减；状态随 `berry-workout-game` 保存。网页版通过系统通知提示，Windows / macOS 版由 Electron 主进程调度本地通知，窗口最小化后仍会继续计时。
 
 ## 5. 网页版与桌面版差异
 
-| 能力 | 网页版 | Windows 版 |
+| 能力 | 网页版 | Windows / macOS 版 |
 |---|---|---|
 | 游戏界面 | 共用 `app/page.tsx` | 共用 `app/page.tsx` |
 | 游戏状态 | 浏览器 `localStorage` | 本机 `localStorage` |
 | 打卡历史 | Sites D1 | 本机 `localStorage` |
+| 跨电脑迁移 | 暂不支持 | `.ohbackup` 完整导出 / 导入，导入前保留旧存档 |
 | 天气 | 浏览器直接请求天气服务 | 同网页版 |
 | 更新 | 随网站发布更新 | `electron-updater` 检查 GitHub Releases |
 | 运行入口 | `worker/index.ts` | `electron/main.cjs` |

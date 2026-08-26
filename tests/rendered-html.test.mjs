@@ -177,7 +177,7 @@ test("runs a persistent 25 plus 5 pomodoro cycle and rewards five strawberries o
   assert.match(source, /playPomodoroChime\("break"\)/);
   assert.match(source, /id === "pomodoro"\) preparePomodoroAudio\(\)/);
   assert.doesNotMatch(source, /试听提示音/);
-  assert.match(source, /Windows 弹窗提醒已开启/);
+  assert.match(source, /桌面系统弹窗提醒已开启/);
   assert.match(source, /className="pomodoro-progress-shell"[\s\S]*className="pomodoro-tomato-mark"/);
   assert.doesNotMatch(source, /className="pomodoro-crown"/);
   assert.doesNotMatch(source, /crop-tomato-mature\.png[\s\S]*专注时间/);
@@ -680,6 +680,7 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   const electronMain = await readFile(new URL("../electron/main.cjs", import.meta.url), "utf8");
   const preload = await readFile(new URL("../electron/preload.cjs", import.meta.url), "utf8");
   const packageJson = await readFile(new URL("../package.json", import.meta.url), "utf8");
+  const macWorkflow = await readFile(new URL("../.github/workflows/macos-build.yml", import.meta.url), "utf8");
   assert.match(source, /historyDates\.slice\(historyPage \* 2, historyPage \* 2 \+ 2\)/);
   assert.match(css, /\.notebook-page \{[^}]*min-height: 430px/);
   assert.match(source, /TODAY&apos;S NOTE[\s\S]*今天发生了什么[\s\S]*JOURNAL HISTORY[\s\S]*往日日记/);
@@ -704,8 +705,11 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(schema, /category: text\("category"\)/);
   assert.match(checkins, /name === "rating"[\s\S]*ALTER TABLE checkins ADD rating INTEGER[\s\S]*ALTER TABLE checkins ADD reward INTEGER/);
   assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*user-data\.json[\s\S]*createStorage\(dataFile\)[\s\S]*storage:load[\s\S]*storage:save/);
-  assert.match(packageJson, /"version": "0\.7\.0"[\s\S]*"appId": "com\.berryworkout\.island"[\s\S]*"productName": "OH"/);
-  assert.match(preload, /storage:[\s\S]*sendSync\("storage:load"[\s\S]*send\("storage:save"/);
+  assert.match(packageJson, /"version": "0\.8\.0"[\s\S]*"appId": "com\.berryworkout\.island"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
+  assert.match(macWorkflow, /macos-15[\s\S]*arch: \[arm64, x64\][\s\S]*desktop:build:mac[\s\S]*outputs\/\*\.dmg/);
+  assert.match(electronMain, /showSaveDialog[\s\S]*\.ohbackup[\s\S]*storage\.exportPayload[\s\S]*showOpenDialog[\s\S]*storage\.importPayload/);
+  assert.match(preload, /storage:[\s\S]*sendSync\("storage:load"[\s\S]*send\("storage:save"[\s\S]*storage:export[\s\S]*storage:import/);
+  assert.match(source, /数据备份[\s\S]*导出 \.ohbackup 文件[\s\S]*选择备份并导入/);
 });
 
 test("preserves the previous desktop save and recovers from a damaged primary file", async () => {
@@ -721,6 +725,36 @@ test("preserves the previous desktop save and recovers from a damaged primary fi
     assert.equal(storage.load("berry-workout-history"), legacyHistory);
     await writeFile(dataFile, "{damaged", "utf8");
     assert.equal(storage.load("berry-workout-game"), legacyGame);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("moves the complete Windows save into macOS and preserves the replaced Mac save", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "oh-cross-platform-"));
+  const windowsDataFile = join(directory, "windows", "user-data.json");
+  const macDataFile = join(directory, "mac", "user-data.json");
+  const windowsGame = JSON.stringify({ gameSchemaVersion: 8, berries: 888, pet: "xueqiu", pomodoro: { totalCycles: 12 } });
+  const windowsHistory = JSON.stringify([{ id: 7, date: "2026-08-26", content: "Windows 迁移记录", category: "工作", rating: 9, reward: 18 }]);
+  try {
+    const windowsStorage = createStorage(windowsDataFile);
+    windowsStorage.save("berry-workout-game", windowsGame);
+    windowsStorage.save("berry-workout-history", windowsHistory);
+    windowsStorage.save("berry-workout-device", "windows-device-id");
+    const payload = windowsStorage.exportPayload({ sourcePlatform: "win32", appVersion: "0.8.0" });
+
+    assert.equal(payload.format, "oh-user-data");
+    assert.equal(payload.version, 1);
+    assert.equal(payload.sourcePlatform, "win32");
+
+    const macStorage = createStorage(macDataFile);
+    macStorage.save("berry-workout-game", JSON.stringify({ berries: 3 }));
+    const importedKeys = macStorage.importPayload(JSON.parse(JSON.stringify(payload)));
+    assert.deepEqual(importedKeys.sort(), ["berry-workout-device", "berry-workout-game", "berry-workout-history"]);
+    assert.equal(macStorage.load("berry-workout-game"), windowsGame);
+    assert.equal(macStorage.load("berry-workout-history"), windowsHistory);
+    assert.ok((await readdir(join(directory, "mac"))).some((file) => file.startsWith("user-data.pre-import-")));
+    assert.throws(() => macStorage.importPayload({ format: "other", version: 1, data: payload.data }), /可识别的 OH 备份/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

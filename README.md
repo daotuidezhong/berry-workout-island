@@ -1,13 +1,13 @@
 # OH 像素生活日记小屋
 
-一个把每日生活日记、25+5 番茄专注、猫咪陪伴、院子种植、厨房烹饪和房间布置结合起来的网页 / Windows 桌面小游戏。
+一个把每日生活日记、25+5 番茄专注、猫咪陪伴、院子种植、厨房烹饪和房间布置结合起来的网页 / Windows / macOS 桌面小游戏。
 
 ## 项目入口
 
 - 项目架构与待修改清单：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - 设计验收记录：[`docs/design-qa.md`](docs/design-qa.md)
 - 网页主界面：[`app/page.tsx`](app/page.tsx)
-- Windows 桌面入口：[`desktop/main.tsx`](desktop/main.tsx)
+- Windows / macOS 桌面入口：[`desktop/main.tsx`](desktop/main.tsx)
 
 ## 常用命令
 
@@ -24,19 +24,29 @@ npm test
 npm run desktop:build
 ```
 
-安装包输出到 `outputs/Berry-Workout-Island-Setup-0.7.0.exe`。桌面版在本机保存游戏进度、日记历史、自评分、番茄钟记忆和猫咪名字，并支持检查 GitHub Releases 更新。
+安装包输出到 `outputs/Berry-Workout-Island-Setup-0.8.0.exe`。桌面版在本机保存游戏进度、日记历史、自评分、番茄钟记忆和猫咪名字，并支持检查 GitHub Releases 更新。
+
+## macOS 安装版
+
+macOS 安装包必须在 Mac 上构建。在 GitHub Actions 中手动运行 `Build macOS installers`，会分别生成 Apple 芯片的 `OH-0.8.0-arm64.dmg` 和 Intel Mac 的 `OH-0.8.0-x64.dmg`。未签名安装包首次打开时需在 macOS“隐私与安全性”中确认允许。
+
+```bash
+npm run desktop:build:mac -- --arm64 --publish never
+npm run desktop:build:mac -- --x64 --publish never
+```
 
 ## 数据位置
 
 - 网页版：游戏状态保存在浏览器，打卡记录保存在 Sites D1。
-- Windows 版：游戏状态、打卡记录与自评分同时写入网页存储和独立本地数据文件，不会上传给屋主。
-- Windows 版更新完成后，首次启动会自动弹出当前版本的更新说明。
+- Windows / macOS 版：游戏状态、打卡记录与自评分同时写入网页存储和独立本地数据文件，不会上传给屋主。
+- 桌面版左上角的“数据备份”可导出 `.ohbackup` 完整存档；把文件复制到新电脑后导入，即可在 Windows 和 Mac 之间迁移全部数据。
+- 桌面版更新完成后，首次启动会自动弹出当前版本的更新说明。
 
 ## 番茄钟
 
 - 每次专注 25 分钟，完成后奖励 5 颗草莓并自动进入 5 分钟休息。
 - 保存今日循环数、历史累计循环数和番茄钟累计奖励；暂停、关闭番茄钟窗口或把游戏放到后台不会丢失进度。
-- 网页版在获得通知权限后发送系统通知；Windows 版由桌面进程计时，窗口最小化后仍会在专注或休息结束时提醒。
+- 网页版在获得通知权限后发送系统通知；Windows / macOS 版由桌面进程计时，窗口最小化后仍会在专注或休息结束时提醒。
 
 ## 商店与调酒
 

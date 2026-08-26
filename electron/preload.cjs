@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld("gameUpdater", {
   storage: {
     load: (key) => ipcRenderer.sendSync("storage:load", key),
     save: (key, value) => ipcRenderer.send("storage:save", key, value),
+    exportBackup: () => ipcRenderer.invoke("storage:export"),
+    importBackup: () => ipcRenderer.invoke("storage:import"),
   },
   pomodoro: {
     schedule: (endsAt, phase) => ipcRenderer.send("pomodoro:schedule", endsAt, phase),

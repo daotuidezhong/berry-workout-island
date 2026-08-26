@@ -62,12 +62,13 @@ import {
 } from "./game/cocktails";
 
 type PetId = "mitao" | "doubao" | "xueqiu";
-type OverlayId = "quest" | "history" | "bag" | "pets" | "shop" | "kitchen" | "music" | "bar" | "recipe-book" | "pomodoro" | null;
+type OverlayId = "quest" | "history" | "bag" | "pets" | "shop" | "kitchen" | "music" | "bar" | "recipe-book" | "pomodoro" | "data" | null;
 type ShopCategory = "food" | "furniture" | "ingredients";
 type IngredientFilter = "all" | IngredientCategory;
 type JournalCategory = "运动" | "学习" | "工作" | "饮食" | "睡眠" | "其他";
 type CheckinRecord = { id: number; date: string; content: string; category: JournalCategory; rating: number | null; reward: number | null; createdAt: string };
 type DesktopUpdate = { phase: "available" | "downloading" | "downloaded" | "error"; name?: string; notes?: string; percent?: number; message?: string };
+type BackupActionResult = { status: "exported" | "imported" | "cancelled" | "error"; message?: string; importedKeys?: number };
 type StoreFoodId = "driedFish" | "chickenCan" | "salmonMousse" | "tunaRice" | "chickenCubes" | "catnipBiscuits";
 type CookedFoodId = "strawberryPuree" | "carrotSoup" | "tomatoSoup" | "catnipCookies" | "sunflowerRice" | "pumpkinPuree";
 type FoodId = StoreFoodId | CookedFoodId;
@@ -108,8 +109,9 @@ type GameState = {
   pomodoro: PomodoroState;
 };
 
-const RELEASE_VERSION = "0.7.0";
+const RELEASE_VERSION = "0.8.0";
 const RELEASE_NOTES = [
+  { version: "0.8.0", items: ["新增 macOS 桌面版，同时支持 Apple 芯片和 Intel Mac", "新增完整数据导出与导入，可将 Windows 的日记、草莓、猫咪、家具、农场、调酒收藏和番茄钟进度迁移到 Mac", "导入前会自动保留当前存档，避免误覆盖后无法恢复"] },
   { version: "0.7.0", items: ["新增 25 分钟专注 + 5 分钟休息的番茄钟，每完成一次专注奖励 5 颗草莓", "新增番茄钟累计次数、今日次数与累计奖励记忆，关闭界面后计时仍会继续", "计时器重绘为深色圆形仪表盘、亮色进度环与中央番茄，并加入完成庆祝动画", "专注和休息结束时播放提示音并显示确认弹窗，后台同时发送系统通知"] },
   { version: "0.6.0", items: ["新增调酒配料商店与吧台小游戏，支持真实水位、冰块排水和三种调制方式", "新增80草莓调酒书、十款鸡尾酒成品图与完整配方，购买后收进背包", "调制成功的鸡尾酒会保存到背包，未解锁酒保持剪影，并修复高水位冰块与容量提示"] },
   { version: "0.5.4", items: ["新增三只猫咪的八方向行走动画，方向切换与移动轨迹保持一致", "状态面板切换现在会切换到对应猫咪的控制权，场景名字与状态名字保持同步", "修复取消睡眠后猫咪被猫窝图层遮挡的问题"] },
@@ -131,7 +133,12 @@ declare global {
       download: () => void;
       install: () => void;
       version: () => Promise<string>;
-      storage: { load: (key: string) => string | null; save: (key: string, value: string) => void };
+      storage: {
+        load: (key: string) => string | null;
+        save: (key: string, value: string) => void;
+        exportBackup: () => Promise<BackupActionResult>;
+        importBackup: () => Promise<BackupActionResult>;
+      };
       pomodoro?: {
         schedule: (endsAt: number, phase: PomodoroPhase) => void;
         cancel: () => void;
@@ -457,6 +464,7 @@ export default function Home() {
   const [pomodoroNow, setPomodoroNow] = useState(Date.now());
   const [pomodoroAlert, setPomodoroAlert] = useState<PomodoroPhase | null>(null);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">("unsupported");
+  const [dataTransferBusy, setDataTransferBusy] = useState<"export" | "import" | null>(null);
   const roomRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const pomodoroAudioContextRef = useRef<AudioContext | null>(null);
@@ -623,6 +631,10 @@ export default function Home() {
       }
     } else setGame({ ...INITIAL_GAME, statsUpdatedAt: now.getTime(), pomodoro: normalizePomodoro(undefined, current) });
     setNotificationPermission("Notification" in window ? Notification.permission : "unsupported");
+    if (window.sessionStorage.getItem("oh-backup-imported") === "yes") {
+      window.sessionStorage.removeItem("oh-backup-imported");
+      queueMicrotask(() => setToast("备份已完整导入，Windows 数据已在这台电脑恢复"));
+    }
     setReady(true);
   }, []);
 
@@ -1174,6 +1186,7 @@ export default function Home() {
   const pomodoroStyle = { "--pomodoro-progress": `${pomodoroProgress * 360}deg` } as CSSProperties;
   const pomodoroActive = game.pomodoro.status === "running";
   const desktopPomodoroAvailable = typeof window !== "undefined" && Boolean(window.gameUpdater?.pomodoro);
+  const desktopDataAvailable = typeof window !== "undefined" && Boolean(window.gameUpdater?.storage.exportBackup);
   const statusFrames = statusTransition ?? CAT_STATUS_ANIMATIONS[catStatus].frames;
   const currentStatusFrame: CatAnimationFrame = statusIdle
     ? { pose: catStatus === "low-high" ? "sleep" : "idle", duration: STATUS_IDLE_MS }
@@ -1288,6 +1301,30 @@ export default function Home() {
     }
     setShopIngredientId(null);
     setOverlay(null);
+  }
+
+  async function exportDesktopBackup() {
+    const storage = window.gameUpdater?.storage;
+    if (!storage || dataTransferBusy) return;
+    setDataTransferBusy("export");
+    const result = await storage.exportBackup().catch(() => ({ status: "error", message: "备份导出失败" } as BackupActionResult));
+    setDataTransferBusy(null);
+    if (result.status === "exported") setToast("完整备份已导出，可以复制到 Mac 了");
+    else if (result.status === "error") setToast(result.message ?? "备份导出失败");
+  }
+
+  async function importDesktopBackup() {
+    const storage = window.gameUpdater?.storage;
+    if (!storage || dataTransferBusy || !window.confirm("导入后会用备份覆盖当前进度。导入前会自动保留当前存档，是否继续？")) return;
+    setDataTransferBusy("import");
+    const result = await storage.importBackup().catch(() => ({ status: "error", message: "备份导入失败" } as BackupActionResult));
+    if (result.status === "imported") {
+      window.sessionStorage.setItem("oh-backup-imported", "yes");
+      window.location.reload();
+      return;
+    }
+    setDataTransferBusy(null);
+    if (result.status === "error") setToast(result.message ?? "备份导入失败");
   }
 
   function openIngredientPurchase(id: IngredientId) {
@@ -2205,6 +2242,7 @@ export default function Home() {
         )}
 
         <header className="game-hud">
+          {desktopDataAvailable && <button type="button" className="data-transfer-button" onClick={() => openOverlay("data")}><span>💾</span><b>数据备份</b></button>}
           <div className="hud-counters">
             <div><span>🔥</span><small>连续</small><b>{game.streak} 天</b></div>
             <div><span>🍓</span><small>草莓</small><b>{game.berries}</b></div>
@@ -2245,6 +2283,26 @@ export default function Home() {
             <section className={`game-window ${overlay}-window ${overlay === "bar" && mixing ? "is-mixing" : ""}`} onPointerDown={(event) => event.stopPropagation()}>
               <button className="window-close" onClick={closeOverlay} disabled={overlay === "bar" && mixing} aria-label="关闭窗口">×</button>
 
+              {overlay === "data" && (
+                <>
+                  <div className="window-heading"><small>DATA TRANSFER</small><h1>存档备份与迁移</h1><p>Windows 和 Mac 使用同一种备份文件</p></div>
+                  <div className="data-transfer-layout">
+                    <article>
+                      <span aria-hidden="true">🖥️</span><small>WINDOWS 第一步</small><h2>导出完整备份</h2>
+                      <p>包含日记、草莓、猫咪、家具、农场、调酒收藏和番茄钟进度。</p>
+                      <button type="button" className="primary-button" onClick={() => void exportDesktopBackup()} disabled={dataTransferBusy !== null}>{dataTransferBusy === "export" ? "正在导出……" : "导出 .ohbackup 文件"}</button>
+                    </article>
+                    <i aria-hidden="true">→</i>
+                    <article>
+                      <span aria-hidden="true">🍎</span><small>MAC 第二步</small><h2>导入并恢复</h2>
+                      <p>把备份文件复制到 Mac 后导入。导入前会自动保留 Mac 当前存档。</p>
+                      <button type="button" className="primary-button import-button" onClick={() => void importDesktopBackup()} disabled={dataTransferBusy !== null}>{dataTransferBusy === "import" ? "正在导入……" : "选择备份并导入"}</button>
+                    </article>
+                  </div>
+                  <p className="data-transfer-note">🔒 备份只保存在你选择的位置，不会上传给屋主或其他用户。</p>
+                </>
+              )}
+
               {overlay === "pomodoro" && (
                 <>
                   <div className="window-heading with-wallet pomodoro-heading"><span><small>BERRY FOCUS CLOCK</small><h1>莓果番茄钟</h1><p>专注 25 分钟，休息 5 分钟；完成一次专注奖励 5 颗草莓</p></span><b>🍓 {game.berries}</b></div>
@@ -2284,7 +2342,7 @@ export default function Home() {
                       </div>
                       <div className="pomodoro-notice-status">
                         <span aria-hidden="true">🔔</span>
-                        <div><b>{desktopPomodoroAvailable ? "Windows 弹窗提醒已开启" : notificationPermission === "granted" ? "系统弹窗提醒已开启" : notificationPermission === "denied" ? "系统弹窗未授权" : notificationPermission === "unsupported" ? "当前环境仅提供窗口内提醒" : "开启系统弹窗提醒"}</b><small>{notificationPermission === "denied" ? "可在浏览器网站设置中重新允许通知" : "专注结束和休息结束都会显示系统弹窗"}</small></div>
+                        <div><b>{desktopPomodoroAvailable ? "桌面系统弹窗提醒已开启" : notificationPermission === "granted" ? "系统弹窗提醒已开启" : notificationPermission === "denied" ? "系统弹窗未授权" : notificationPermission === "unsupported" ? "当前环境仅提供窗口内提醒" : "开启系统弹窗提醒"}</b><small>{notificationPermission === "denied" ? "可在浏览器网站设置中重新允许通知" : "专注结束和休息结束都会显示系统弹窗"}</small></div>
                         {!desktopPomodoroAvailable && notificationPermission === "default" && <button type="button" onClick={() => void enablePomodoroNotifications()}>开启弹窗</button>}
                       </div>
                     </aside>

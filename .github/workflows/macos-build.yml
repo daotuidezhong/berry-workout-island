@@ -1,0 +1,26 @@
+name: Build macOS installers
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/macos-data-migration]
+
+jobs:
+  build-macos:
+    runs-on: macos-15
+    strategy:
+      matrix:
+        arch: [arm64, x64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run desktop:build:mac -- --${{ matrix.arch }} --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OH-macOS-${{ matrix.arch }}
+          path: outputs/*.dmg
+          if-no-files-found: error

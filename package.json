@@ -1,6 +1,6 @@
 {
   "name": "berry-workout-island",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -12,7 +12,9 @@
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
-    "desktop:build": "vite build --config desktop/vite.config.ts && electron-builder --win nsis"
+    "desktop:build": "npm run desktop:build:win",
+    "desktop:build:win": "vite build --config desktop/vite.config.ts && electron-builder --win nsis",
+    "desktop:build:mac": "vite build --config desktop/vite.config.ts && electron-builder --mac dmg"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
@@ -47,7 +49,6 @@
     "appId": "com.berryworkout.island",
     "productName": "OH",
     "afterPack": "build/after-pack.cjs",
-    "artifactName": "Berry-Workout-Island-Setup-${version}.exe",
     "directories": {
       "output": "outputs"
     },
@@ -68,7 +69,14 @@
     "win": {
       "target": "nsis",
       "icon": "build/icon.ico",
-      "signAndEditExecutable": false
+      "signAndEditExecutable": false,
+      "artifactName": "Berry-Workout-Island-Setup-${version}.${ext}"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "build/icon.png",
+      "category": "public.app-category.lifestyle",
+      "artifactName": "OH-${version}-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,
