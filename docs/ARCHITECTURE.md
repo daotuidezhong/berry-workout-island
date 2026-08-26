@@ -62,7 +62,7 @@ project_009_草莓打卡屋/
 | `GAME-RULES` | 游戏规则 | 纯计算规则和动画资源映射，不直接操作页面 | `app/game/` |
 | `WEB-API` | 网页接口 | 校验打卡请求，读写网页版历史记录 | `app/api/checkins/route.ts` |
 | `DATA-DB` | 云端数据 | D1 表结构、查询、保存和迁移 | `db/`, `drizzle/` |
-| `DATA-LOCAL` | 本地数据 | 保存设备编号、游戏状态和桌面版历史记录，支持跨平台完整备份 | `app/page.tsx`, `electron/storage.cjs` |
+| `DATA-LOCAL` | 本地数据 | 保存设备编号、游戏状态、桌面版历史记录和内部日记照片，支持跨平台完整备份 | `app/page.tsx`, `electron/storage.cjs` |
 | `WEB` | 网页运行层 | vinext 构建、Worker 运行、Sites 资源绑定 | `vite.config.ts`, `worker/index.ts`, `.openai/hosting.json` |
 | `DESKTOP` | Windows / macOS 运行层 | 复用游戏界面、创建窗口、本地协议、存档迁移、应用更新 | `desktop/`, `electron/`, `.github/workflows/macos-build.yml` |
 | `ASSETS` | 游戏素材 | 房间、猫咪动画、家具、食品、鼠标指针 | `public/game/` |
@@ -113,8 +113,8 @@ sequenceDiagram
 |---|---|---|
 | 游戏界面 | 共用 `app/page.tsx` | 共用 `app/page.tsx` |
 | 游戏状态 | 浏览器 `localStorage` | 本机 `localStorage` |
-| 打卡历史 | Sites D1 | 本机 `localStorage` |
-| 跨电脑迁移 | 暂不支持 | `.ohbackup` 完整导出 / 导入，导入前保留旧存档 |
+| 打卡历史 | Sites D1 | 本机数据文件；照片存入应用内部目录 |
+| 跨电脑迁移 | 暂不支持 | `.ohbackup` 完整导出 / 导入（含日记照片），导入前保留旧存档 |
 | 天气 | 浏览器直接请求天气服务 | 同网页版 |
 | 更新 | 随网站发布更新 | `electron-updater` 检查 GitHub Releases |
 | 运行入口 | `worker/index.ts` | `electron/main.cjs` |
@@ -177,6 +177,7 @@ sequenceDiagram
 | 2026-08-10 | `YARD-FARM` | 新增双向院门、四天气四时段院子、10 件家具和 12 格真实时间种植循环；旧存档自动迁移到 v3 | `GAME-UI`, `GAME-RULES`, `DATA-LOCAL`, `ASSETS` | 网页、规则、资源与桌面渲染构建验收 |
 | 2026-08-18 | `COCKTAIL-BAR` | 新增商店调酒配料、吧台调酒流程、10 张配方图鉴和库存存档迁移 | `GAME-UI`, `GAME-RULES`, `DATA-LOCAL`, `ASSETS`, `TEST` | 网页构建与 40 项回归检查通过；桌面和移动端交互验收通过 |
 | 2026-08-25 | `POMODORO` | 新增 25+5 番茄钟、每循环 5 草莓奖励、累计记忆、完成动画和网页／Windows 后台提醒 | `GAME-UI`, `GAME-RULES`, `DATA-LOCAL`, `DESKTOP`, `TEST` | 网页构建与自动回归检查通过；桌面通知桥接已覆盖 |
+| 2026-08-26 | `JOURNAL-PHOTO` | 日记支持导入一张内部照片，最长边 1600 像素等比例处理，并随完整备份跨平台迁移 | `GAME-UI`, `DATA-LOCAL`, `DESKTOP`, `TEST` | 待完成构建与桌面安装包验证 |
 
 ### 院子与种植状态
 

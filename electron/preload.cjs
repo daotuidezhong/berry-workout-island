@@ -15,6 +15,10 @@ contextBridge.exposeInMainWorld("gameUpdater", {
     exportBackup: () => ipcRenderer.invoke("storage:export"),
     importBackup: () => ipcRenderer.invoke("storage:import"),
   },
+  journalPhotos: {
+    select: () => ipcRenderer.invoke("journal-photo:select"),
+    remove: (fileName) => ipcRenderer.invoke("journal-photo:remove", fileName),
+  },
   pomodoro: {
     schedule: (endsAt, phase) => ipcRenderer.send("pomodoro:schedule", endsAt, phase),
     cancel: () => ipcRenderer.send("pomodoro:cancel"),

@@ -66,9 +66,11 @@ type OverlayId = "quest" | "history" | "bag" | "pets" | "shop" | "kitchen" | "mu
 type ShopCategory = "food" | "furniture" | "ingredients";
 type IngredientFilter = "all" | IngredientCategory;
 type JournalCategory = "运动" | "学习" | "工作" | "饮食" | "睡眠" | "其他";
-type CheckinRecord = { id: number; date: string; content: string; category: JournalCategory; rating: number | null; reward: number | null; createdAt: string };
+type JournalPhoto = { fileName: string; width: number; height: number };
+type CheckinRecord = { id: number; date: string; content: string; category: JournalCategory; rating: number | null; reward: number | null; createdAt: string; photo?: JournalPhoto | null };
 type DesktopUpdate = { phase: "available" | "downloading" | "downloaded" | "error"; name?: string; notes?: string; percent?: number; message?: string };
 type BackupActionResult = { status: "exported" | "imported" | "cancelled" | "error"; message?: string; importedKeys?: number };
+type PhotoActionResult = { status: "selected" | "cancelled" | "error"; message?: string; photo?: JournalPhoto };
 type StoreFoodId = "driedFish" | "chickenCan" | "salmonMousse" | "tunaRice" | "chickenCubes" | "catnipBiscuits";
 type CookedFoodId = "strawberryPuree" | "carrotSoup" | "tomatoSoup" | "catnipCookies" | "sunflowerRice" | "pumpkinPuree";
 type FoodId = StoreFoodId | CookedFoodId;
@@ -109,8 +111,9 @@ type GameState = {
   pomodoro: PomodoroState;
 };
 
-const RELEASE_VERSION = "0.8.0";
+const RELEASE_VERSION = "0.9.0";
 const RELEASE_NOTES = [
+  { version: "0.9.0", items: ["日记新增照片功能，每篇记录可导入一张照片", "照片会复制到应用内部，并按最长边 1600 像素等比例处理，不裁切、不拉伸", "完整备份现在会连同日记照片一起从 Windows 迁移到 Mac"] },
   { version: "0.8.0", items: ["新增 macOS 桌面版，同时支持 Apple 芯片和 Intel Mac", "新增完整数据导出与导入，可将 Windows 的日记、草莓、猫咪、家具、农场、调酒收藏和番茄钟进度迁移到 Mac", "导入前会自动保留当前存档，避免误覆盖后无法恢复"] },
   { version: "0.7.0", items: ["新增 25 分钟专注 + 5 分钟休息的番茄钟，每完成一次专注奖励 5 颗草莓", "新增番茄钟累计次数、今日次数与累计奖励记忆，关闭界面后计时仍会继续", "计时器重绘为深色圆形仪表盘、亮色进度环与中央番茄，并加入完成庆祝动画", "专注和休息结束时播放提示音并显示确认弹窗，后台同时发送系统通知"] },
   { version: "0.6.0", items: ["新增调酒配料商店与吧台小游戏，支持真实水位、冰块排水和三种调制方式", "新增80草莓调酒书、十款鸡尾酒成品图与完整配方，购买后收进背包", "调制成功的鸡尾酒会保存到背包，未解锁酒保持剪影，并修复高水位冰块与容量提示"] },
@@ -138,6 +141,10 @@ declare global {
         save: (key: string, value: string) => void;
         exportBackup: () => Promise<BackupActionResult>;
         importBackup: () => Promise<BackupActionResult>;
+      };
+      journalPhotos?: {
+        select: () => Promise<PhotoActionResult>;
+        remove: (fileName: string) => Promise<boolean>;
       };
       pomodoro?: {
         schedule: (endsAt: number, phase: PomodoroPhase) => void;
@@ -337,6 +344,10 @@ function writePersisted(key: string, value: string) {
   window.gameUpdater?.storage.save(key, value);
 }
 
+function journalPhotoUrl(photo: JournalPhoto) {
+  return `berry://journal-photo/${encodeURIComponent(photo.fileName)}`;
+}
+
 const PLOT_POSITIONS = [
   { x: 38, y: 45, width: 9.5, height: 8.8 }, { x: 48, y: 45, width: 9.5, height: 8.8 }, { x: 58, y: 45, width: 9.5, height: 8.8 }, { x: 68, y: 45, width: 9.5, height: 8.8 },
   { x: 36, y: 56, width: 10, height: 9.5 }, { x: 46, y: 56, width: 10, height: 9.5 }, { x: 56, y: 56, width: 10, height: 9.5 }, { x: 67, y: 56, width: 10, height: 9.5 },
@@ -411,6 +422,8 @@ export default function Home() {
   const [noteText, setNoteText] = useState("");
   const [category, setCategory] = useState<JournalCategory>("其他");
   const [rating, setRating] = useState(5);
+  const [journalPhoto, setJournalPhoto] = useState<JournalPhoto | null>(null);
+  const [importingPhoto, setImportingPhoto] = useState(false);
   const [deviceId, setDeviceId] = useState("");
   const [history, setHistory] = useState<CheckinRecord[]>([]);
   const [historyPage, setHistoryPage] = useState(0);
@@ -663,6 +676,7 @@ export default function Home() {
           rating: record.rating ?? null,
           reward: record.reward ?? null,
           createdAt: record.createdAt ?? `${record.date}T00:00:00`,
+          photo: record.photo ?? null,
         }));
         if (!cancelled) setHistory(records);
         return;
@@ -1187,6 +1201,7 @@ export default function Home() {
   const pomodoroActive = game.pomodoro.status === "running";
   const desktopPomodoroAvailable = typeof window !== "undefined" && Boolean(window.gameUpdater?.pomodoro);
   const desktopDataAvailable = typeof window !== "undefined" && Boolean(window.gameUpdater?.storage.exportBackup);
+  const desktopPhotoAvailable = typeof window !== "undefined" && Boolean(window.gameUpdater?.journalPhotos);
   const statusFrames = statusTransition ?? CAT_STATUS_ANIMATIONS[catStatus].frames;
   const currentStatusFrame: CatAnimationFrame = statusIdle
     ? { pose: catStatus === "low-high" ? "sleep" : "idle", duration: STATUS_IDLE_MS }
@@ -1300,7 +1315,28 @@ export default function Home() {
       setMixResult(null);
     }
     setShopIngredientId(null);
+    if ((overlay === "quest" || overlay === "history") && journalPhoto) void window.gameUpdater?.journalPhotos?.remove(journalPhoto.fileName);
+    if (overlay === "quest" || overlay === "history") setJournalPhoto(null);
     setOverlay(null);
+  }
+
+  async function selectJournalPhoto() {
+    const journalPhotos = window.gameUpdater?.journalPhotos;
+    if (!journalPhotos || importingPhoto) return;
+    setImportingPhoto(true);
+    const result = await journalPhotos.select().catch(() => ({ status: "error", message: "照片导入失败" } as PhotoActionResult));
+    setImportingPhoto(false);
+    if (result.status === "selected" && result.photo) {
+      if (journalPhoto) await journalPhotos.remove(journalPhoto.fileName).catch(() => false);
+      setJournalPhoto(result.photo);
+      setToast("照片已导入应用内部，会保持原始比例显示");
+    } else if (result.status === "error") setToast(result.message ?? "照片导入失败");
+  }
+
+  function removeJournalPhoto() {
+    if (!journalPhoto) return;
+    void window.gameUpdater?.journalPhotos?.remove(journalPhoto.fileName);
+    setJournalPhoto(null);
   }
 
   async function exportDesktopBackup() {
@@ -1745,7 +1781,7 @@ export default function Home() {
     try {
       let record: CheckinRecord;
       if (navigator.userAgent.includes("BerryWorkoutDesktop")) {
-        record = { id: Date.now(), date: today, content, category, rating, reward, createdAt: new Date().toISOString() };
+        record = { id: Date.now(), date: today, content, category, rating, reward, createdAt: new Date().toISOString(), photo: journalPhoto };
         const records = [record, ...history];
         writePersisted("berry-workout-history", JSON.stringify(records));
       } else {
@@ -1761,6 +1797,7 @@ export default function Home() {
       setHistory((records) => [record, ...records]);
       setGame((current) => ({ ...current, berries: current.berries + reward, streak: firstRecordToday ? next : current.streak, lastCheckin: today, lastActivity: content }));
       setNoteText("");
+      setJournalPhoto(null);
       writePersisted("berry-journal-category", category);
       setToast(reward ? `今天的记忆已经收好啦，获得 ${reward} 个草莓 🍓` : "今天的三次记录奖励已经领完，记忆仍然收好啦");
     } catch {
@@ -2360,6 +2397,12 @@ export default function Home() {
                       <small>{noteText.length}/300</small>
                     </div>
                     <fieldset className="journal-options"><legend>记录分类</legend><div className="category-options">{journalCategories.map((item) => <button key={item.name} className={category === item.name ? "selected" : ""} type="button" onClick={() => setCategory(item.name)}><span>{item.icon}</span>{item.name}</button>)}</div></fieldset>
+                    {desktopPhotoAvailable && <section className="journal-photo-field" aria-label="日记照片">
+                      {journalPhoto ? <div className="journal-photo-preview">
+                        <img src={journalPhotoUrl(journalPhoto)} width={journalPhoto.width} height={journalPhoto.height} alt="即将保存的日记照片" />
+                        <button type="button" onClick={removeJournalPhoto} aria-label="移除照片">×</button>
+                      </div> : <button className="journal-photo-picker" type="button" onClick={() => void selectJournalPhoto()} disabled={importingPhoto}><span>📷</span><b>{importingPhoto ? "正在导入……" : "添加一张照片"}</b><small>照片会复制到应用内部，并保持原始比例</small></button>}
+                    </section>}
                     <label className="rating-field">今天给自己打几分？<span><input type="range" min="1" max="10" value={rating} onChange={(event) => setRating(Number(event.target.value))} /><b>{rating} 分</b></span></label>
                     <div className="reward-line"><span>{nextJournalReward ? `今日第 ${todayRecordCount + 1} 条记录奖励` : "今日三次记录奖励已全部领取"}</span><b>🍓 +{nextJournalReward}</b></div>
                     <button className="primary-button" type="submit" disabled={!ready || !noteText.trim() || savingCheckin}>{savingCheckin ? "正在保存……" : "保存今日记录"}</button>
@@ -2390,6 +2433,7 @@ export default function Home() {
                             const categoryInfo = journalCategories.find((item) => item.name === record.category) ?? journalCategories.at(-1)!;
                             return <div className="notebook-entry" key={record.id}>
                               <div className="entry-meta"><span>{categoryInfo.icon} {categoryInfo.name}</span><time dateTime={record.createdAt}>{new Date(record.createdAt || `${record.date}T00:00:00`).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time></div>
+                              {record.photo && <img className="notebook-photo" src={journalPhotoUrl(record.photo)} width={record.photo.width} height={record.photo.height} alt={`${record.date} 的日记照片`} loading="lazy" />}
                               <p>{record.content}</p>
                               {record.rating && <small>⭐ 今日自评分：{record.rating}/10{record.reward ? `　🍓 +${record.reward}` : ""}</small>}
                             </div>;

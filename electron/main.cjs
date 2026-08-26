@@ -1,7 +1,8 @@
-const { app, BrowserWindow, dialog, ipcMain, net, Notification, protocol } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, nativeImage, net, Notification, protocol } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const fs = require("node:fs");
 const path = require("node:path");
+const { randomUUID } = require("node:crypto");
 const { pathToFileURL } = require("node:url");
 const { loadDesktopPlaylist } = require("./netease.cjs");
 const { createStorage } = require("./storage.cjs");
@@ -18,9 +19,18 @@ app.whenReady().then(() => {
   const root = app.isPackaged
     ? path.join(process.resourcesPath, "desktop-dist")
     : path.join(__dirname, "../desktop-dist");
+  const userDataRoot = app.getPath("userData");
+  const journalPhotosDirectory = path.join(userDataRoot, "journal-photos");
 
   protocol.handle("berry", async (request) => {
-    const pathname = decodeURIComponent(new URL(request.url).pathname);
+    const url = new URL(request.url);
+    const pathname = decodeURIComponent(url.pathname);
+    if (url.hostname === "journal-photo") {
+      const name = path.basename(pathname);
+      const file = path.join(journalPhotosDirectory, name);
+      if (!/^journal-[0-9a-f-]+\.jpg$/.test(name) || !fs.existsSync(file)) return new Response("Not found", { status: 404 });
+      return net.fetch(pathToFileURL(file).toString());
+    }
     if (pathname === "/api/netease-playlist") {
       return Response.json(await loadDesktopPlaylist(root, net.fetch), { headers: { "Cache-Control": "no-store, max-age=0" } });
     }
@@ -46,8 +56,8 @@ app.whenReady().then(() => {
     if (pomodoroTimer) clearTimeout(pomodoroTimer);
     pomodoroTimer = null;
   };
-  const dataFile = path.join(app.getPath("userData"), "user-data.json");
-  const storage = createStorage(dataFile);
+  const dataFile = path.join(userDataRoot, "user-data.json");
+  const storage = createStorage(dataFile, { journalPhotosDirectory });
   ipcMain.on("storage:load", (event, key) => { event.returnValue = storage.load(key); });
   ipcMain.on("storage:save", (_event, key, value) => storage.save(key, value));
   ipcMain.handle("storage:export", async (event) => {
@@ -81,6 +91,36 @@ app.whenReady().then(() => {
     } catch (error) {
       return { status: "error", message: error instanceof Error ? error.message : "备份导入失败" };
     }
+  });
+  ipcMain.handle("journal-photo:select", async (event) => {
+    if (event.sender !== window.webContents) return { status: "error", message: "无法读取当前照片" };
+    try {
+      const result = await dialog.showOpenDialog(window, {
+        title: "选择日记照片",
+        properties: ["openFile"],
+        filters: [{ name: "照片", extensions: ["jpg", "jpeg", "png", "webp"] }],
+      });
+      if (result.canceled || !result.filePaths[0]) return { status: "cancelled" };
+      const source = nativeImage.createFromPath(result.filePaths[0]);
+      if (source.isEmpty()) return { status: "error", message: "这张照片无法读取，请换一张试试" };
+      const size = source.getSize();
+      const longestSide = Math.max(size.width, size.height);
+      const image = longestSide > 1600
+        ? source.resize(size.width >= size.height ? { width: 1600, quality: "best" } : { height: 1600, quality: "best" })
+        : source;
+      const resizedSize = image.getSize();
+      const fileName = `journal-${randomUUID()}.jpg`;
+      fs.mkdirSync(journalPhotosDirectory, { recursive: true });
+      fs.writeFileSync(path.join(journalPhotosDirectory, fileName), image.toJPEG(85));
+      return { status: "selected", photo: { fileName, width: resizedSize.width, height: resizedSize.height } };
+    } catch (error) {
+      return { status: "error", message: error instanceof Error ? error.message : "照片导入失败" };
+    }
+  });
+  ipcMain.handle("journal-photo:remove", (event, fileName) => {
+    if (event.sender !== window.webContents || !/^journal-[0-9a-f-]+\.jpg$/.test(fileName)) return false;
+    fs.rmSync(path.join(journalPhotosDirectory, fileName), { force: true });
+    return true;
   });
   ipcMain.on("pomodoro:schedule", (event, endsAt, phase) => {
     if (event.sender !== window.webContents || !Number.isFinite(endsAt) || (phase !== "focus" && phase !== "break")) return;
