@@ -8,7 +8,10 @@ const { loadDesktopPlaylist } = require("./netease.cjs");
 const { createStorage } = require("./storage.cjs");
 
 app.setName("OH");
-app.setAppUserModelId("com.berryworkout.island.desktop");
+const WINDOWS_APP_ID = app.isPackaged
+  ? "com.berryworkout.island.desktop.v2"
+  : "com.berryworkout.island.development";
+app.setAppUserModelId(WINDOWS_APP_ID);
 
 protocol.registerSchemesAsPrivileged([{
   scheme: "berry",

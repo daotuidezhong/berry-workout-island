@@ -199,7 +199,7 @@ test("runs a persistent 25 plus 5 pomodoro cycle and rewards five strawberries o
   assert.doesNotMatch(source, /className="pomodoro-drag-handle"/);
   assert.match(css, /\.pomodoro-mini \.pomodoro-dial-face > strong \{[^}]*width: 92%[^}]*font-size: clamp\(12px, 6vmin, 18px\)/);
   assert.match(css, /@keyframes pomodoro-berry-burst/);
-  assert.match(desktopMain, /setAppUserModelId\("com\.berryworkout\.island\.desktop"\)/);
+  assert.match(desktopMain, /app\.isPackaged[\s\S]*"com\.berryworkout\.island\.desktop\.v2"[\s\S]*"com\.berryworkout\.island\.development"[\s\S]*setAppUserModelId\(WINDOWS_APP_ID\)/);
   assert.match(desktopMain, /width: 160,[\s\S]*height: 160,[\s\S]*minWidth: 120,[\s\S]*minHeight: 120/);
   assert.match(desktopMain, /movable: true[\s\S]*resizable: false[\s\S]*setMovable\(true\)/);
   assert.match(desktopMain, /pomodoro-mini:drag-start[\s\S]*pomodoroMiniDragOrigin = \{ pointerX: point\.x, pointerY: point\.y, windowX: bounds\.x, windowY: bounds\.y, width: bounds\.width, height: bounds\.height \}[\s\S]*pomodoro-mini:drag-move[\s\S]*point\.x - pomodoroMiniDragOrigin\.pointerX[\s\S]*setBounds\(\{ x, y, width: pomodoroMiniDragOrigin\.width, height: pomodoroMiniDragOrigin\.height \}, false\)/);
@@ -731,7 +731,10 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(schema, /category: text\("category"\)/);
   assert.match(checkins, /name === "rating"[\s\S]*ALTER TABLE checkins ADD rating INTEGER[\s\S]*ALTER TABLE checkins ADD reward INTEGER/);
   assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*user-data\.json[\s\S]*createStorage\(dataFile, \{ journalPhotosDirectory \}\)[\s\S]*storage:load[\s\S]*storage:save/);
-  assert.match(packageJson, /"version": "0\.9\.5"[\s\S]*"appId": "com\.berryworkout\.island\.desktop"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
+  assert.match(packageJson, /"version": "0\.9\.6"[\s\S]*"appId": "com\.berryworkout\.island\.desktop\.v2"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
+  assert.match(packageJson, /"createDesktopShortcut": "always"[\s\S]*"createStartMenuShortcut": true[\s\S]*"include": "build\/installer\.nsh"/);
+  const installer = await readFile(new URL("../build/installer.nsh", import.meta.url), "utf8");
+  assert.match(installer, /customInstall[\s\S]*newStartMenuLink[\s\S]*SetLnkAUMI[\s\S]*newDesktopLink[\s\S]*SetLnkAUMI[\s\S]*SHChangeNotify/);
   assert.match(packageJson, /"guid": "157ce719-ed07-5847-b8dd-55ce3ea69ebd"/);
   assert.match(macWorkflow, /macos-15[\s\S]*arch: \[arm64, x64\][\s\S]*desktop:build:mac[\s\S]*outputs\/\*\.dmg/);
   assert.match(electronMain, /showSaveDialog[\s\S]*\.ohbackup[\s\S]*storage\.exportPayload[\s\S]*showOpenDialog[\s\S]*storage\.importPayload/);

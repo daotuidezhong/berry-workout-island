@@ -63,5 +63,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=$(node -p "require('./package.json').version")
-          gh release view "v${version}" >/dev/null 2>&1 || gh release create "v${version}" --target "$GITHUB_SHA" --title "OH v${version}" --latest --notes $'刷新 Windows 任务栏应用身份，清除旧 Electron 图标关联；主窗口与橙子专注小窗统一使用草莓图标。\n\n保留原安装 GUID、安装目录和本地存档位置，更新后不会生成第二个 OH，也不会丢失已有数据。\n\n安装说明：Windows 使用 Setup EXE；Apple 芯片 Mac 使用 arm64 DMG；Intel Mac 使用 x64 DMG。当前安装包未进行商业代码签名或 Apple 公证，首次运行可能需要在系统安全设置中确认。'
+          gh release view "v${version}" >/dev/null 2>&1 || gh release create "v${version}" --target "$GITHUB_SHA" --title "OH v${version}" --latest --notes $'修复 Windows 任务栏仍显示 Electron 初始图标的问题；安装或自动更新时会重写桌面和开始菜单快捷方式的应用身份。\n\n开发调试与正式版改用不同的 Windows 应用身份，避免图标缓存再次互相污染。保留原安装 GUID、安装目录和本地存档位置。\n\n安装说明：Windows 使用 Setup EXE；Apple 芯片 Mac 使用 arm64 DMG；Intel Mac 使用 x64 DMG。当前安装包未进行商业代码签名或 Apple 公证，首次运行可能需要在系统安全设置中确认。'
           gh release upload "v${version}" release-assets/* --clobber

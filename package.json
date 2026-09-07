@@ -1,6 +1,6 @@
 {
   "name": "berry-workout-island",
-  "version": "0.9.5",
+  "version": "0.9.6",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -46,7 +46,7 @@
   "type": "module",
   "main": "electron/main.cjs",
   "build": {
-    "appId": "com.berryworkout.island.desktop",
+    "appId": "com.berryworkout.island.desktop.v2",
     "productName": "OH",
     "directories": {
       "output": "outputs"
@@ -82,7 +82,9 @@
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "include": "build/installer.nsh",
       "shortcutName": "OH"
     },
     "publish": {

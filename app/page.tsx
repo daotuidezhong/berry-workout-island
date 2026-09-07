@@ -113,8 +113,9 @@ type GameState = {
   pomodoro: PomodoroState;
 };
 
-const RELEASE_VERSION = "0.9.5";
+const RELEASE_VERSION = "0.9.6";
 const RELEASE_NOTES = [
+  { version: "0.9.6", items: ["修复 Windows 任务栏仍显示 Electron 初始图标的问题", "安装或自动更新时会重新写入桌面和开始菜单快捷方式身份", "开发调试与正式版改用不同应用身份，避免图标缓存再次互相污染"] },
   { version: "0.9.5", items: ["修复橙子专注小窗长时间不操作后时间停止的问题", "主窗口最小化或转入后台时仍按真实结束时间持续计时", "小窗新增独立时间校准，卡顿或休眠恢复后会立即显示正确剩余时间"] },
   { version: "0.9.4", items: ["刷新 Windows 任务栏应用身份，清除旧 Electron 图标关联", "保留原安装 GUID、安装目录和本地存档位置，更新后不会生成第二个 OH", "主窗口与橙子专注小窗继续统一使用草莓图标"] },
   { version: "0.9.3", items: ["修复橙子专注小窗在 Windows 任务栏显示 Electron 默认图标的问题", "主窗口、小窗、桌面快捷方式和程序本体现在统一使用草莓图标", "保留已验证的 Windows 图标写入方式，避免更新安装过程中出现兼容问题"] },
