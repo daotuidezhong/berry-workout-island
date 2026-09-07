@@ -1,6 +1,6 @@
 {
   "name": "berry-workout-island",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -46,9 +46,8 @@
   "type": "module",
   "main": "electron/main.cjs",
   "build": {
-    "appId": "com.berryworkout.island",
+    "appId": "com.berryworkout.island.desktop",
     "productName": "OH",
-    "afterPack": "build/after-pack.cjs",
     "directories": {
       "output": "outputs"
     },
@@ -69,7 +68,7 @@
     "win": {
       "target": "nsis",
       "icon": "build/icon.ico",
-      "signAndEditExecutable": false,
+      "signAndEditExecutable": true,
       "artifactName": "Berry-Workout-Island-Setup-${version}.${ext}"
     },
     "mac": {
@@ -79,6 +78,7 @@
       "artifactName": "OH-${version}-${arch}.${ext}"
     },
     "nsis": {
+      "guid": "157ce719-ed07-5847-b8dd-55ce3ea69ebd",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
