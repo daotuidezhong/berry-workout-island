@@ -62,6 +62,7 @@ app.whenReady().then(() => {
     }
     pomodoroMiniWindow = new BrowserWindow({
       title: "OH · 橙子专注钟",
+      icon: app.isPackaged ? path.join(process.resourcesPath, "build/icon.png") : path.join(__dirname, "../build/icon.png"),
       width: 160,
       height: 160,
       minWidth: 120,
