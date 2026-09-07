@@ -3,7 +3,7 @@ name: Build desktop installers
 on:
   workflow_dispatch:
   push:
-    branches: [codex/macos-data-migration]
+    branches: [codex/macos-data-migration, codex/orange-focus-update]
 
 jobs:
   build-macos:
@@ -63,5 +63,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=$(node -p "require('./package.json').version")
-          gh release view "v${version}" >/dev/null 2>&1 || gh release create "v${version}" --target "$GITHUB_SHA" --title "OH v${version}" --latest --notes $'新增网页版日记照片上传、上传后预览与历史大图预览。\n\n加强 Windows 与 macOS 完整备份的照片校验、导入前备份和失败回滚。\n\n修复连续记录计算和照片保存异常边界，并更新生产运行组件的安全补丁。\n\n安装说明：Windows 使用 Setup EXE；Apple 芯片 Mac 使用 arm64 DMG；Intel Mac 使用 x64 DMG。当前安装包未进行商业代码签名或 Apple 公证，首次运行可能需要在系统安全设置中确认。'
+          gh release view "v${version}" >/dev/null 2>&1 || gh release create "v${version}" --target "$GITHUB_SHA" --title "OH v${version}" --latest --notes $'新增橙子专注钟小窗：桌面版支持透明无边框、始终置顶、拖动与 120–360 像素缩放。\n\n小窗点击圆盘即可开始或暂停，并与主窗口实时同步；修复拖动漂移、鼠标错位和时间数字显示不全。\n\n专注钟视觉与相关文案由番茄更新为橙子；每日记录奖励调整为前三次依次获得 6、8、10 颗草莓，后续记录不再奖励；已授权通知时不再重复提示。\n\n安装说明：Windows 使用 Setup EXE；Apple 芯片 Mac 使用 arm64 DMG；Intel Mac 使用 x64 DMG。当前安装包未进行商业代码签名或 Apple 公证，首次运行可能需要在系统安全设置中确认。'
           gh release upload "v${version}" release-assets/* --clobber
