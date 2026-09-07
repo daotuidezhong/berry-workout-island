@@ -713,9 +713,34 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .pet-grid article > button:disabled { border-color: var(--sage-dark); background: var(--sage); color: #fff; box-shadow: 0 3px 0 var(--sage-dark); }
 
 .pomodoro-dock em { position: absolute; top: -7px; right: -13px; min-width: 46px; padding: 4px 5px; border: 2px solid #713d42; border-radius: 9px; background: #fff3d2; color: var(--berry-dark); font-size: 8px; font-style: normal; line-height: 1; }
+.game-dock .pomodoro-dock-icon { width: 26px; height: 22px; display: grid; place-items: center; }
+.game-dock .pomodoro-dock-icon img { width: 30px; height: 30px; object-fit: contain; image-rendering: pixelated; filter: drop-shadow(0 2px 0 rgba(104, 56, 47, .2)); }
 .pomodoro-dock.is-running > span { animation: pomodoro-dock-pulse 2.4s var(--ease-in-out) infinite; }
 .pomodoro-window { width: min(940px, 100%); overflow-x: hidden; animation: pomodoro-window-in 250ms var(--ease-out) both; }
 .pomodoro-heading { margin-bottom: 16px; }
+.pomodoro-mini-launch, .pomodoro-mini header button, .pomodoro-mini-notice button { padding: 8px 10px; border: 2px solid var(--line); border-radius: 9px; background: var(--paper); color: var(--ink); cursor: pointer; font-size: 11px; }
+.pomodoro-mini-launch { margin-top: 10px; }
+.pomodoro-mini-notice { position: fixed; z-index: 500; bottom: 24px; left: 50%; transform: translateX(-50%); width: min(420px, 90vw); padding: 16px; border: 2px solid var(--line); border-radius: 12px; background: var(--paper); font-size: 13px; line-height: 1.8; }
+.pomodoro-mini-notice button { display: block; margin-top: 10px; }
+body.pomodoro-mini-body { margin: 0; background: #222127; overflow: hidden; }
+.pomodoro-mini { min-height: 100vh; padding: 0; display: grid; place-items: center; background: #222127; }
+.pomodoro-mini .pomodoro-clock-card { width: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.pomodoro-mini.phase-break .pomodoro-clock-card { background: transparent; }
+.pomodoro-mini .pomodoro-dial { width: min(88vmin, 360px); padding: clamp(6px, 2vmin, 10px); border-width: 2px; cursor: pointer; outline: none; box-shadow: 0 4px 0 #4e3935, 0 8px 15px rgba(0,0,0,.35), inset 0 0 0 3px #3e3c42, inset 0 0 0 6px #1d1d22; }
+.pomodoro-mini .pomodoro-dial:focus-visible { box-shadow: 0 0 0 3px #fff4cc, 0 4px 0 #4e3935, 0 8px 15px rgba(0,0,0,.35), inset 0 0 0 3px #3e3c42, inset 0 0 0 6px #1d1d22; }
+.pomodoro-mini .pomodoro-progress-shell { padding: 7px; border-width: 2px; box-shadow: 0 3px 0 #131317, inset 0 0 0 2px rgba(255,255,255,.09); }
+.pomodoro-mini .pomodoro-dial-face { border-width: 2px; }
+.pomodoro-mini .pomodoro-dial-face > strong { width: 92%; font-size: clamp(12px, 6vmin, 18px); letter-spacing: -1px; }
+.pomodoro-mini .pomodoro-phase-label { top: 11%; font-size: clamp(7px, 2.2vmin, 10px); letter-spacing: .7px; }
+.pomodoro-mini .pomodoro-dial-face > small { bottom: 8%; padding: 2px 5px; font-size: clamp(7px, 2vmin, 9px); }
+.pomodoro-drag-handle { display: none; }
+body.desktop-pomodoro-mini-body { background: transparent; }
+.desktop-pomodoro-mini { min-height: 100vh; background: transparent; app-region: no-drag; -webkit-app-region: no-drag; }
+.desktop-pomodoro-mini .pomodoro-clock-card { position: relative; width: 100%; }
+.desktop-pomodoro-mini .pomodoro-dial { width: min(94vmin, 152px); app-region: no-drag; -webkit-app-region: no-drag; }
+.desktop-pomodoro-mini .pomodoro-drag-handle { position: absolute; z-index: 10; top: 8px; left: 50%; width: 96px; height: 24px; display: block; transform: translateX(-50%); cursor: grab; user-select: none; app-region: no-drag; -webkit-app-region: no-drag; }
+.desktop-pomodoro-mini .pomodoro-drag-handle::after { position: absolute; top: 4px; left: 50%; width: 48px; height: 7px; transform: translateX(-50%); border-radius: 999px; background: rgba(255,255,255,.24); box-shadow: 0 1px 0 rgba(0,0,0,.45); content: ""; pointer-events: none; app-region: no-drag; -webkit-app-region: no-drag; }
+.desktop-pomodoro-mini .pomodoro-resize-handle { position: absolute; z-index: 11; right: 3px; bottom: 3px; width: 24px; height: 24px; display: block; cursor: nwse-resize; user-select: none; app-region: no-drag; -webkit-app-region: no-drag; }
 .pomodoro-layout { display: grid; grid-template-columns: minmax(330px, 1fr) minmax(300px, .9fr); gap: 18px; }
 .pomodoro-clock-card, .pomodoro-memory { min-width: 0; padding: 20px; border: 3px solid #9a735d; border-radius: 20px; background: #fff6e5; box-shadow: inset 0 0 0 3px #fffdf4, 0 5px 0 #d6b28e; }
 .pomodoro-clock-card { display: grid; place-items: center; align-content: center; background: radial-gradient(circle at 50% 38%, #fffdf5 0 24%, #f9e4d3 64%, #ecc7b6 100%); }
@@ -727,19 +752,10 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .pomodoro-dial-face { position: relative; z-index: 1; width: 100%; height: 100%; display: grid; place-items: center; align-content: center; overflow: hidden; border: 3px solid #1a191e; border-radius: 50%; background: radial-gradient(circle at 42% 32%, #46454b 0, #303036 52%, #242429 100%); box-shadow: inset 0 0 30px rgba(0,0,0,.42), 0 4px 8px rgba(0,0,0,.42); animation: pomodoro-phase-in 220ms var(--ease-out) both; }
 .pomodoro-phase-label { position: absolute; z-index: 3; top: 12%; color: #f8e8d3; font-size: 10px; letter-spacing: 2px; text-shadow: 0 2px 0 rgba(0,0,0,.45); }
 .phase-break .pomodoro-phase-label { color: #d9efb6; }
-.pomodoro-tomato-mark { position: absolute; z-index: 1; top: 54%; left: 50%; width: 73%; height: 57%; transform: translate(-50%, -45%); border: 3px solid #8c252c; border-radius: 47% 53% 45% 55% / 38% 39% 61% 62%; background: radial-gradient(ellipse at 34% 25%, rgba(255,255,255,.32) 0 5%, rgba(255,255,255,.08) 11%, transparent 22%), radial-gradient(ellipse at 50% 112%, #a9192a 0 17%, transparent 48%), linear-gradient(145deg, #f45f55 0 23%, #df303d 58%, #b91f31 100%); box-shadow: 0 10px 13px rgba(0,0,0,.38), inset 8px 6px 0 rgba(255, 146, 122, .22), inset -9px -8px 0 rgba(111, 14, 29, .22); transform-origin: 50% 58%; }
-.pomodoro-tomato-mark::before { position: absolute; top: -2%; left: 50%; width: 24%; height: 13%; transform: translateX(-50%); border-radius: 0 0 50% 50%; background: #313036; content: ""; }
-.pomodoro-tomato-leaves { position: absolute; z-index: 2; top: -27%; left: 50%; width: 64%; height: 53%; transform: translateX(-50%); }
-.pomodoro-tomato-leaves::after { position: absolute; top: 1%; left: 50%; width: 9%; height: 48%; transform: translateX(-50%) rotate(7deg); border-radius: 70% 30% 35% 65%; background: linear-gradient(90deg, #3f6f49, #6d9e55); box-shadow: 2px 0 0 #2e583e; content: ""; }
-.pomodoro-tomato-leaves i { position: absolute; z-index: 1; top: 48%; left: 50%; width: 57%; height: 29%; transform-origin: 2px 50%; clip-path: polygon(0 35%, 68% 0, 100% 48%, 66% 100%, 0 65%); background: linear-gradient(135deg, #78a957, #3c7750); filter: drop-shadow(0 2px 0 #2d5940); }
-.pomodoro-tomato-leaves i:nth-child(1) { transform: rotate(-165deg); }
-.pomodoro-tomato-leaves i:nth-child(2) { transform: rotate(-122deg); }
-.pomodoro-tomato-leaves i:nth-child(3) { transform: rotate(-79deg); }
-.pomodoro-tomato-leaves i:nth-child(4) { transform: rotate(-36deg); }
-.pomodoro-tomato-leaves i:nth-child(5) { transform: rotate(7deg); }
+.pomodoro-orange-mark { position: absolute; z-index: 1; top: 54%; left: 50%; width: 80%; height: auto; transform: translate(-50%, -46%); transform-origin: 50% 58%; image-rendering: pixelated; filter: drop-shadow(0 10px 7px rgba(0,0,0,.4)); pointer-events: none; user-select: none; }
 .pomodoro-dial-face > strong { position: relative; z-index: 3; width: 82%; margin-top: 8%; color: #fffdf7; font-size: clamp(36px, 4.5vw, 48px); line-height: 1; letter-spacing: -1px; font-variant-numeric: tabular-nums; text-align: center; white-space: nowrap; text-shadow: 0 4px 0 rgba(84, 20, 25, .58), 0 7px 13px rgba(0,0,0,.46); }
 .pomodoro-dial-face > small { position: absolute; z-index: 3; bottom: 10%; padding: 6px 10px; border: 1px solid rgba(255,255,255,.16); border-radius: 9px; background: rgba(18,18,22,.72); color: #f4dec8; font-size: 9px; }
-.pomodoro-dial.is-running .pomodoro-tomato-mark { animation: pomodoro-tomato-breathe 2.4s var(--ease-in-out) infinite; }
+.pomodoro-dial.is-running .pomodoro-orange-mark { animation: pomodoro-orange-breathe 2.4s var(--ease-in-out) infinite; }
 .pomodoro-controls { width: 100%; margin-top: 24px; display: flex; justify-content: center; flex-wrap: wrap; gap: 9px; }
 .pomodoro-controls button { min-width: 92px; padding: 11px 13px; border: 2px solid #765247; border-radius: 11px; background: #fff0d0; box-shadow: 0 4px 0 #c6a27d; cursor: pointer; font-size: 11px; transition: transform 160ms var(--ease-out); }
 .pomodoro-controls button:active, .pomodoro-notice-status button:active { transform: scale(.97); }
@@ -778,6 +794,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .pomodoro-celebration > div span:nth-child(4) { --berry-x: 65px; --berry-y: -100px; animation-delay: 150ms; }
 .pomodoro-celebration > div span:nth-child(5) { --berry-x: 120px; --berry-y: -50px; animation-delay: 200ms; }
 .pomodoro-celebration > em { margin-bottom: 9px; font-size: 42px; font-style: normal; filter: drop-shadow(0 4px 0 rgba(104, 56, 47, .25)); }
+.pomodoro-celebration > em img { width: 72px; height: 72px; display: block; object-fit: contain; image-rendering: pixelated; }
 .pomodoro-celebration strong { color: var(--berry-dark); font-size: 19px; }
 .pomodoro-celebration.phase-break strong { color: var(--sage-dark); }
 .pomodoro-celebration small { margin-top: 9px; color: var(--muted); font-size: 9px; line-height: 1.7; }
@@ -788,7 +805,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 @keyframes pomodoro-phase-in { from { opacity: 0; transform: scale(.97); } }
 @keyframes pomodoro-stat-in { from { opacity: 0; transform: translateY(8px); } }
 @keyframes pomodoro-dock-pulse { 50% { transform: scale(1.08); } }
-@keyframes pomodoro-tomato-breathe { 50% { transform: translate(-50%, -45%) scale(1.015); } }
+@keyframes pomodoro-orange-breathe { 50% { transform: translate(-50%, -46%) scale(1.015); } }
 @keyframes pomodoro-celebration-in { from { opacity: 0; transform: translate(-50%, -46%) scale(.96); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
 @keyframes pomodoro-berry-burst { from { opacity: 0; transform: translate(0, 0) scale(.9); } 42% { opacity: 1; } to { opacity: 0; transform: translate(var(--berry-x), var(--berry-y)) scale(1.12); } }
 

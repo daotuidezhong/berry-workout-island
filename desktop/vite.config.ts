@@ -6,5 +6,14 @@ export default defineConfig({
   root: import.meta.dirname,
   publicDir: path.resolve(import.meta.dirname, "../public"),
   plugins: [react()],
-  build: { outDir: path.resolve(import.meta.dirname, "../desktop-dist"), emptyOutDir: true },
+  build: {
+    outDir: path.resolve(import.meta.dirname, "../desktop-dist"),
+    emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        main: path.resolve(import.meta.dirname, "index.html"),
+        pomodoro: path.resolve(import.meta.dirname, "pomodoro.html"),
+      },
+    },
+  },
 });

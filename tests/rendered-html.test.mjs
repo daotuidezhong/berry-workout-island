@@ -168,6 +168,8 @@ test("runs a persistent 25 plus 5 pomodoro cycle and rewards five strawberries o
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
   const desktopMain = await readFile(new URL("../electron/main.cjs", import.meta.url), "utf8");
+  const desktopPreload = await readFile(new URL("../electron/preload.cjs", import.meta.url), "utf8");
+  const desktopPomodoro = await readFile(new URL("../desktop/pomodoro.tsx", import.meta.url), "utf8");
   assert.match(source, /BERRY FOCUS CLOCK/);
   assert.match(source, /berries: current\.berries \+ result\.reward/);
   assert.match(source, /Notification\.requestPermission/);
@@ -177,14 +179,33 @@ test("runs a persistent 25 plus 5 pomodoro cycle and rewards five strawberries o
   assert.match(source, /playPomodoroChime\("break"\)/);
   assert.match(source, /id === "pomodoro"\) preparePomodoroAudio\(\)/);
   assert.doesNotMatch(source, /试听提示音/);
-  assert.match(source, /桌面系统弹窗提醒已开启/);
-  assert.match(source, /className="pomodoro-progress-shell"[\s\S]*className="pomodoro-tomato-mark"/);
+  assert.doesNotMatch(source, /桌面系统弹窗提醒已开启|系统弹窗提醒已开启/);
+  assert.match(source, /!desktopPomodoroAvailable && \(notificationPermission === "default" \|\| notificationPermission === "denied"\)/);
+  assert.match(source, /className="pomodoro-progress-shell"[\s\S]*className="pomodoro-orange-mark"[\s\S]*pomodoro-orange\.png/);
+  assert.match(source, /className="pomodoro-dock-icon"[\s\S]*pomodoro-orange\.png/);
+  assert.doesNotMatch(source, /🍊/);
+  assert.doesNotMatch(source, /pomodoro-tomato|🍅|番茄钟|番茄循环/);
+  assert.match(source, /mini\.onAction\(\(action\) => \{[\s\S]*if \(action === "pause"\) pausePomodoroTimer\(\);[\s\S]*else startPomodoroTimer\(\)/);
   assert.doesNotMatch(source, /className="pomodoro-crown"/);
   assert.doesNotMatch(source, /crop-tomato-mature\.png[\s\S]*专注时间/);
-  assert.match(css, /\.pomodoro-dial \{[^}]*background: radial-gradient[\s\S]*\.pomodoro-progress-shell \{[^}]*conic-gradient[\s\S]*\.pomodoro-tomato-mark \{[^}]*background: radial-gradient/);
+  assert.match(css, /\.pomodoro-dial \{[^}]*background: radial-gradient[\s\S]*\.pomodoro-progress-shell \{[^}]*conic-gradient[\s\S]*\.pomodoro-orange-mark \{[^}]*image-rendering: pixelated/);
   assert.match(css, /\.pomodoro-dial-face > strong \{[^}]*color: #fffdf7/);
+  assert.match(css, /\.desktop-pomodoro-mini \{[^}]*app-region: no-drag[\s\S]*\.desktop-pomodoro-mini \.pomodoro-dial \{[^}]*app-region: no-drag[\s\S]*\.desktop-pomodoro-mini \.pomodoro-drag-handle \{[^}]*top: 8px[^}]*app-region: no-drag/);
+  assert.doesNotMatch(css, /\.desktop-pomodoro-mini[^\n{]*\{[^}]*app-region: drag/);
+  assert.match(desktopPomodoro, /className="pomodoro-clock-card"[\s\S]*className="pomodoro-drag-handle"[\s\S]*<PomodoroClockFace/);
+  assert.match(desktopPomodoro, /startDrag\(\{ x: event\.screenX, y: event\.screenY \}\)[\s\S]*moveDrag\(\{ x: event\.screenX, y: event\.screenY \}\)[\s\S]*endDrag\(\)/);
+  assert.match(desktopPomodoro, /className="pomodoro-resize-handle"[\s\S]*startResize\(\{ x: event\.screenX, y: event\.screenY \}\)[\s\S]*moveResize\(\{ x: event\.screenX, y: event\.screenY \}\)[\s\S]*endResize\(\)/);
+  assert.doesNotMatch(source, /className="pomodoro-drag-handle"/);
+  assert.match(css, /\.pomodoro-mini \.pomodoro-dial-face > strong \{[^}]*width: 92%[^}]*font-size: clamp\(12px, 6vmin, 18px\)/);
   assert.match(css, /@keyframes pomodoro-berry-burst/);
   assert.match(desktopMain, /setAppUserModelId\("com\.berryworkout\.island"\)/);
+  assert.match(desktopMain, /width: 160,[\s\S]*height: 160,[\s\S]*minWidth: 120,[\s\S]*minHeight: 120/);
+  assert.match(desktopMain, /movable: true[\s\S]*resizable: false[\s\S]*setMovable\(true\)/);
+  assert.match(desktopMain, /pomodoro-mini:drag-start[\s\S]*pomodoroMiniDragOrigin = \{ pointerX: point\.x, pointerY: point\.y, windowX: bounds\.x, windowY: bounds\.y, width: bounds\.width, height: bounds\.height \}[\s\S]*pomodoro-mini:drag-move[\s\S]*point\.x - pomodoroMiniDragOrigin\.pointerX[\s\S]*setBounds\(\{ x, y, width: pomodoroMiniDragOrigin\.width, height: pomodoroMiniDragOrigin\.height \}, false\)/);
+  assert.doesNotMatch(desktopMain, /getCursorScreenPoint|setInterval|setPosition\(x, y/);
+  assert.match(desktopPreload, /startDrag:[\s\S]*pomodoro-mini:drag-start[\s\S]*moveDrag:[\s\S]*pomodoro-mini:drag-move[\s\S]*endDrag:[\s\S]*pomodoro-mini:drag-end/);
+  assert.match(desktopMain, /pomodoro-mini:resize-start[\s\S]*getContentSize\(\)[\s\S]*pomodoro-mini:resize-move[\s\S]*Math\.max\(120, Math\.min\(360[\s\S]*setContentSize\(size, size, false\)/);
+  assert.match(desktopPreload, /startResize:[\s\S]*pomodoro-mini:resize-start[\s\S]*moveResize:[\s\S]*pomodoro-mini:resize-move[\s\S]*endResize:[\s\S]*pomodoro-mini:resize-end/);
   assert.match(desktopMain, /pomodoro:schedule[\s\S]*new Notification[\s\S]*notification\.on\("click"[\s\S]*window\.focus\(\)/);
 });
 
@@ -794,9 +815,9 @@ test("moves the complete Windows save into macOS and preserves the replaced Mac 
 
 test("rewards only the first three journal records of each day", () => {
   assert.equal(getJournalReward(0), 0);
-  assert.equal(getJournalReward(1), 10);
-  assert.equal(getJournalReward(2), 15);
-  assert.equal(getJournalReward(3), 18);
+  assert.equal(getJournalReward(1), 6);
+  assert.equal(getJournalReward(2), 8);
+  assert.equal(getJournalReward(3), 10);
   assert.equal(getJournalReward(4), 0);
   assert.equal(getJournalReward(99), 0);
 });

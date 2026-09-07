@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import PomodoroMiniWindow, { type PomodoroMiniSnapshot } from "./pomodoro-mini-window";
 import { getFurnitureTarget, type Point } from "./game/furniture";
 import { getTimePeriod, type TimePeriod } from "./game/time-period";
 import { getSceneAsset, getWeatherKind, type WeatherKind } from "./game/weather";
@@ -116,8 +117,8 @@ const RELEASE_VERSION = "0.9.1";
 const RELEASE_NOTES = [
   { version: "0.9.1", items: ["网页版日记现在支持上传照片，照片会保存到内部并等比例显示", "上传后和历史记录中都可以预览照片，点击可查看大图", "加强完整备份校验与失败回滚，避免照片缺失或导入中断造成存档不一致", "修复网络中断时可能误删已保存照片的问题，并更新运行与打包组件的安全补丁"] },
   { version: "0.9.0", items: ["日记新增照片功能，每篇记录可导入一张照片", "照片会复制到应用内部，并按最长边 1600 像素等比例处理，不裁切、不拉伸", "完整备份现在会连同日记照片一起从 Windows 迁移到 Mac"] },
-  { version: "0.8.0", items: ["新增 macOS 桌面版，同时支持 Apple 芯片和 Intel Mac", "新增完整数据导出与导入，可将 Windows 的日记、草莓、猫咪、家具、农场、调酒收藏和番茄钟进度迁移到 Mac", "导入前会自动保留当前存档，避免误覆盖后无法恢复"] },
-  { version: "0.7.0", items: ["新增 25 分钟专注 + 5 分钟休息的番茄钟，每完成一次专注奖励 5 颗草莓", "新增番茄钟累计次数、今日次数与累计奖励记忆，关闭界面后计时仍会继续", "计时器重绘为深色圆形仪表盘、亮色进度环与中央番茄，并加入完成庆祝动画", "专注和休息结束时播放提示音并显示确认弹窗，后台同时发送系统通知"] },
+  { version: "0.8.0", items: ["新增 macOS 桌面版，同时支持 Apple 芯片和 Intel Mac", "新增完整数据导出与导入，可将 Windows 的日记、草莓、猫咪、家具、农场、调酒收藏和橙子专注钟进度迁移到 Mac", "导入前会自动保留当前存档，避免误覆盖后无法恢复"] },
+  { version: "0.7.0", items: ["新增 25 分钟专注 + 5 分钟休息的橙子专注钟，每完成一次专注奖励 5 颗草莓", "新增专注钟累计次数、今日次数与累计奖励记忆，关闭界面后计时仍会继续", "计时器重绘为深色圆形仪表盘、亮色进度环与中央橙子，并加入完成庆祝动画", "专注和休息结束时播放提示音并显示确认弹窗，后台同时发送系统通知"] },
   { version: "0.6.0", items: ["新增调酒配料商店与吧台小游戏，支持真实水位、冰块排水和三种调制方式", "新增80草莓调酒书、十款鸡尾酒成品图与完整配方，购买后收进背包", "调制成功的鸡尾酒会保存到背包，未解锁酒保持剪影，并修复高水位冰块与容量提示"] },
   { version: "0.5.4", items: ["新增三只猫咪的八方向行走动画，方向切换与移动轨迹保持一致", "状态面板切换现在会切换到对应猫咪的控制权，场景名字与状态名字保持同步", "修复取消睡眠后猫咪被猫窝图层遮挡的问题"] },
   { version: "0.5.3", items: ["修复歌曲地址过期后无法继续播放的问题，自动刷新地址并从原进度恢复", "修复猫咪进入吧台、查看状态时切换控制猫咪，以及家具无法紧贴墙壁的问题", "移除房间唱片碎片动画，并让唱片柜黑胶始终保持完整圆形"] },
@@ -152,6 +153,13 @@ declare global {
         schedule: (endsAt: number, phase: PomodoroPhase) => void;
         cancel: () => void;
         onFinished: (callback: (phase: PomodoroPhase) => void) => () => void;
+      };
+      pomodoroMini?: {
+        open: () => void;
+        sync: (snapshot: PomodoroMiniSnapshot) => void;
+        onState: (callback: (snapshot: PomodoroMiniSnapshot) => void) => () => void;
+        onAction: (callback: (action: "start" | "pause") => void) => () => void;
+        action: (action: "start" | "pause") => void;
       };
     };
   }
@@ -808,7 +816,7 @@ export default function Home() {
         setPomodoroAlert("focus");
         playPomodoroChime("focus");
         if (!window.gameUpdater?.pomodoro && "Notification" in window && Notification.permission === "granted") {
-          new Notification("专注完成 · 草莓到账", { body: `完成 1 个番茄循环，获得 ${POMODORO_REWARD} 颗草莓。现在休息 5 分钟吧！` });
+          new Notification("专注完成 · 草莓到账", { body: `完成 1 个橙子专注循环，获得 ${POMODORO_REWARD} 颗草莓。现在休息 5 分钟吧！` });
         }
       } else if (result.event === "break") {
         setToast("休息结束，可以开始下一次专注啦");
@@ -1239,6 +1247,20 @@ export default function Home() {
   const facingLeft = direction === "left" || direction === "up-left" || direction === "down-left";
   const motionX = walking || resting || lounging || wakingUp || scratching ? 0 : (currentStatusFrame.x ?? 0) * (facingLeft ? -1 : 1);
   const motionY = walking || resting || lounging || wakingUp || scratching ? 0 : currentStatusFrame.y ?? 0;
+
+  useEffect(() => {
+    if (!ready) return;
+    window.gameUpdater?.pomodoroMini?.sync({ state: game.pomodoro, remaining: pomodoroRemaining, progress: pomodoroProgress });
+  }, [game.pomodoro, pomodoroProgress, pomodoroRemaining, ready]);
+
+  useEffect(() => {
+    const mini = window.gameUpdater?.pomodoroMini;
+    if (!mini) return;
+    return mini.onAction((action) => {
+      if (action === "pause") pausePomodoroTimer();
+      else startPomodoroTimer();
+    });
+  }, [pomodoroActive]);
 
   async function enablePomodoroNotifications() {
     if (window.gameUpdater?.pomodoro || !("Notification" in window) || Notification.permission !== "default") return;
@@ -2380,7 +2402,7 @@ export default function Home() {
 
         <nav className="game-dock" aria-label="游戏菜单">
           <button className={overlay === "quest" || overlay === "history" ? "active" : ""} onClick={() => openOverlay("quest")}><span>📓</span><b>记录</b></button>
-          <button className={`pomodoro-dock ${overlay === "pomodoro" ? "active" : ""} ${pomodoroActive ? "is-running" : ""}`} onClick={() => openOverlay("pomodoro")}><span>🍅</span><b>番茄钟</b>{game.pomodoro.status !== "idle" && <em>{formatPomodoroTime(pomodoroRemaining)}</em>}</button>
+          <button className={`pomodoro-dock ${overlay === "pomodoro" ? "active" : ""} ${pomodoroActive ? "is-running" : ""}`} onClick={() => openOverlay("pomodoro")}><span className="pomodoro-dock-icon"><img src="/game/pomodoro-orange.png" alt="" draggable={false} /></span><b>橙子钟</b>{game.pomodoro.status !== "idle" && <em>{formatPomodoroTime(pomodoroRemaining)}</em>}</button>
           <button className={overlay === "bag" ? "active" : ""} onClick={() => openOverlay("bag")}><span>🎒</span><b>背包</b><i>{totalBackpackItems}</i></button>
           <button className={overlay === "shop" ? "active" : ""} onClick={() => openOverlay("shop")}><span>🛒</span><b>商店</b></button>
           <button className={overlay === "pets" ? "active" : ""} onClick={() => openOverlay("pets")}><span>🐾</span><b>伙伴</b></button>
@@ -2398,7 +2420,7 @@ export default function Home() {
                   <div className="data-transfer-layout">
                     <article>
                       <span aria-hidden="true">🖥️</span><small>WINDOWS 第一步</small><h2>导出完整备份</h2>
-                      <p>包含日记、草莓、猫咪、家具、农场、调酒收藏和番茄钟进度。</p>
+                      <p>包含日记、草莓、猫咪、家具、农场、调酒收藏和橙子专注钟进度。</p>
                       <button type="button" className="primary-button" onClick={() => void exportDesktopBackup()} disabled={dataTransferBusy !== null}>{dataTransferBusy === "export" ? "正在导出……" : "导出 .ohbackup 文件"}</button>
                     </article>
                     <i aria-hidden="true">→</i>
@@ -2414,16 +2436,14 @@ export default function Home() {
 
               {overlay === "pomodoro" && (
                 <>
-                  <div className="window-heading with-wallet pomodoro-heading"><span><small>BERRY FOCUS CLOCK</small><h1>莓果番茄钟</h1><p>专注 25 分钟，休息 5 分钟；完成一次专注奖励 5 颗草莓</p></span><b>🍓 {game.berries}</b></div>
+                  <div className="window-heading with-wallet pomodoro-heading"><span><small>BERRY FOCUS CLOCK</small><h1>橙子专注钟</h1><p>专注 25 分钟，休息 5 分钟；完成一次专注奖励 5 颗草莓</p><button type="button" className="pomodoro-mini-launch" onClick={() => window.gameUpdater?.pomodoroMini ? window.gameUpdater.pomodoroMini.open() : window.dispatchEvent(new Event("oh:pomodoro-mini"))}>↗ 小窗模式</button></span><b>🍓 {game.berries}</b></div>
                   <div className={`pomodoro-layout phase-${game.pomodoro.phase}`}>
                     <section className="pomodoro-clock-card" aria-label={`${game.pomodoro.phase === "focus" ? "专注" : "休息"}计时器`}>
                       <div className={`pomodoro-dial ${pomodoroActive ? "is-running" : ""}`}>
                         <div className="pomodoro-progress-shell" style={pomodoroStyle}>
                           <div className="pomodoro-dial-face" key={game.pomodoro.phase}>
                             <span className="pomodoro-phase-label">{game.pomodoro.phase === "focus" ? "专注时间" : "莓果休息站"}</span>
-                            <div className="pomodoro-tomato-mark" aria-hidden="true">
-                              <span className="pomodoro-tomato-leaves"><i /><i /><i /><i /><i /></span>
-                            </div>
+                            <img className="pomodoro-orange-mark" src="/game/pomodoro-orange.png" alt="" draggable={false} />
                             <strong aria-live="off">{formatPomodoroTime(pomodoroRemaining)}</strong>
                             <small>{game.pomodoro.status === "running" ? "计时中" : game.pomodoro.status === "paused" ? "已暂停" : "准备开始"}</small>
                           </div>
@@ -2434,7 +2454,7 @@ export default function Home() {
                         <button type="button" onClick={resetPomodoroTimer}>重置</button>
                         {game.pomodoro.phase === "break" && <button type="button" onClick={skipCurrentBreak}>跳过休息</button>}
                       </div>
-                      <p className="pomodoro-background-note"><span aria-hidden="true">◉</span> 关闭番茄钟窗口或把游戏放到后台，计时都会继续</p>
+                      <p className="pomodoro-background-note"><span aria-hidden="true">◉</span> 关闭橙子专注钟窗口或把游戏放到后台，计时都会继续</p>
                     </section>
 
                     <aside className="pomodoro-memory">
@@ -2444,16 +2464,16 @@ export default function Home() {
                         <article><span>累计完成</span><b>{game.pomodoro.totalCycles}</b><small>个循环</small></article>
                         <article><span>累计收获</span><b>{game.pomodoro.earnedBerries}</b><small>颗草莓</small></article>
                       </div>
-                      <div className="pomodoro-rhythm" aria-label="番茄钟循环规则">
+                      <div className="pomodoro-rhythm" aria-label="橙子专注钟循环规则">
                         <div><span>25</span><b>分钟专注</b><small>完成后 🍓 +5</small></div>
                         <i aria-hidden="true">→</i>
                         <div><span>5</span><b>分钟休息</b><small>自动开始</small></div>
                       </div>
-                      <div className="pomodoro-notice-status">
+                      {!desktopPomodoroAvailable && (notificationPermission === "default" || notificationPermission === "denied") && <div className="pomodoro-notice-status">
                         <span aria-hidden="true">🔔</span>
-                        <div><b>{desktopPomodoroAvailable ? "桌面系统弹窗提醒已开启" : notificationPermission === "granted" ? "系统弹窗提醒已开启" : notificationPermission === "denied" ? "系统弹窗未授权" : notificationPermission === "unsupported" ? "当前环境仅提供窗口内提醒" : "开启系统弹窗提醒"}</b><small>{notificationPermission === "denied" ? "可在浏览器网站设置中重新允许通知" : "专注结束和休息结束都会显示系统弹窗"}</small></div>
-                        {!desktopPomodoroAvailable && notificationPermission === "default" && <button type="button" onClick={() => void enablePomodoroNotifications()}>开启弹窗</button>}
-                      </div>
+                        <div><b>{notificationPermission === "denied" ? "系统弹窗未授权" : "开启系统弹窗提醒"}</b><small>{notificationPermission === "denied" ? "可在浏览器网站设置中重新允许通知" : "专注结束和休息结束都会显示系统弹窗"}</small></div>
+                        {notificationPermission === "default" && <button type="button" onClick={() => void enablePomodoroNotifications()}>开启弹窗</button>}
+                      </div>}
                     </aside>
                   </div>
                 </>
@@ -2877,11 +2897,12 @@ export default function Home() {
           </div>
         )}
       </section>
+      <PomodoroMiniWindow state={game.pomodoro} remaining={pomodoroRemaining} progress={pomodoroProgress} onToggle={pomodoroActive ? pausePomodoroTimer : startPomodoroTimer} onReset={resetPomodoroTimer} onSkip={skipCurrentBreak} onReturn={() => openOverlay("pomodoro")} />
       {pomodoroAlert && (
         <div className="pomodoro-alert-layer">
           <section className={`pomodoro-celebration phase-${pomodoroAlert}`} role="alertdialog" aria-modal="true" aria-live="assertive" aria-label={pomodoroAlert === "focus" ? "专注完成提醒" : "休息结束提醒"}>
             {pomodoroAlert === "focus" && <div aria-hidden="true">{[0, 1, 2, 3, 4].map((item) => <span key={item}>🍓</span>)}</div>}
-            <em aria-hidden="true">{pomodoroAlert === "focus" ? "🍅" : "🔔"}</em>
+            <em aria-hidden="true">{pomodoroAlert === "focus" ? <img src="/game/pomodoro-orange.png" alt="" draggable={false} /> : "🔔"}</em>
             <strong>{pomodoroAlert === "focus" ? `专注完成　+${POMODORO_REWARD}` : "休息结束"}</strong>
             <small>{pomodoroAlert === "focus" ? "5 分钟休息已经自动开始，草莓也放进钱包啦" : "新的 25 分钟专注已经准备好"}</small>
             <button type="button" onClick={() => setPomodoroAlert(null)}>知道了</button>

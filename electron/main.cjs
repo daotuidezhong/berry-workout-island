@@ -50,6 +50,87 @@ app.whenReady().then(() => {
     autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, "preload.cjs") },
   });
+  let pomodoroMiniWindow = null;
+  let pomodoroMiniSnapshot = null;
+  let pomodoroMiniDragOrigin = null;
+  let pomodoroMiniResizeOrigin = null;
+  const openPomodoroMini = () => {
+    if (pomodoroMiniWindow && !pomodoroMiniWindow.isDestroyed()) {
+      pomodoroMiniWindow.show();
+      pomodoroMiniWindow.focus();
+      return;
+    }
+    pomodoroMiniWindow = new BrowserWindow({
+      title: "OH · 橙子专注钟",
+      width: 160,
+      height: 160,
+      minWidth: 120,
+      minHeight: 120,
+      frame: false,
+      transparent: true,
+      backgroundColor: "#00000000",
+      alwaysOnTop: true,
+      hasShadow: false,
+      movable: true,
+      resizable: false,
+      autoHideMenuBar: true,
+      webPreferences: { preload: path.join(__dirname, "preload.cjs") },
+    });
+    pomodoroMiniWindow.setMovable(true);
+    pomodoroMiniWindow.setAlwaysOnTop(true, "floating");
+    pomodoroMiniWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    pomodoroMiniWindow.webContents.once("did-finish-load", () => {
+      if (pomodoroMiniSnapshot && pomodoroMiniWindow && !pomodoroMiniWindow.isDestroyed()) {
+        pomodoroMiniWindow.webContents.send("pomodoro-mini:state", pomodoroMiniSnapshot);
+      }
+    });
+    void pomodoroMiniWindow.loadURL("berry://game/pomodoro.html");
+    pomodoroMiniWindow.on("closed", () => { pomodoroMiniDragOrigin = null; pomodoroMiniResizeOrigin = null; pomodoroMiniWindow = null; });
+  };
+  ipcMain.on("pomodoro-mini:open", (event) => {
+    if (event.sender === window.webContents) openPomodoroMini();
+  });
+  ipcMain.on("pomodoro-mini:sync", (event, snapshot) => {
+    if (event.sender !== window.webContents || !snapshot || typeof snapshot.remaining !== "number" || typeof snapshot.progress !== "number") return;
+    pomodoroMiniSnapshot = snapshot;
+    if (pomodoroMiniWindow && !pomodoroMiniWindow.isDestroyed()) pomodoroMiniWindow.webContents.send("pomodoro-mini:state", snapshot);
+  });
+  ipcMain.on("pomodoro-mini:action", (event, action) => {
+    if (!pomodoroMiniWindow || event.sender !== pomodoroMiniWindow.webContents || (action !== "start" && action !== "pause") || window.isDestroyed()) return;
+    window.webContents.send("pomodoro-mini:action", action);
+  });
+  ipcMain.on("pomodoro-mini:drag-start", (event, point) => {
+    if (!pomodoroMiniWindow || pomodoroMiniWindow.isDestroyed() || event.sender !== pomodoroMiniWindow.webContents || !point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
+    const bounds = pomodoroMiniWindow.getBounds();
+    pomodoroMiniDragOrigin = { pointerX: point.x, pointerY: point.y, windowX: bounds.x, windowY: bounds.y, width: bounds.width, height: bounds.height };
+  });
+  ipcMain.on("pomodoro-mini:drag-move", (event, point) => {
+    if (!pomodoroMiniDragOrigin || !pomodoroMiniWindow || pomodoroMiniWindow.isDestroyed() || event.sender !== pomodoroMiniWindow.webContents || !point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
+    const x = Math.round(pomodoroMiniDragOrigin.windowX + point.x - pomodoroMiniDragOrigin.pointerX);
+    const y = Math.round(pomodoroMiniDragOrigin.windowY + point.y - pomodoroMiniDragOrigin.pointerY);
+    const current = pomodoroMiniWindow.getBounds();
+    if (x !== current.x || y !== current.y || current.width !== pomodoroMiniDragOrigin.width || current.height !== pomodoroMiniDragOrigin.height) {
+      pomodoroMiniWindow.setBounds({ x, y, width: pomodoroMiniDragOrigin.width, height: pomodoroMiniDragOrigin.height }, false);
+    }
+  });
+  ipcMain.on("pomodoro-mini:drag-end", (event) => {
+    if (pomodoroMiniWindow && !pomodoroMiniWindow.isDestroyed() && event.sender === pomodoroMiniWindow.webContents) pomodoroMiniDragOrigin = null;
+  });
+  ipcMain.on("pomodoro-mini:resize-start", (event, point) => {
+    if (!pomodoroMiniWindow || pomodoroMiniWindow.isDestroyed() || event.sender !== pomodoroMiniWindow.webContents || !point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
+    const [width, height] = pomodoroMiniWindow.getContentSize();
+    pomodoroMiniResizeOrigin = { pointerX: point.x, pointerY: point.y, size: Math.min(width, height) };
+  });
+  ipcMain.on("pomodoro-mini:resize-move", (event, point) => {
+    if (!pomodoroMiniResizeOrigin || !pomodoroMiniWindow || pomodoroMiniWindow.isDestroyed() || event.sender !== pomodoroMiniWindow.webContents || !point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
+    const delta = Math.max(point.x - pomodoroMiniResizeOrigin.pointerX, point.y - pomodoroMiniResizeOrigin.pointerY);
+    const size = Math.max(120, Math.min(360, Math.round(pomodoroMiniResizeOrigin.size + delta)));
+    const [currentWidth, currentHeight] = pomodoroMiniWindow.getContentSize();
+    if (size !== currentWidth || size !== currentHeight) pomodoroMiniWindow.setContentSize(size, size, false);
+  });
+  ipcMain.on("pomodoro-mini:resize-end", (event) => {
+    if (pomodoroMiniWindow && !pomodoroMiniWindow.isDestroyed() && event.sender === pomodoroMiniWindow.webContents) pomodoroMiniResizeOrigin = null;
+  });
   const sendUpdate = (status) => window.webContents.send("update:status", status);
   let pomodoroTimer = null;
   const cancelPomodoroTimer = () => {
@@ -131,7 +212,7 @@ app.whenReady().then(() => {
       const focusFinished = phase === "focus";
       const notification = new Notification({
         title: focusFinished ? "专注完成 · 草莓到账" : "休息结束",
-        body: focusFinished ? "完成 1 个番茄循环，获得 5 颗草莓。现在休息 5 分钟吧！" : "新的 25 分钟专注已经准备好。",
+        body: focusFinished ? "完成 1 个橙子专注循环，获得 5 颗草莓。现在休息 5 分钟吧！" : "新的 25 分钟专注已经准备好。",
         icon: app.isPackaged ? path.join(process.resourcesPath, "build/icon.png") : path.join(__dirname, "../build/icon.png"),
         silent: false,
       });
@@ -161,7 +242,10 @@ app.whenReady().then(() => {
   window.webContents.setUserAgent(`${window.webContents.getUserAgent()} BerryWorkoutDesktop`);
   window.webContents.once("did-finish-load", () => { if (app.isPackaged) autoUpdater.checkForUpdates().catch(() => {}); });
   window.loadURL("berry://game/");
-  window.on("closed", cancelPomodoroTimer);
+  window.on("closed", () => {
+    cancelPomodoroTimer();
+    if (pomodoroMiniWindow && !pomodoroMiniWindow.isDestroyed()) pomodoroMiniWindow.close();
+  });
 });
 
 app.on("window-all-closed", () => app.quit());
