@@ -729,7 +729,7 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(schema, /category: text\("category"\)/);
   assert.match(checkins, /name === "rating"[\s\S]*ALTER TABLE checkins ADD rating INTEGER[\s\S]*ALTER TABLE checkins ADD reward INTEGER/);
   assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*user-data\.json[\s\S]*createStorage\(dataFile, \{ journalPhotosDirectory \}\)[\s\S]*storage:load[\s\S]*storage:save/);
-  assert.match(packageJson, /"version": "0\.9\.3"[\s\S]*"appId": "com\.berryworkout\.island"[\s\S]*"productName": "OH"[\s\S]*"signAndEditExecutable": true[\s\S]*"mac"[\s\S]*"target": "dmg"/);
+  assert.match(packageJson, /"version": "0\.9\.3"[\s\S]*"appId": "com\.berryworkout\.island"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
   assert.match(macWorkflow, /macos-15[\s\S]*arch: \[arm64, x64\][\s\S]*desktop:build:mac[\s\S]*outputs\/\*\.dmg/);
   assert.match(electronMain, /showSaveDialog[\s\S]*\.ohbackup[\s\S]*storage\.exportPayload[\s\S]*showOpenDialog[\s\S]*storage\.importPayload/);
   assert.match(preload, /storage:[\s\S]*sendSync\("storage:load"[\s\S]*send\("storage:save"[\s\S]*storage:export[\s\S]*storage:import/);
@@ -876,8 +876,8 @@ test("uses OH desktop branding and a stable cat-paw cursor", async () => {
   assert.match(desktopHtml, /<title>OH<\/title>/);
   assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*title: "OH"[\s\S]*build\/icon\.png/);
   assert.match(electronMain, /title: "OH · 橙子专注钟"[\s\S]*icon: app\.isPackaged \? path\.join\(process\.resourcesPath, "build\/icon\.png"\)/);
-  assert.equal(packageJson.build.win.signAndEditExecutable, true);
-  assert.equal(packageJson.build.afterPack, undefined);
+  assert.equal(packageJson.build.win.signAndEditExecutable, false);
+  assert.equal(packageJson.build.afterPack, "build/after-pack.cjs");
   assert.ok(packageJson.build.extraResources.some((item) => item.from === "build/icon.png"));
   assert.match(css, /\.game-stage \{[^}]*cursor: url\("\/game\/cursor-cat-paw-native\.cur"\), default !important;/);
 });

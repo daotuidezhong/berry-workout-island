@@ -48,6 +48,7 @@
   "build": {
     "appId": "com.berryworkout.island",
     "productName": "OH",
+    "afterPack": "build/after-pack.cjs",
     "directories": {
       "output": "outputs"
     },
@@ -68,7 +69,7 @@
     "win": {
       "target": "nsis",
       "icon": "build/icon.ico",
-      "signAndEditExecutable": true,
+      "signAndEditExecutable": false,
       "artifactName": "Berry-Workout-Island-Setup-${version}.${ext}"
     },
     "mac": {
