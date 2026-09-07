@@ -1,6 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { INITIAL_POMODORO } from "../app/game/pomodoro";
+import {
+  getPomodoroRemaining,
+  INITIAL_POMODORO,
+  POMODORO_BREAK_MS,
+  POMODORO_FOCUS_MS,
+} from "../app/game/pomodoro";
 import { PomodoroClockFace, type PomodoroMiniSnapshot } from "../app/pomodoro-mini-window";
 import "../app/globals.css";
 
@@ -27,6 +32,27 @@ function DesktopPomodoroMini() {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
 
   useEffect(() => getMiniBridge()?.onState(setSnapshot), []);
+
+  useEffect(() => {
+    if (snapshot.state.status !== "running" || snapshot.state.endsAt === null) return;
+    const updateRemaining = () => {
+      setSnapshot((current) => {
+        if (current.state.status !== "running" || current.state.endsAt === null) return current;
+        const remaining = getPomodoroRemaining(current.state, Date.now());
+        const duration = current.state.phase === "focus" ? POMODORO_FOCUS_MS : POMODORO_BREAK_MS;
+        return { ...current, remaining, progress: Math.min(1, Math.max(0, remaining / duration)) };
+      });
+    };
+    updateRemaining();
+    const timer = window.setInterval(updateRemaining, 250);
+    window.addEventListener("focus", updateRemaining);
+    document.addEventListener("visibilitychange", updateRemaining);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", updateRemaining);
+      document.removeEventListener("visibilitychange", updateRemaining);
+    };
+  }, [snapshot.state.endsAt, snapshot.state.phase, snapshot.state.status]);
 
   return <main className={`pomodoro-mini desktop-pomodoro-mini phase-${snapshot.state.phase}`}>
     <section className="pomodoro-clock-card">

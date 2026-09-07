@@ -48,7 +48,10 @@ app.whenReady().then(() => {
     minHeight: 640,
     backgroundColor: "#f7ead7",
     autoHideMenuBar: true,
-    webPreferences: { preload: path.join(__dirname, "preload.cjs") },
+    webPreferences: {
+      preload: path.join(__dirname, "preload.cjs"),
+      backgroundThrottling: false,
+    },
   });
   let pomodoroMiniWindow = null;
   let pomodoroMiniSnapshot = null;
@@ -75,7 +78,10 @@ app.whenReady().then(() => {
       movable: true,
       resizable: false,
       autoHideMenuBar: true,
-      webPreferences: { preload: path.join(__dirname, "preload.cjs") },
+      webPreferences: {
+        preload: path.join(__dirname, "preload.cjs"),
+        backgroundThrottling: false,
+      },
     });
     pomodoroMiniWindow.setMovable(true);
     pomodoroMiniWindow.setAlwaysOnTop(true, "floating");

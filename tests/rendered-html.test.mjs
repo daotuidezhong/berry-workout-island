@@ -193,6 +193,7 @@ test("runs a persistent 25 plus 5 pomodoro cycle and rewards five strawberries o
   assert.match(css, /\.desktop-pomodoro-mini \{[^}]*app-region: no-drag[\s\S]*\.desktop-pomodoro-mini \.pomodoro-dial \{[^}]*app-region: no-drag[\s\S]*\.desktop-pomodoro-mini \.pomodoro-drag-handle \{[^}]*top: 8px[^}]*app-region: no-drag/);
   assert.doesNotMatch(css, /\.desktop-pomodoro-mini[^\n{]*\{[^}]*app-region: drag/);
   assert.match(desktopPomodoro, /className="pomodoro-clock-card"[\s\S]*className="pomodoro-drag-handle"[\s\S]*<PomodoroClockFace/);
+  assert.match(desktopPomodoro, /getPomodoroRemaining\(current\.state, Date\.now\(\)\)[\s\S]*window\.setInterval\(updateRemaining, 250\)/);
   assert.match(desktopPomodoro, /startDrag\(\{ x: event\.screenX, y: event\.screenY \}\)[\s\S]*moveDrag\(\{ x: event\.screenX, y: event\.screenY \}\)[\s\S]*endDrag\(\)/);
   assert.match(desktopPomodoro, /className="pomodoro-resize-handle"[\s\S]*startResize\(\{ x: event\.screenX, y: event\.screenY \}\)[\s\S]*moveResize\(\{ x: event\.screenX, y: event\.screenY \}\)[\s\S]*endResize\(\)/);
   assert.doesNotMatch(source, /className="pomodoro-drag-handle"/);
@@ -203,6 +204,7 @@ test("runs a persistent 25 plus 5 pomodoro cycle and rewards five strawberries o
   assert.match(desktopMain, /movable: true[\s\S]*resizable: false[\s\S]*setMovable\(true\)/);
   assert.match(desktopMain, /pomodoro-mini:drag-start[\s\S]*pomodoroMiniDragOrigin = \{ pointerX: point\.x, pointerY: point\.y, windowX: bounds\.x, windowY: bounds\.y, width: bounds\.width, height: bounds\.height \}[\s\S]*pomodoro-mini:drag-move[\s\S]*point\.x - pomodoroMiniDragOrigin\.pointerX[\s\S]*setBounds\(\{ x, y, width: pomodoroMiniDragOrigin\.width, height: pomodoroMiniDragOrigin\.height \}, false\)/);
   assert.doesNotMatch(desktopMain, /getCursorScreenPoint|setInterval|setPosition\(x, y/);
+  assert.equal((desktopMain.match(/backgroundThrottling: false/g) ?? []).length, 2);
   assert.match(desktopPreload, /startDrag:[\s\S]*pomodoro-mini:drag-start[\s\S]*moveDrag:[\s\S]*pomodoro-mini:drag-move[\s\S]*endDrag:[\s\S]*pomodoro-mini:drag-end/);
   assert.match(desktopMain, /pomodoro-mini:resize-start[\s\S]*getContentSize\(\)[\s\S]*pomodoro-mini:resize-move[\s\S]*Math\.max\(120, Math\.min\(360[\s\S]*setContentSize\(size, size, false\)/);
   assert.match(desktopPreload, /startResize:[\s\S]*pomodoro-mini:resize-start[\s\S]*moveResize:[\s\S]*pomodoro-mini:resize-move[\s\S]*endResize:[\s\S]*pomodoro-mini:resize-end/);
@@ -729,7 +731,7 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(schema, /category: text\("category"\)/);
   assert.match(checkins, /name === "rating"[\s\S]*ALTER TABLE checkins ADD rating INTEGER[\s\S]*ALTER TABLE checkins ADD reward INTEGER/);
   assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*user-data\.json[\s\S]*createStorage\(dataFile, \{ journalPhotosDirectory \}\)[\s\S]*storage:load[\s\S]*storage:save/);
-  assert.match(packageJson, /"version": "0\.9\.4"[\s\S]*"appId": "com\.berryworkout\.island\.desktop"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
+  assert.match(packageJson, /"version": "0\.9\.5"[\s\S]*"appId": "com\.berryworkout\.island\.desktop"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
   assert.match(packageJson, /"guid": "157ce719-ed07-5847-b8dd-55ce3ea69ebd"/);
   assert.match(macWorkflow, /macos-15[\s\S]*arch: \[arm64, x64\][\s\S]*desktop:build:mac[\s\S]*outputs\/\*\.dmg/);
   assert.match(electronMain, /showSaveDialog[\s\S]*\.ohbackup[\s\S]*storage\.exportPayload[\s\S]*showOpenDialog[\s\S]*storage\.importPayload/);
