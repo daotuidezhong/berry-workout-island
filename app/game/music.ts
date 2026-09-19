@@ -4,6 +4,7 @@ export type PlaylistTrack = { id: number; name: string; artist: string; duration
 export type Playlist = { id: string; name: string; trackCount: number; tracks: PlaylistTrack[] };
 
 export const LOCAL_PLAYBACK_PATHS: Record<number, string> = {
+  2623215876: "/music/tracks/2623215876.mp3",
   1352585027: "/music/tracks/1352585027.mp3",
   1457681678: "/music/tracks/1457681678.mp3",
   492390949: "/music/tracks/492390949.mp3",

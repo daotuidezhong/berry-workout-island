@@ -398,11 +398,15 @@ test("keeps the player vinyl perfectly round while only its clipped highlight ro
 
 test("uses the requested NetEase playlist and local fallbacks for its unavailable tracks", async () => {
   assert.equal(PLAYLIST_ID, "17961012548");
-  assert.equal(Object.keys(LOCAL_PLAYBACK_PATHS).length, 22);
+  assert.equal(Object.keys(LOCAL_PLAYBACK_PATHS).length, 23);
+  assert.equal(resolvePlaybackUrl(2623215876, null), "/music/tracks/2623215876.mp3");
   assert.equal(resolvePlaybackUrl(1352585027, null), "/music/tracks/1352585027.mp3");
   assert.equal(resolvePlaybackUrl(2008736389, "http://example.com/song.mp3"), "https://example.com/song.mp3");
   await Promise.all(Object.values(LOCAL_PLAYBACK_PATHS).map((playbackPath) =>
     access(new URL(`../public${playbackPath}`, import.meta.url))));
+  const beaute = await readFile(new URL("../public/music/tracks/2623215876.mp3", import.meta.url));
+  assert.equal(beaute.subarray(0, 3).toString("ascii"), "ID3");
+  assert.ok(beaute.length > 4_000_000);
 });
 
 test("refreshes expiring NetEase playback URLs without reusing a cached playlist", async () => {
@@ -424,9 +428,11 @@ test("opens the desktop record cabinet from its bundled playlist when NetEase is
   const root = fileURLToPath(new URL("../public/", import.meta.url));
   const playlist = await loadDesktopPlaylist(root, async () => { throw new Error("offline"); });
   assert.equal(playlist.id, PLAYLIST_ID);
-  assert.equal(playlist.trackCount, 115);
-  assert.equal(playlist.tracks.length, 115);
-  assert.equal(playlist.tracks.filter((track) => track.playbackUrl).length, 22);
+  assert.equal(playlist.trackCount, 118);
+  assert.equal(playlist.tracks.length, 118);
+  assert.equal(playlist.tracks[0].name, "Beauté");
+  assert.equal(playlist.tracks[0].playbackUrl, "/music/tracks/2623215876.mp3");
+  assert.equal(playlist.tracks.filter((track) => track.playbackUrl).length, 23);
   assert.deepEqual(DESKTOP_PLAYBACK_PATHS, LOCAL_PLAYBACK_PATHS);
   const electronMain = await readFile(new URL("../electron/main.cjs", import.meta.url), "utf8");
   assert.match(electronMain, /pathname === "\/api\/netease-playlist"[\s\S]*loadDesktopPlaylist\(root, net\.fetch\)/);
@@ -737,7 +743,9 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(schema, /category: text\("category"\)/);
   assert.match(checkins, /name === "rating"[\s\S]*ALTER TABLE checkins ADD rating INTEGER[\s\S]*ALTER TABLE checkins ADD reward INTEGER/);
   assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*user-data\.json[\s\S]*createStorage\(dataFile, \{ journalPhotosDirectory \}\)[\s\S]*storage:load[\s\S]*storage:save/);
-  assert.match(packageJson, /"version": "0\.9\.7"[\s\S]*"appId": "com\.berryworkout\.island\.desktop\.v2"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
+  assert.match(packageJson, /"version": "0\.9\.8"[\s\S]*"appId": "com\.berryworkout\.island\.desktop\.v2"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
+  assert.match(packageJson, /"from": "desktop-dist"[\s\S]*"!game\/room-frames\{,\/\*\*\/\*\}"/);
+  assert.match(source, /RELEASE_VERSION = "0\.9\.8"[\s\S]*Jordan Critz《Beauté》[\s\S]*version: "0\.9\.7"/);
   assert.match(packageJson, /"createDesktopShortcut": "always"[\s\S]*"createStartMenuShortcut": true[\s\S]*"include": "build\/installer\.nsh"/);
   const installer = await readFile(new URL("../build/installer.nsh", import.meta.url), "utf8");
   assert.match(installer, /customInstall[\s\S]*newStartMenuLink[\s\S]*SetLnkAUMI[\s\S]*newDesktopLink[\s\S]*SetLnkAUMI[\s\S]*SHChangeNotify/);
@@ -746,6 +754,11 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(electronMain, /showSaveDialog[\s\S]*\.ohbackup[\s\S]*storage\.exportPayload[\s\S]*showOpenDialog[\s\S]*storage\.importPayload/);
   assert.match(preload, /storage:[\s\S]*sendSync\("storage:load"[\s\S]*send\("storage:save"[\s\S]*storage:export[\s\S]*storage:import/);
   assert.match(source, /数据备份[\s\S]*导出 \.ohbackup 文件[\s\S]*选择备份并导入/);
+  assert.match(source, /TIME_PERIOD_LABELS[\s\S]*WEATHER_ICONS[\s\S]*className="scene-context"[\s\S]*"OH"[\s\S]*草莓小院/);
+  assert.match(source, /getWeatherIcon[\s\S]*weather === "clear" && period === "night" \? "🌙"[\s\S]*getWeatherIcon\(weather\.kind, timePeriod\)/);
+  assert.match(source, /open-meteo[\s\S]*cache: "no-store"[\s\S]*5 \* 60 \* 1000[\s\S]*visibilitychange/);
+  assert.match(source, /className="scene-context-home"[\s\S]*🏠[\s\S]*className="dock-icon"[^>]*>📓[\s\S]*>🎒[\s\S]*>🛒[\s\S]*>🐾[\s\S]*>🪑/);
+  assert.match(css, /--hud-surface:[\s\S]*\.scene-context \{[^}]*border-radius: 22px[\s\S]*\.scene-context-home[^}]*Segoe UI Emoji[\s\S]*\.game-dock \.dock-icon[^}]*font-size: 24px/);
   assert.match(source, /添加一张照片[\s\S]*照片会保存到内部，并保持原始比例/);
   assert.match(source, /createImageBitmap\(file\)[\s\S]*1600 \/ Math\.max\(image\.width, image\.height\)[\s\S]*canvas\.toBlob/);
   assert.match(source, /\/api\/journal-photos[\s\S]*photoData[\s\S]*photo: JournalPhoto/);
@@ -904,6 +917,6 @@ test("server-renders the full-screen game without the old movement hint", async 
   assert.match(html, /data-cat-status="high-low"/);
   assert.doesNotMatch(html, /class="cat-action"/);
   assert.match(html, /aria-label="游戏菜单"/);
-  assert.match(html, /的困倦值/);
+  assert.match(html, /<span>活力<\/span>[\s\S]*<span>困倦<\/span>/);
   assert.doesNotMatch(html, /weather-chip|天气同步中|room-help|点击地面移动/);
 });

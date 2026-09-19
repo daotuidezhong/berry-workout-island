@@ -3,6 +3,7 @@ const path = require("node:path");
 
 const PLAYLIST_ID = "17961012548";
 const LOCAL_PLAYBACK_PATHS = {
+  2623215876: "/music/tracks/2623215876.mp3",
   1352585027: "/music/tracks/1352585027.mp3",
   1457681678: "/music/tracks/1457681678.mp3",
   492390949: "/music/tracks/492390949.mp3",

@@ -1,6 +1,6 @@
 {
   "name": "berry-workout-island",
-  "version": "0.9.7",
+  "version": "0.9.8",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -58,7 +58,11 @@
     "extraResources": [
       {
         "from": "desktop-dist",
-        "to": "desktop-dist"
+        "to": "desktop-dist",
+        "filter": [
+          "**/*",
+          "!game/room-frames{,/**/*}"
+        ]
       },
       {
         "from": "build/icon.png",

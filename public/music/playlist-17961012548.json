@@ -1,8 +1,29 @@
 {
   "id": "17961012548",
   "name": "Deep Focus Mode",
-  "trackCount": 115,
+  "trackCount": 118,
   "tracks": [
+    {
+      "id": 2623215876,
+      "name": "Beauté",
+      "artist": "Jordan Critz",
+      "duration": 166948,
+      "cover": "https://p1.music.126.net/gjqeajDpnh_sFct59Tmsyw==/109951169925272415.jpg"
+    },
+    {
+      "id": 1476256487,
+      "name": "My Lovely Lady",
+      "artist": "Dennis Kuo",
+      "duration": 224721,
+      "cover": "https://p1.music.126.net/YMA7dxhGoE2F7oDjEXLJ2g==/109951165292052768.jpg"
+    },
+    {
+      "id": 1495924418,
+      "name": "A Broken Heart Heals with Time",
+      "artist": "Dennis Kuo",
+      "duration": 272999,
+      "cover": "https://p1.music.126.net/1vLsIB-4ES2__Zm-3DB79Q==/109951165475076090.jpg"
+    },
     {
       "id": 475072092,
       "name": "Heaven",

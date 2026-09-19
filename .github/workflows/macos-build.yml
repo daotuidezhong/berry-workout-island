@@ -63,5 +63,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=$(node -p "require('./package.json').version")
-          gh release view "v${version}" >/dev/null 2>&1 || gh release create "v${version}" --target "$GITHUB_SHA" --title "OH v${version}" --latest --notes $'橙子专注小窗升级为苹果风液态玻璃外观，中央保持高透明，仅保留细进度环，尽量不遮挡屏幕内容。\n\n小窗固定为 160×160，并移除右下角缩放控件和正方形系统边框。拖动改为锁定内容区，计时文字的位置与字号在拖动过程中保持不变。\n\n安装说明：Windows 使用 Setup EXE；Apple 芯片 Mac 使用 arm64 DMG；Intel Mac 使用 x64 DMG。当前安装包未进行商业代码签名或 Apple 公证，首次运行可能需要在系统安全设置中确认。'
+          gh release view "v${version}" >/dev/null 2>&1 || gh release create "v${version}" --target "$GITHUB_SHA" --title "OH v${version}" --latest --notes $'主界面升级为更轻盈的半透明信息层，并保留原版彩色图标风格；房间标题更新为 OH，天气会实时同步，晴朗夜晚显示月亮。\n\n唱片机新增 Jordan Critz《Beauté》本地音频，网络版本无法播放时也能正常收听。\n\n桌面安装包移除了约 926 MB 已停用的唱片动画帧，Windows 安装包由约 1.40 GB 降至约 478 MB，并继续支持差分自动更新。\n\n安装说明：Windows 使用 Setup EXE；Apple 芯片 Mac 使用 arm64 DMG；Intel Mac 使用 x64 DMG。当前安装包未进行商业代码签名或 Apple 公证，首次运行可能需要在系统安全设置中确认。'
           gh release upload "v${version}" release-assets/* --clobber

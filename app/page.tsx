@@ -113,8 +113,9 @@ type GameState = {
   pomodoro: PomodoroState;
 };
 
-const RELEASE_VERSION = "0.9.7";
+const RELEASE_VERSION = "0.9.8";
 const RELEASE_NOTES = [
+  { version: "0.9.8", items: ["主界面升级为更轻盈的半透明信息层，整理顶部状态、猫咪状态与底部功能栏，同时保留原版彩色图标风格", "房间标题更新为 OH；天气按佛山实时数据自动同步，晴朗夜晚会显示月亮而不是太阳", "为唱片机中的 Jordan Critz《Beauté》加入本地音频，网络版本无法播放时也能正常收听", "桌面安装包不再包含已停用的唱片动画帧，显著缩小下载体积并加快后续更新"] },
   { version: "0.9.7", items: ["橙子专注小窗升级为苹果风液态玻璃外观，中央保持高透明，仅保留细进度环", "小窗固定为 160×160，并移除右下角缩放控件与正方形系统边框", "重写拖动边界计算，拖动过程中计时文字不会偏移、放大或缩小"] },
   { version: "0.9.6", items: ["修复 Windows 任务栏仍显示 Electron 初始图标的问题", "安装或自动更新时会重新写入桌面和开始菜单快捷方式身份", "开发调试与正式版改用不同应用身份，避免图标缓存再次互相污染"] },
   { version: "0.9.5", items: ["修复橙子专注小窗长时间不操作后时间停止的问题", "主窗口最小化或转入后台时仍按真实结束时间持续计时", "小窗新增独立时间校准，卡顿或休眠恢复后会立即显示正确剩余时间"] },
@@ -137,6 +138,23 @@ const RELEASE_NOTES = [
   { version: "0.2.2", items: ["桌面版生活记录与心情改为仅保存在本机", "更新完成后首次启动会直接弹出累计版本说明"] },
   { version: "0.2.1", items: ["修复手账翻回前一页时尺寸变大的问题", "桌面与安装图标更换为无面部像素草莓", "新增游戏内版本更新说明"] },
 ];
+
+const TIME_PERIOD_LABELS: Record<TimePeriod, string> = {
+  morning: "上午",
+  noon: "下午",
+  evening: "傍晚",
+  night: "夜晚",
+};
+
+const WEATHER_ICONS: Record<WeatherKind, string> = {
+  clear: "☀️",
+  cloudy: "☁️",
+  rain: "🌧️",
+  thunderstorm: "⛈️",
+};
+
+const getWeatherIcon = (weather: WeatherKind, period: TimePeriod) =>
+  weather === "clear" && period === "night" ? "🌙" : WEATHER_ICONS[weather];
 
 declare global {
   interface Window {
@@ -738,7 +756,7 @@ export default function Home() {
     const labels: Record<WeatherKind, string> = { clear: "晴", cloudy: "多云", rain: "小雨", thunderstorm: "雷暴雨" };
     const syncWeather = async () => {
       try {
-        const response = await fetch("https://api.open-meteo.com/v1/forecast?latitude=23.0215&longitude=113.1214&current=weather_code,cloud_cover,precipitation&timezone=Asia%2FShanghai");
+        const response = await fetch("https://api.open-meteo.com/v1/forecast?latitude=23.0215&longitude=113.1214&current=weather_code,cloud_cover,precipitation&timezone=Asia%2FShanghai", { cache: "no-store" });
         if (!response.ok) throw new Error();
         const data = await response.json() as { current: { weather_code: number; cloud_cover: number; precipitation: number } };
         const kind = getWeatherKind(data.current.weather_code, data.current.precipitation, data.current.cloud_cover);
@@ -748,7 +766,7 @@ export default function Home() {
         }
       } catch {
         try {
-          const response = await fetch("https://wttr.in/Foshan?format=j1");
+          const response = await fetch("https://wttr.in/Foshan?format=j1", { cache: "no-store" });
           if (!response.ok) throw new Error();
           const data = await response.json() as { current_condition: Array<{ cloudcover: string; precipMM: string; weatherDesc: Array<{ value: string }> }> };
           const current = data.current_condition[0];
@@ -760,15 +778,24 @@ export default function Home() {
             if (kind === "rain" || kind === "thunderstorm") setGame((current) => ({ ...current, farmPlots: waterUnwateredPlots(current.farmPlots) }));
           }
         } catch {
-          if (!cancelled) setWeather((current) => ({ ...current, label: "天气暂时无法同步" }));
+          // Keep the last successfully synced weather instead of replacing it with an error state.
         }
       }
     };
     syncWeather();
-    const timer = window.setInterval(syncWeather, 15 * 60 * 1000);
+    const syncWhenVisible = () => {
+      if (document.visibilityState === "visible") void syncWeather();
+    };
+    const timer = window.setInterval(syncWeather, 5 * 60 * 1000);
+    window.addEventListener("focus", syncWeather);
+    window.addEventListener("online", syncWeather);
+    document.addEventListener("visibilitychange", syncWhenVisible);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      window.removeEventListener("focus", syncWeather);
+      window.removeEventListener("online", syncWeather);
+      document.removeEventListener("visibilitychange", syncWhenVisible);
     };
   }, []);
 
@@ -2379,18 +2406,24 @@ export default function Home() {
         )}
 
         <header className="game-hud">
-          {desktopDataAvailable && <button type="button" className="data-transfer-button" onClick={() => openOverlay("data")}><span>💾</span><b>数据备份</b></button>}
+          <div className="scene-context">
+            <span className="scene-context-home" aria-hidden="true">🏠</span>
+            <span><b>{game.scene === "room" ? "OH" : "草莓小院"}</b><small>{weather.label} · {TIME_PERIOD_LABELS[timePeriod]}</small></span>
+            <span className="scene-context-weather" aria-hidden="true">{getWeatherIcon(weather.kind, timePeriod)}</span>
+            {desktopDataAvailable && <button type="button" className="data-transfer-button" onClick={() => openOverlay("data")} aria-label="数据备份" title="数据备份"><span aria-hidden="true">💾</span><b>数据备份</b></button>}
+          </div>
           <div className="hud-counters">
-            <div><span>🔥</span><small>连续</small><b>{game.streak} 天</b></div>
-            <div><span>🍓</span><small>草莓</small><b>{game.berries}</b></div>
+            <div><span aria-hidden="true">🔥</span><small>连续</small><b>{game.streak} 天</b></div>
+            <div><span aria-hidden="true">🍓</span><small>草莓</small><b>{game.berries}</b></div>
           </div>
         </header>
 
         <aside className="pet-status">
           <img src={inspectedPet.idle} alt="" />
           <div className="pet-meters">
-            <div><small><span>{inspectedPet.name}的活力</span><b>{inspectedPetStats.energy}</b></small><div className="energy"><i style={{ width: `${inspectedPetStats.energy}%` }} /></div></div>
-            <div><small><span>{inspectedPet.name}的困倦值</span><b>{inspectedPetStats.sleepiness}</b></small><div className="sleepiness"><i style={{ width: `${inspectedPetStats.sleepiness}%` }} /></div></div>
+            <strong className="pet-status-name">{inspectedPet.name}</strong>
+            <div><small><span>活力</span><b>{inspectedPetStats.energy}</b></small><div className="energy"><i style={{ width: `${inspectedPetStats.energy}%` }} /></div></div>
+            <div><small><span>困倦</span><b>{inspectedPetStats.sleepiness}</b></small><div className="sleepiness"><i style={{ width: `${inspectedPetStats.sleepiness}%` }} /></div></div>
           </div>
           <div className="pet-status-actions">
             {game.adoptedPets.length > 1 && <button onClick={cycleControlledPet} title="切换控制猫咪">切换控制</button>}
@@ -2407,12 +2440,12 @@ export default function Home() {
         )}
 
         <nav className="game-dock" aria-label="游戏菜单">
-          <button className={overlay === "quest" || overlay === "history" ? "active" : ""} onClick={() => openOverlay("quest")}><span>📓</span><b>记录</b></button>
+          <button className={overlay === "quest" || overlay === "history" ? "active" : ""} onClick={() => openOverlay("quest")}><span className="dock-icon" aria-hidden="true">📓</span><b>记录</b></button>
           <button className={`pomodoro-dock ${overlay === "pomodoro" ? "active" : ""} ${pomodoroActive ? "is-running" : ""}`} onClick={() => openOverlay("pomodoro")}><span className="pomodoro-dock-icon"><img src="/game/pomodoro-orange.png" alt="" draggable={false} /></span><b>橙子钟</b>{game.pomodoro.status !== "idle" && <em>{formatPomodoroTime(pomodoroRemaining)}</em>}</button>
-          <button className={overlay === "bag" ? "active" : ""} onClick={() => openOverlay("bag")}><span>🎒</span><b>背包</b><i>{totalBackpackItems}</i></button>
-          <button className={overlay === "shop" ? "active" : ""} onClick={() => openOverlay("shop")}><span>🛒</span><b>商店</b></button>
-          <button className={overlay === "pets" ? "active" : ""} onClick={() => openOverlay("pets")}><span>🐾</span><b>伙伴</b></button>
-          <button className={decorating ? "active" : ""} disabled={game.scene === "yard"} onClick={() => { setOverlay(null); setDecorating((value) => !value); setJumping(false); resetStatusAnimation(); }}><span>🪑</span><b>{game.scene === "yard" ? "回屋布置" : "布置"}</b></button>
+          <button className={overlay === "bag" ? "active" : ""} onClick={() => openOverlay("bag")}><span className="dock-icon" aria-hidden="true">🎒</span><b>背包</b><i>{totalBackpackItems}</i></button>
+          <button className={overlay === "shop" ? "active" : ""} onClick={() => openOverlay("shop")}><span className="dock-icon" aria-hidden="true">🛒</span><b>商店</b></button>
+          <button className={overlay === "pets" ? "active" : ""} onClick={() => openOverlay("pets")}><span className="dock-icon" aria-hidden="true">🐾</span><b>伙伴</b></button>
+          <button className={decorating ? "active" : ""} disabled={game.scene === "yard"} onClick={() => { setOverlay(null); setDecorating((value) => !value); setJumping(false); resetStatusAnimation(); }}><span className="dock-icon" aria-hidden="true">🪑</span><b>{game.scene === "yard" ? "回屋布置" : "布置"}</b></button>
         </nav>
 
         {overlay && (
