@@ -21,15 +21,13 @@ type MiniBridge = {
   startDrag: (point: { x: number; y: number }) => void;
   moveDrag: (point: { x: number; y: number }) => void;
   endDrag: () => void;
-  startResize: (point: { x: number; y: number }) => void;
-  moveResize: (point: { x: number; y: number }) => void;
-  endResize: () => void;
 };
 
 const getMiniBridge = () => (window as Window & { gameUpdater?: { pomodoroMini?: MiniBridge } }).gameUpdater?.pomodoroMini;
 
 function DesktopPomodoroMini() {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
+  const [dragging, setDragging] = useState(false);
 
   useEffect(() => getMiniBridge()?.onState(setSnapshot), []);
 
@@ -54,7 +52,7 @@ function DesktopPomodoroMini() {
     };
   }, [snapshot.state.endsAt, snapshot.state.phase, snapshot.state.status]);
 
-  return <main className={`pomodoro-mini desktop-pomodoro-mini phase-${snapshot.state.phase}`}>
+  return <main className={`pomodoro-mini desktop-pomodoro-mini phase-${snapshot.state.phase} ${dragging ? "is-dragging" : ""}`}>
     <section className="pomodoro-clock-card">
       <span
         className="pomodoro-drag-handle"
@@ -64,12 +62,14 @@ function DesktopPomodoroMini() {
           if (event.button !== 0) return;
           event.preventDefault();
           event.currentTarget.setPointerCapture(event.pointerId);
+          setDragging(true);
           getMiniBridge()?.startDrag({ x: event.screenX, y: event.screenY });
         }}
         onPointerMove={(event) => {
           if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
           if ((event.buttons & 1) === 0) {
             event.currentTarget.releasePointerCapture(event.pointerId);
+            setDragging(false);
             getMiniBridge()?.endDrag();
             return;
           }
@@ -77,38 +77,13 @@ function DesktopPomodoroMini() {
         }}
         onPointerUp={(event) => {
           if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+          setDragging(false);
           getMiniBridge()?.endDrag();
         }}
-        onPointerCancel={() => getMiniBridge()?.endDrag()}
-        onLostPointerCapture={() => getMiniBridge()?.endDrag()}
+        onPointerCancel={() => { setDragging(false); getMiniBridge()?.endDrag(); }}
+        onLostPointerCapture={() => { setDragging(false); getMiniBridge()?.endDrag(); }}
       />
       <PomodoroClockFace {...snapshot} onToggle={() => getMiniBridge()?.action(snapshot.state.status === "running" ? "pause" : "start")} />
-      <span
-        className="pomodoro-resize-handle"
-        aria-hidden="true"
-        title="调整小窗大小"
-        onPointerDown={(event) => {
-          if (event.button !== 0) return;
-          event.preventDefault();
-          event.currentTarget.setPointerCapture(event.pointerId);
-          getMiniBridge()?.startResize({ x: event.screenX, y: event.screenY });
-        }}
-        onPointerMove={(event) => {
-          if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
-          if ((event.buttons & 1) === 0) {
-            event.currentTarget.releasePointerCapture(event.pointerId);
-            getMiniBridge()?.endResize();
-            return;
-          }
-          getMiniBridge()?.moveResize({ x: event.screenX, y: event.screenY });
-        }}
-        onPointerUp={(event) => {
-          if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-          getMiniBridge()?.endResize();
-        }}
-        onPointerCancel={() => getMiniBridge()?.endResize()}
-        onLostPointerCapture={() => getMiniBridge()?.endResize()}
-      />
     </section>
   </main>;
 }

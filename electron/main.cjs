@@ -59,7 +59,6 @@ app.whenReady().then(() => {
   let pomodoroMiniWindow = null;
   let pomodoroMiniSnapshot = null;
   let pomodoroMiniDragOrigin = null;
-  let pomodoroMiniResizeOrigin = null;
   const openPomodoroMini = () => {
     if (pomodoroMiniWindow && !pomodoroMiniWindow.isDestroyed()) {
       pomodoroMiniWindow.show();
@@ -71,9 +70,13 @@ app.whenReady().then(() => {
       icon: app.isPackaged ? path.join(process.resourcesPath, "build/icon.png") : path.join(__dirname, "../build/icon.png"),
       width: 160,
       height: 160,
-      minWidth: 120,
-      minHeight: 120,
+      minWidth: 160,
+      minHeight: 160,
+      maxWidth: 160,
+      maxHeight: 160,
       frame: false,
+      thickFrame: false,
+      roundedCorners: false,
       transparent: true,
       backgroundColor: "#00000000",
       alwaysOnTop: true,
@@ -95,7 +98,7 @@ app.whenReady().then(() => {
       }
     });
     void pomodoroMiniWindow.loadURL("berry://game/pomodoro.html");
-    pomodoroMiniWindow.on("closed", () => { pomodoroMiniDragOrigin = null; pomodoroMiniResizeOrigin = null; pomodoroMiniWindow = null; });
+    pomodoroMiniWindow.on("closed", () => { pomodoroMiniDragOrigin = null; pomodoroMiniWindow = null; });
   };
   ipcMain.on("pomodoro-mini:open", (event) => {
     if (event.sender === window.webContents) openPomodoroMini();
@@ -111,35 +114,18 @@ app.whenReady().then(() => {
   });
   ipcMain.on("pomodoro-mini:drag-start", (event, point) => {
     if (!pomodoroMiniWindow || pomodoroMiniWindow.isDestroyed() || event.sender !== pomodoroMiniWindow.webContents || !point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
-    const bounds = pomodoroMiniWindow.getBounds();
+    const bounds = pomodoroMiniWindow.getContentBounds();
     pomodoroMiniDragOrigin = { pointerX: point.x, pointerY: point.y, windowX: bounds.x, windowY: bounds.y, width: bounds.width, height: bounds.height };
   });
   ipcMain.on("pomodoro-mini:drag-move", (event, point) => {
     if (!pomodoroMiniDragOrigin || !pomodoroMiniWindow || pomodoroMiniWindow.isDestroyed() || event.sender !== pomodoroMiniWindow.webContents || !point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
     const x = Math.round(pomodoroMiniDragOrigin.windowX + point.x - pomodoroMiniDragOrigin.pointerX);
     const y = Math.round(pomodoroMiniDragOrigin.windowY + point.y - pomodoroMiniDragOrigin.pointerY);
-    const current = pomodoroMiniWindow.getBounds();
-    if (x !== current.x || y !== current.y || current.width !== pomodoroMiniDragOrigin.width || current.height !== pomodoroMiniDragOrigin.height) {
-      pomodoroMiniWindow.setBounds({ x, y, width: pomodoroMiniDragOrigin.width, height: pomodoroMiniDragOrigin.height }, false);
-    }
+    const current = pomodoroMiniWindow.getContentBounds();
+    if (x !== current.x || y !== current.y) pomodoroMiniWindow.setContentBounds({ x, y, width: pomodoroMiniDragOrigin.width, height: pomodoroMiniDragOrigin.height }, false);
   });
   ipcMain.on("pomodoro-mini:drag-end", (event) => {
     if (pomodoroMiniWindow && !pomodoroMiniWindow.isDestroyed() && event.sender === pomodoroMiniWindow.webContents) pomodoroMiniDragOrigin = null;
-  });
-  ipcMain.on("pomodoro-mini:resize-start", (event, point) => {
-    if (!pomodoroMiniWindow || pomodoroMiniWindow.isDestroyed() || event.sender !== pomodoroMiniWindow.webContents || !point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
-    const [width, height] = pomodoroMiniWindow.getContentSize();
-    pomodoroMiniResizeOrigin = { pointerX: point.x, pointerY: point.y, size: Math.min(width, height) };
-  });
-  ipcMain.on("pomodoro-mini:resize-move", (event, point) => {
-    if (!pomodoroMiniResizeOrigin || !pomodoroMiniWindow || pomodoroMiniWindow.isDestroyed() || event.sender !== pomodoroMiniWindow.webContents || !point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
-    const delta = Math.max(point.x - pomodoroMiniResizeOrigin.pointerX, point.y - pomodoroMiniResizeOrigin.pointerY);
-    const size = Math.max(120, Math.min(360, Math.round(pomodoroMiniResizeOrigin.size + delta)));
-    const [currentWidth, currentHeight] = pomodoroMiniWindow.getContentSize();
-    if (size !== currentWidth || size !== currentHeight) pomodoroMiniWindow.setContentSize(size, size, false);
-  });
-  ipcMain.on("pomodoro-mini:resize-end", (event) => {
-    if (pomodoroMiniWindow && !pomodoroMiniWindow.isDestroyed() && event.sender === pomodoroMiniWindow.webContents) pomodoroMiniResizeOrigin = null;
   });
   const sendUpdate = (status) => window.webContents.send("update:status", status);
   let pomodoroTimer = null;

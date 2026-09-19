@@ -737,10 +737,33 @@ body.pomodoro-mini-body { margin: 0; background: #222127; overflow: hidden; }
 body.desktop-pomodoro-mini-body { background: transparent; }
 .desktop-pomodoro-mini { min-height: 100vh; background: transparent; app-region: no-drag; -webkit-app-region: no-drag; }
 .desktop-pomodoro-mini .pomodoro-clock-card { position: relative; width: 100%; }
-.desktop-pomodoro-mini .pomodoro-dial { width: min(94vmin, 152px); app-region: no-drag; -webkit-app-region: no-drag; }
-.desktop-pomodoro-mini .pomodoro-drag-handle { position: absolute; z-index: 10; top: 8px; left: 50%; width: 96px; height: 24px; display: block; transform: translateX(-50%); cursor: grab; user-select: none; app-region: no-drag; -webkit-app-region: no-drag; }
-.desktop-pomodoro-mini .pomodoro-drag-handle::after { position: absolute; top: 4px; left: 50%; width: 48px; height: 7px; transform: translateX(-50%); border-radius: 999px; background: rgba(255,255,255,.24); box-shadow: 0 1px 0 rgba(0,0,0,.45); content: ""; pointer-events: none; app-region: no-drag; -webkit-app-region: no-drag; }
-.desktop-pomodoro-mini .pomodoro-resize-handle { position: absolute; z-index: 11; right: 3px; bottom: 3px; width: 24px; height: 24px; display: block; cursor: nwse-resize; user-select: none; app-region: no-drag; -webkit-app-region: no-drag; }
+.desktop-pomodoro-mini .pomodoro-dial { width: min(94vmin, 152px); padding: clamp(5px, 1.8vmin, 7px); overflow: hidden; border: 1px solid rgba(255,255,255,.7); background: linear-gradient(145deg, rgba(255,255,255,.085), rgba(255,255,255,.012) 43%, rgba(255,153,58,.018) 72%, rgba(255,255,255,.055)); box-shadow: 0 12px 28px rgba(16,24,40,.16), inset 0 1px 0 rgba(255,255,255,.9), inset 0 -1px 0 rgba(255,255,255,.18); backdrop-filter: saturate(112%) brightness(1.015); -webkit-backdrop-filter: saturate(112%) brightness(1.015); contain: layout paint style; app-region: no-drag; -webkit-app-region: no-drag; }
+.desktop-pomodoro-mini .pomodoro-dial::before { position: absolute; z-index: 0; inset: 3px; border-radius: inherit; background: radial-gradient(circle at 27% 18%, rgba(255,255,255,.48), transparent 19%), linear-gradient(120deg, rgba(255,255,255,.16), transparent 34% 68%, rgba(255,196,128,.13)); content: ""; pointer-events: none; }
+.desktop-pomodoro-mini .pomodoro-progress-shell { padding: clamp(3px, 1.2vmin, 5px); border: 1px solid rgba(255,255,255,.4); background: transparent; box-shadow: 0 0 14px rgba(255,132,47,.1), inset 0 1px 0 rgba(255,255,255,.5); }
+.desktop-pomodoro-mini .pomodoro-progress-shell::before, .desktop-pomodoro-mini .pomodoro-progress-shell::after { position: absolute; z-index: 0; inset: 0; border-radius: inherit; content: ""; pointer-events: none; -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px)); mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px)); }
+.desktop-pomodoro-mini .pomodoro-progress-shell::before { background: conic-gradient(from -90deg, #ff6b35 0deg, #ffb02e 126deg, #ffe28a 238deg, #ff7b3d 360deg); }
+.desktop-pomodoro-mini .pomodoro-progress-shell::after { background: conic-gradient(from -90deg, transparent 0 var(--pomodoro-progress), rgba(255,255,255,.22) var(--pomodoro-progress) 1turn); }
+.desktop-pomodoro-mini.phase-break .pomodoro-progress-shell { background: transparent; }
+.desktop-pomodoro-mini.phase-break .pomodoro-progress-shell::before { background: conic-gradient(from -90deg, #66c77a 0deg, #b9e39a 126deg, #e1f3ba 238deg, #70c786 360deg); }
+.desktop-pomodoro-mini .pomodoro-dial-face { border: 1px solid rgba(255,255,255,.48); background: rgba(244,248,255,.018); box-shadow: inset 0 1px 0 rgba(255,255,255,.46), inset 0 -10px 28px rgba(20,30,48,.018); backdrop-filter: none; -webkit-backdrop-filter: none; animation: none; contain: layout paint style; }
+.desktop-pomodoro-mini .pomodoro-phase-label { top: 13%; color: rgba(255,255,255,.94); font-size: clamp(7px, 5vmin, 9px); font-weight: 700; letter-spacing: .08em; text-shadow: 0 1px 2px rgba(0,0,0,.82), 0 0 8px rgba(0,0,0,.38); }
+.desktop-pomodoro-mini.phase-break .pomodoro-phase-label { color: rgba(244,255,231,.96); }
+.desktop-pomodoro-mini .pomodoro-orange-mark { top: 38%; width: 31%; transform: translate(-50%, -50%); opacity: .88; filter: drop-shadow(0 2px 3px rgba(0,0,0,.38)); animation: none; }
+.desktop-pomodoro-mini .pomodoro-dial.is-running .pomodoro-orange-mark { animation: none; }
+.desktop-pomodoro-mini .pomodoro-dial-face > strong { position: absolute; top: 56%; left: 50%; width: 5.25ch; margin: 0; transform: translate(-50%, -50%); color: rgba(255,255,255,.98); font-size: clamp(16px, 12vmin, 24px); font-weight: 760; font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1, "kern" 0; line-height: 1; letter-spacing: -.035em; text-shadow: 0 1px 2px rgba(0,0,0,.95), 0 2px 8px rgba(0,0,0,.7); }
+.desktop-pomodoro-mini .pomodoro-dial-face > small { bottom: 11%; padding: 2px 6px; border: 1px solid rgba(255,255,255,.32); background: rgba(15,21,32,.28); color: rgba(255,255,255,.94); font-size: clamp(7px, 4.4vmin, 9px); font-weight: 650; letter-spacing: .03em; box-shadow: inset 0 1px 0 rgba(255,255,255,.18); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
+.desktop-pomodoro-mini .pomodoro-drag-handle { position: absolute; z-index: 10; top: 8px; left: 50%; width: 96px; height: 24px; display: block; transform: translateX(-50%); cursor: grab; touch-action: none; user-select: none; app-region: no-drag; -webkit-app-region: no-drag; }
+.desktop-pomodoro-mini.is-dragging .pomodoro-drag-handle { cursor: grabbing; }
+.desktop-pomodoro-mini .pomodoro-drag-handle::after { position: absolute; top: 4px; left: 50%; width: 44px; height: 5px; transform: translateX(-50%); border: 1px solid rgba(255,255,255,.44); border-radius: 999px; background: rgba(255,255,255,.22); box-shadow: inset 0 1px 0 rgba(255,255,255,.56), 0 1px 3px rgba(0,0,0,.3); content: ""; pointer-events: none; app-region: no-drag; -webkit-app-region: no-drag; }
+.desktop-pomodoro-mini.is-dragging .pomodoro-dial-face, .desktop-pomodoro-mini.is-dragging .pomodoro-orange-mark, .desktop-pomodoro-mini.is-dragging .pomodoro-dial-face > strong { animation: none; transition: none; }
+@media (prefers-reduced-transparency: reduce) {
+  .desktop-pomodoro-mini .pomodoro-dial { background: rgba(43,49,60,.9); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .desktop-pomodoro-mini .pomodoro-dial-face { background: rgba(34,40,51,.88); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+@media (prefers-contrast: more) {
+  .desktop-pomodoro-mini .pomodoro-dial { border-color: #fff; }
+  .desktop-pomodoro-mini .pomodoro-dial-face > strong { text-shadow: 0 0 2px #000, 0 2px 5px #000; }
+}
 .pomodoro-layout { display: grid; grid-template-columns: minmax(330px, 1fr) minmax(300px, .9fr); gap: 18px; }
 .pomodoro-clock-card, .pomodoro-memory { min-width: 0; padding: 20px; border: 3px solid #9a735d; border-radius: 20px; background: #fff6e5; box-shadow: inset 0 0 0 3px #fffdf4, 0 5px 0 #d6b28e; }
 .pomodoro-clock-card { display: grid; place-items: center; align-content: center; background: radial-gradient(circle at 50% 38%, #fffdf5 0 24%, #f9e4d3 64%, #ecc7b6 100%); }

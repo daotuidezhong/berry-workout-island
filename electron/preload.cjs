@@ -45,8 +45,5 @@ contextBridge.exposeInMainWorld("gameUpdater", {
     startDrag: (point) => ipcRenderer.send("pomodoro-mini:drag-start", point),
     moveDrag: (point) => ipcRenderer.send("pomodoro-mini:drag-move", point),
     endDrag: () => ipcRenderer.send("pomodoro-mini:drag-end"),
-    startResize: (point) => ipcRenderer.send("pomodoro-mini:resize-start", point),
-    moveResize: (point) => ipcRenderer.send("pomodoro-mini:resize-move", point),
-    endResize: () => ipcRenderer.send("pomodoro-mini:resize-end"),
   },
 });

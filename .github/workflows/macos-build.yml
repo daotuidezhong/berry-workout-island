@@ -63,5 +63,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=$(node -p "require('./package.json').version")
-          gh release view "v${version}" >/dev/null 2>&1 || gh release create "v${version}" --target "$GITHUB_SHA" --title "OH v${version}" --latest --notes $'修复 Windows 任务栏仍显示 Electron 初始图标的问题；安装或自动更新时会重写桌面和开始菜单快捷方式的应用身份。\n\n开发调试与正式版改用不同的 Windows 应用身份，避免图标缓存再次互相污染。保留原安装 GUID、安装目录和本地存档位置。\n\n安装说明：Windows 使用 Setup EXE；Apple 芯片 Mac 使用 arm64 DMG；Intel Mac 使用 x64 DMG。当前安装包未进行商业代码签名或 Apple 公证，首次运行可能需要在系统安全设置中确认。'
+          gh release view "v${version}" >/dev/null 2>&1 || gh release create "v${version}" --target "$GITHUB_SHA" --title "OH v${version}" --latest --notes $'橙子专注小窗升级为苹果风液态玻璃外观，中央保持高透明，仅保留细进度环，尽量不遮挡屏幕内容。\n\n小窗固定为 160×160，并移除右下角缩放控件和正方形系统边框。拖动改为锁定内容区，计时文字的位置与字号在拖动过程中保持不变。\n\n安装说明：Windows 使用 Setup EXE；Apple 芯片 Mac 使用 arm64 DMG；Intel Mac 使用 x64 DMG。当前安装包未进行商业代码签名或 Apple 公证，首次运行可能需要在系统安全设置中确认。'
           gh release upload "v${version}" release-assets/* --clobber
