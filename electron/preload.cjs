@@ -28,6 +28,10 @@ contextBridge.exposeInMainWorld("gameUpdater", {
       return () => ipcRenderer.removeListener("pomodoro:finished", listener);
     },
   },
+  photoBoard: {
+    select: () => ipcRenderer.invoke("photo-board:select"),
+    remove: (fileName) => ipcRenderer.invoke("photo-board:remove", fileName),
+  },
   pomodoroMini: {
     open: () => ipcRenderer.send("pomodoro-mini:open"),
     sync: (snapshot) => ipcRenderer.send("pomodoro-mini:sync", snapshot),

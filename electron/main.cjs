@@ -24,6 +24,7 @@ app.whenReady().then(() => {
     : path.join(__dirname, "../desktop-dist");
   const userDataRoot = app.getPath("userData");
   const journalPhotosDirectory = path.join(userDataRoot, "journal-photos");
+  const photoBoardDirectory = path.join(userDataRoot, "photo-board-photos");
 
   protocol.handle("berry", async (request) => {
     const url = new URL(request.url);
@@ -64,6 +65,12 @@ app.whenReady().then(() => {
       pomodoroMiniWindow.show();
       pomodoroMiniWindow.focus();
       return;
+    }
+    if (url.hostname === "photo-board") {
+      const name = path.basename(pathname);
+      const file = path.join(photoBoardDirectory, name);
+      if (!/^board-[0-9a-f-]{36}\.jpg$/i.test(name) || !fs.existsSync(file)) return new Response("Not found", { status: 404 });
+      return net.fetch(pathToFileURL(file).toString());
     }
     pomodoroMiniWindow = new BrowserWindow({
       title: "OH · 橙子专注钟",
@@ -134,7 +141,7 @@ app.whenReady().then(() => {
     pomodoroTimer = null;
   };
   const dataFile = path.join(userDataRoot, "user-data.json");
-  const storage = createStorage(dataFile, { journalPhotosDirectory });
+  const storage = createStorage(dataFile, { journalPhotosDirectory, photoBoardDirectory });
   ipcMain.on("storage:load", (event, key) => { event.returnValue = storage.load(key); });
   ipcMain.on("storage:save", (_event, key, value) => storage.save(key, value));
   ipcMain.handle("storage:export", async (event) => {
@@ -241,6 +248,29 @@ app.whenReady().then(() => {
   window.on("closed", () => {
     cancelPomodoroTimer();
     if (pomodoroMiniWindow && !pomodoroMiniWindow.isDestroyed()) pomodoroMiniWindow.close();
+  });
+  ipcMain.handle("photo-board:select", async (event) => {
+    if (event.sender !== window.webContents) return { status: "error", message: "无法读取当前照片" };
+    try {
+      const result = await dialog.showOpenDialog(window, { title: "选择照片板照片", properties: ["openFile"], filters: [{ name: "照片", extensions: ["jpg", "jpeg", "png", "webp"] }] });
+      if (result.canceled || !result.filePaths[0]) return { status: "cancelled" };
+      const source = nativeImage.createFromPath(result.filePaths[0]);
+      if (source.isEmpty()) return { status: "error", message: "这张照片无法读取，请换一张试试" };
+      const size = source.getSize();
+      const longestSide = Math.max(size.width, size.height);
+      const image = longestSide > 2000 ? source.resize(size.width >= size.height ? { width: 2000, quality: "best" } : { height: 2000, quality: "best" }) : source;
+      const resizedSize = image.getSize();
+      const id = randomUUID();
+      const fileName = `board-${id}.jpg`;
+      fs.mkdirSync(photoBoardDirectory, { recursive: true });
+      fs.writeFileSync(path.join(photoBoardDirectory, fileName), image.toJPEG(88));
+      return { status: "selected", photo: { id, fileName, width: resizedSize.width, height: resizedSize.height } };
+    } catch (error) { return { status: "error", message: error instanceof Error ? error.message : "照片导入失败" }; }
+  });
+  ipcMain.handle("photo-board:remove", (event, fileName) => {
+    if (event.sender !== window.webContents || !/^board-[0-9a-f-]{36}\.jpg$/i.test(fileName)) return false;
+    fs.rmSync(path.join(photoBoardDirectory, fileName), { force: true });
+    return true;
   });
 });
 

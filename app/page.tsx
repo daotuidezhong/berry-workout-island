@@ -19,6 +19,9 @@ import { canPetMove, decayPetStatsByTime, formatSleepRemaining, getSleepRemainin
 import { getJournalReward } from "./game/journal-reward";
 import { fetchPlaylist, isRemotePlaybackUrl, type Playlist, type PlaylistTrack } from "./game/music";
 import { getWalkDirection, WALK_DIRECTION_ROW, type WalkDirection } from "./game/movement-direction";
+import PhotoBoardWall from "./game/photo-board/PhotoBoardWall";
+import PhotoBoardOverlay from "./game/photo-board/PhotoBoardOverlay";
+import { normalizePhotoBoard, PHOTO_BOARD_STORAGE_KEY, stablePhotoRotation, type PhotoBoardPhoto } from "./game/photo-board/types";
 import {
   formatPomodoroTime,
   getPomodoroRemaining,
@@ -68,11 +71,11 @@ type ShopCategory = "food" | "furniture" | "ingredients";
 type IngredientFilter = "all" | IngredientCategory;
 type JournalCategory = "运动" | "学习" | "工作" | "饮食" | "睡眠" | "其他";
 type JournalPhoto = { fileName?: string; key?: string; width: number; height: number };
-type PhotoPreview = JournalPhoto & { src: string; alt: string };
 type CheckinRecord = { id: number; date: string; content: string; category: JournalCategory; rating: number | null; reward: number | null; createdAt: string; photo?: JournalPhoto | null };
 type DesktopUpdate = { phase: "available" | "downloading" | "downloaded" | "error"; name?: string; notes?: string; percent?: number; message?: string };
 type BackupActionResult = { status: "exported" | "imported" | "cancelled" | "error"; message?: string; importedKeys?: number };
 type PhotoActionResult = { status: "selected" | "cancelled" | "error"; message?: string; photo?: JournalPhoto };
+type PhotoBoardActionResult = { status: "selected" | "cancelled" | "error"; message?: string; photo?: Pick<PhotoBoardPhoto, "id" | "fileName" | "width" | "height"> };
 type StoreFoodId = "driedFish" | "chickenCan" | "salmonMousse" | "tunaRice" | "chickenCubes" | "catnipBiscuits";
 type CookedFoodId = "strawberryPuree" | "carrotSoup" | "tomatoSoup" | "catnipCookies" | "sunflowerRice" | "pumpkinPuree";
 type FoodId = StoreFoodId | CookedFoodId;
@@ -177,6 +180,10 @@ declare global {
         schedule: (endsAt: number, phase: PomodoroPhase) => void;
         cancel: () => void;
         onFinished: (callback: (phase: PomodoroPhase) => void) => () => void;
+      };
+      photoBoard?: {
+        select: () => Promise<PhotoBoardActionResult>;
+        remove: (fileName: string) => Promise<boolean>;
       };
       pomodoroMini?: {
         open: () => void;
@@ -378,9 +385,24 @@ function writePersisted(key: string, value: string) {
   window.gameUpdater?.storage.save(key, value);
 }
 
-function journalPhotoUrl(photo: JournalPhoto) {
-  if (photo.key) return `/api/journal-photos?key=${encodeURIComponent(photo.key)}`;
-  return photo.fileName ? `berry://journal-photo/${encodeURIComponent(photo.fileName)}` : "";
+function photoBoardUrl(photo: PhotoBoardPhoto) {
+  if (photo.key) return `/api/photo-board-photos?key=${encodeURIComponent(photo.key)}`;
+  return photo.fileName ? `berry://photo-board/${encodeURIComponent(photo.fileName)}` : "";
+}
+
+async function preparePhotoFile(file: File) {
+  if (!file.type.startsWith("image/") || file.size > 20_000_000) throw new Error("请选择不超过 20 MB 的照片");
+  const image = await createImageBitmap(file);
+  const scale = Math.min(1, 2000 / Math.max(image.width, image.height));
+  const width = Math.max(1, Math.round(image.width * scale));
+  const height = Math.max(1, Math.round(image.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width; canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) { image.close(); throw new Error("照片处理失败"); }
+  context.drawImage(image, 0, 0, width, height); image.close();
+  const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("照片处理失败")), "image/jpeg", .88));
+  return { blob, width, height };
 }
 
 const PLOT_POSITIONS = [
@@ -457,11 +479,6 @@ export default function Home() {
   const [noteText, setNoteText] = useState("");
   const [category, setCategory] = useState<JournalCategory>("其他");
   const [rating, setRating] = useState(5);
-  const [journalPhoto, setJournalPhoto] = useState<JournalPhoto | null>(null);
-  const [importingPhoto, setImportingPhoto] = useState(false);
-  const [webJournalPhotoBlob, setWebJournalPhotoBlob] = useState<Blob | null>(null);
-  const [webJournalPhotoPreview, setWebJournalPhotoPreview] = useState("");
-  const [photoPreview, setPhotoPreview] = useState<PhotoPreview | null>(null);
   const [deviceId, setDeviceId] = useState("");
   const [history, setHistory] = useState<CheckinRecord[]>([]);
   const [historyPage, setHistoryPage] = useState(0);
@@ -516,8 +533,13 @@ export default function Home() {
   const [pomodoroAlert, setPomodoroAlert] = useState<PomodoroPhase | null>(null);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">("unsupported");
   const [dataTransferBusy, setDataTransferBusy] = useState<"export" | "import" | null>(null);
+  const [photoBoardOpen, setPhotoBoardOpen] = useState(false);
+  const [photoBoardOrigin, setPhotoBoardOrigin] = useState<DOMRect | null>(null);
+  const [photoBoardPhotos, setPhotoBoardPhotos] = useState<PhotoBoardPhoto[]>([]);
+  const [photoBoardReady, setPhotoBoardReady] = useState(false);
+  const [uploadingPhotoId, setUploadingPhotoId] = useState<string | null>(null);
+  const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null);
   const roomRef = useRef<HTMLDivElement>(null);
-  const journalPhotoInputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const pomodoroAudioContextRef = useRef<AudioContext | null>(null);
   const recoveringTrackId = useRef<number | null>(null);
@@ -553,6 +575,8 @@ export default function Home() {
       writePersisted("berry-workout-device", savedDeviceId);
     }
     setDeviceId(savedDeviceId);
+    try { setPhotoBoardPhotos(normalizePhotoBoard(JSON.parse(readPersisted(PHOTO_BOARD_STORAGE_KEY) ?? "[]"))); } catch { setPhotoBoardPhotos([]); }
+    setPhotoBoardReady(true);
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as Partial<GameState> & { food?: number };
@@ -804,6 +828,17 @@ export default function Home() {
   }, [game, ready]);
 
   useEffect(() => {
+    if (photoBoardReady) writePersisted(PHOTO_BOARD_STORAGE_KEY, JSON.stringify(photoBoardPhotos));
+  }, [photoBoardPhotos, photoBoardReady]);
+
+  useEffect(() => {
+    if (!photoBoardOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previous; };
+  }, [photoBoardOpen]);
+
+  useEffect(() => {
     const desktopPomodoro = window.gameUpdater?.pomodoro;
     if (!ready || game.pomodoro.status !== "running" || game.pomodoro.endsAt === null) {
       desktopPomodoro?.cancel();
@@ -990,15 +1025,6 @@ export default function Home() {
     const timer = window.setTimeout(() => setToast(""), 2400);
     return () => window.clearTimeout(timer);
   }, [toast]);
-
-  useEffect(() => {
-    if (!photoPreview) return;
-    const closePreview = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setPhotoPreview(null);
-    };
-    window.addEventListener("keydown", closePreview);
-    return () => window.removeEventListener("keydown", closePreview);
-  }, [photoPreview]);
 
   useEffect(() => {
     const frames = pets.flatMap((item) => [item.idle, item.sleep, item.wake, item.walkSheet, ...item.wakeYawnFrames, ...item.walkFrames, ...item.groomFrames, ...item.scratchFrames]);
@@ -1385,71 +1411,60 @@ export default function Home() {
       setMixResult(null);
     }
     setShopIngredientId(null);
-    if ((overlay === "quest" || overlay === "history") && journalPhoto) removeJournalPhoto();
     setOverlay(null);
   }
 
-  async function selectJournalPhoto() {
-    const journalPhotos = window.gameUpdater?.journalPhotos;
-    if (!journalPhotos) {
-      journalPhotoInputRef.current?.click();
-      return;
-    }
-    if (importingPhoto) return;
-    setImportingPhoto(true);
-    const result = await journalPhotos.select().catch(() => ({ status: "error", message: "照片导入失败" } as PhotoActionResult));
-    setImportingPhoto(false);
-    if (result.status === "selected" && result.photo) {
-      if (journalPhoto?.fileName) await journalPhotos.remove(journalPhoto.fileName).catch(() => false);
-      if (webJournalPhotoPreview) URL.revokeObjectURL(webJournalPhotoPreview);
-      setWebJournalPhotoBlob(null);
-      setWebJournalPhotoPreview("");
-      setJournalPhoto(result.photo);
-      setToast("照片已导入应用内部，会保持原始比例显示");
-    } else if (result.status === "error") setToast(result.message ?? "照片导入失败");
+  function nextPhotoBoardSlot() {
+    const occupied = new Set(photoBoardPhotos.map((photo) => photo.slot));
+    let slot = 0;
+    while (occupied.has(slot)) slot += 1;
+    return slot;
   }
 
-  function removeJournalPhoto() {
-    if (!journalPhoto) return;
-    if (journalPhoto.fileName) void window.gameUpdater?.journalPhotos?.remove(journalPhoto.fileName);
-    if (webJournalPhotoPreview) URL.revokeObjectURL(webJournalPhotoPreview);
-    setWebJournalPhotoBlob(null);
-    setWebJournalPhotoPreview("");
-    setJournalPhoto(null);
+  function addPhotoBoardPhoto(photo: Omit<PhotoBoardPhoto, "createdAt" | "slot" | "rotation">) {
+    const next = { ...photo, caption: photo.caption ?? "", createdAt: new Date().toISOString(), slot: nextPhotoBoardSlot(), rotation: stablePhotoRotation(photo.id) };
+    setPhotoBoardPhotos((current) => [...current, next]);
+    setUploadingPhotoId(next.id);
+    window.setTimeout(() => setUploadingPhotoId((id) => id === next.id ? null : id), 900);
+    setToast("照片已经挂到照片板上了");
   }
 
-  async function selectWebJournalPhoto(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.currentTarget.files?.[0];
-    event.currentTarget.value = "";
-    if (!file) return;
-    if (!file.type.startsWith("image/") || file.size > 20_000_000) {
-      setToast("请选择不超过 20 MB 的照片");
-      return;
-    }
-    setImportingPhoto(true);
+  async function uploadDesktopPhotoBoardPhoto() {
+    const api = window.gameUpdater?.photoBoard;
+    if (!api || uploadingPhotoId) return;
+    const result = await api.select().catch(() => ({ status: "error", message: "照片导入失败" } as PhotoBoardActionResult));
+    if (result.status === "selected" && result.photo?.id && result.photo.fileName) addPhotoBoardPhoto(result.photo as Omit<PhotoBoardPhoto, "createdAt" | "slot" | "rotation">);
+    else if (result.status === "error") setToast(result.message ?? "照片导入失败");
+  }
+
+  async function uploadWebPhotoBoardPhoto(file: File) {
+    if (uploadingPhotoId) return;
     try {
-      const image = await createImageBitmap(file);
-      const scale = Math.min(1, 1600 / Math.max(image.width, image.height));
-      const width = Math.max(1, Math.round(image.width * scale));
-      const height = Math.max(1, Math.round(image.height * scale));
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const context = canvas.getContext("2d");
-      if (!context) throw new Error();
-      context.drawImage(image, 0, 0, width, height);
-      image.close();
-      const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error()), "image/jpeg", .85));
-      if (webJournalPhotoPreview) URL.revokeObjectURL(webJournalPhotoPreview);
-      setWebJournalPhotoBlob(blob);
-      setWebJournalPhotoPreview(URL.createObjectURL(blob));
-      setJournalPhoto({ width, height });
-      setToast("照片已导入，会保持原始比例显示");
-    } catch {
-      setToast("这张照片无法读取，请换一张试试");
-    } finally {
-      setImportingPhoto(false);
-    }
+      const prepared = await preparePhotoFile(file);
+      const form = new FormData();
+      form.set("deviceId", deviceId); form.set("width", String(prepared.width)); form.set("height", String(prepared.height)); form.set("photo", prepared.blob, "photo-board.jpg");
+      const response = await fetch("/api/photo-board-photos", { method: "POST", body: form });
+      if (!response.ok) throw new Error("照片保存失败");
+      const data = await response.json() as { photo: { id: string; key: string; width: number; height: number } };
+      addPhotoBoardPhoto(data.photo);
+    } catch (error) { setToast(error instanceof Error ? error.message : "照片导入失败"); }
+  }
+
+  function deletePhotoBoardPhoto(photo: PhotoBoardPhoto) {
+    if (deletingPhotoId) return;
+    setDeletingPhotoId(photo.id);
+    window.setTimeout(async () => {
+      let removed = true;
+      if (photo.fileName) removed = await window.gameUpdater?.photoBoard?.remove(photo.fileName).catch(() => false) ?? false;
+      else if (photo.key) removed = (await fetch("/api/photo-board-photos", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ deviceId, key: photo.key }) }).catch(() => null))?.ok ?? false;
+      if (removed) { setPhotoBoardPhotos((current) => current.filter((item) => item.id !== photo.id)); setToast("照片已经轻轻取下来了"); }
+      else setToast("照片暂时无法删除，请稍后再试");
+      setDeletingPhotoId(null);
+    }, 360);
+  }
+
+  function updatePhotoBoardCaption(photoId: string, caption: string) {
+    setPhotoBoardPhotos((current) => current.map((photo) => photo.id === photoId ? { ...photo, caption } : photo));
   }
 
   async function exportDesktopBackup() {
@@ -1894,25 +1909,14 @@ export default function Home() {
     try {
       let record: CheckinRecord;
       if (navigator.userAgent.includes("BerryWorkoutDesktop")) {
-        record = { id: Date.now(), date: today, content, category, rating, reward, createdAt: new Date().toISOString(), photo: journalPhoto };
+        record = { id: Date.now(), date: today, content, category, rating, reward, createdAt: new Date().toISOString() };
         const records = [record, ...history];
         writePersisted("berry-workout-history", JSON.stringify(records));
       } else {
-        let photo: JournalPhoto | null = null;
-        if (webJournalPhotoBlob && journalPhoto) {
-          const photoData = new FormData();
-          photoData.set("deviceId", deviceId);
-          photoData.set("width", String(journalPhoto.width));
-          photoData.set("height", String(journalPhoto.height));
-          photoData.set("photo", webJournalPhotoBlob, "journal-photo.jpg");
-          const photoResponse = await fetch("/api/journal-photos", { method: "POST", body: photoData });
-          if (!photoResponse.ok) throw new Error();
-          photo = (await photoResponse.json() as { photo: JournalPhoto }).photo;
-        }
         const response = await fetch("/api/checkins", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ deviceId, date: today, content, category, rating, photo }),
+          body: JSON.stringify({ deviceId, date: today, content, category, rating }),
         });
         if (!response.ok) throw new Error();
         record = (await response.json() as { record: CheckinRecord }).record;
@@ -1921,10 +1925,6 @@ export default function Home() {
       setHistory((records) => [record, ...records]);
       setGame((current) => ({ ...current, berries: current.berries + reward, streak: firstRecordToday ? next : current.streak, lastCheckin: today, lastActivity: content }));
       setNoteText("");
-      if (webJournalPhotoPreview) URL.revokeObjectURL(webJournalPhotoPreview);
-      setWebJournalPhotoBlob(null);
-      setWebJournalPhotoPreview("");
-      setJournalPhoto(null);
       writePersisted("berry-journal-category", category);
       setToast(reward ? `今天的记忆已经收好啦，获得 ${reward} 个草莓 🍓` : "今天的三次记录奖励已经领完，记忆仍然收好啦");
     } catch {
@@ -2252,7 +2252,7 @@ export default function Home() {
       <section className="game-stage" aria-label="OH 像素生活小屋">
         <audio ref={audioRef} onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onEnded={() => skipTrack(1)} onError={() => { void recoverPlayback(); }} />
         <div
-          className={`game-room scene-${game.scene} ${decorating ? "decorating" : ""} ${sceneTransition ? "scene-fading" : ""} ${selectedSeed ? "seed-selected" : ""} ${watering ? "watering-selected" : ""}`}
+          className={`game-room scene-${game.scene} ${decorating ? "decorating" : ""} ${sceneTransition ? "scene-fading" : ""} ${selectedSeed ? "seed-selected" : ""} ${watering ? "watering-selected" : ""} ${photoBoardOpen ? "photo-board-background" : ""}`}
           data-period={timePeriod}
           data-weather={weather.kind}
           ref={roomRef}
@@ -2279,6 +2279,7 @@ export default function Home() {
           {game.scene === "room" && <button type="button" data-interactive className="kitchen-hotspot" onPointerDown={(event) => { event.stopPropagation(); openOverlay("kitchen"); }} aria-label="打开左墙厨房烹饪" />}
           {game.scene === "room" && <button type="button" data-interactive className="music-hotspot" onPointerDown={(event) => { event.stopPropagation(); openOverlay("music"); }} aria-label="打开黑胶唱片与网易云歌单" />}
           {game.scene === "room" && <button type="button" data-interactive className="bar-hotspot" onPointerDown={(event) => { event.stopPropagation(); openOverlay("bar"); }} aria-label="打开调酒台" />}
+          {game.scene === "room" && <PhotoBoardWall open={photoBoardOpen} photos={photoBoardPhotos} photoUrl={photoBoardUrl} onOpen={(rect) => { setPhotoBoardOrigin(rect); setPhotoBoardOpen(true); }} />}
 
           {game.scene === "yard" && PLOT_POSITIONS.map((position, index) => {
             const plot = game.farmPlots[index];
@@ -2372,6 +2373,20 @@ export default function Home() {
 
         </div>
 
+        <PhotoBoardOverlay
+          open={photoBoardOpen && game.scene === "room"}
+          origin={photoBoardOrigin}
+          photos={photoBoardPhotos}
+          uploadingId={uploadingPhotoId}
+          deletingId={deletingPhotoId}
+          photoUrl={photoBoardUrl}
+          onClose={() => setPhotoBoardOpen(false)}
+          onUpload={(file) => void uploadWebPhotoBoardPhoto(file)}
+          onDesktopUpload={typeof window !== "undefined" && window.gameUpdater?.photoBoard ? () => void uploadDesktopPhotoBoardPhoto() : undefined}
+          onDelete={deletePhotoBoardPhoto}
+          onUpdateCaption={updatePhotoBoardCaption}
+        />
+
         {seedStorageOpen && game.scene === "yard" && (
           <div className="seed-layer" onPointerDown={() => setSeedStorageOpen(false)}>
             <section className="seed-panel" role="dialog" aria-modal="true" aria-label="种子仓库" onPointerDown={(event) => event.stopPropagation()}>
@@ -2440,12 +2455,12 @@ export default function Home() {
         )}
 
         <nav className="game-dock" aria-label="游戏菜单">
-          <button className={overlay === "quest" || overlay === "history" ? "active" : ""} onClick={() => openOverlay("quest")}><span className="dock-icon" aria-hidden="true">📓</span><b>记录</b></button>
-          <button className={`pomodoro-dock ${overlay === "pomodoro" ? "active" : ""} ${pomodoroActive ? "is-running" : ""}`} onClick={() => openOverlay("pomodoro")}><span className="pomodoro-dock-icon"><img src="/game/pomodoro-orange.png" alt="" draggable={false} /></span><b>橙子钟</b>{game.pomodoro.status !== "idle" && <em>{formatPomodoroTime(pomodoroRemaining)}</em>}</button>
-          <button className={overlay === "bag" ? "active" : ""} onClick={() => openOverlay("bag")}><span className="dock-icon" aria-hidden="true">🎒</span><b>背包</b><i>{totalBackpackItems}</i></button>
-          <button className={overlay === "shop" ? "active" : ""} onClick={() => openOverlay("shop")}><span className="dock-icon" aria-hidden="true">🛒</span><b>商店</b></button>
-          <button className={overlay === "pets" ? "active" : ""} onClick={() => openOverlay("pets")}><span className="dock-icon" aria-hidden="true">🐾</span><b>伙伴</b></button>
-          <button className={decorating ? "active" : ""} disabled={game.scene === "yard"} onClick={() => { setOverlay(null); setDecorating((value) => !value); setJumping(false); resetStatusAnimation(); }}><span className="dock-icon" aria-hidden="true">🪑</span><b>{game.scene === "yard" ? "回屋布置" : "布置"}</b></button>
+          <button className={overlay === "quest" || overlay === "history" ? "active" : ""} onClick={() => openOverlay("quest")}><span className="dock-icon dock-record-icon" aria-hidden="true"><span className="record-book"><span className="closed-book"><span className="closed-book-pages" /><span className="closed-book-cover" /><span className="closed-book-spine" /></span><span className="open-book"><span className="open-book-cover" /><span className="open-book-page open-book-page-left" /><span className="open-book-page open-book-page-right" /><span className="open-book-spine" /><span className="open-book-edge open-book-edge-left" /><span className="open-book-edge open-book-edge-right" /></span></span></span><b>记录</b></button>
+          <button className={`pomodoro-dock ${overlay === "pomodoro" ? "active" : ""} ${pomodoroActive ? "is-running" : ""}`} onClick={() => openOverlay("pomodoro")}><span className="pomodoro-dock-icon"><span className="pomodoro-ring pomodoro-ring-left" /><img src="/game/pomodoro-orange.png" alt="" draggable={false} /><span className="pomodoro-ring pomodoro-ring-right" /></span><b>橙子钟</b>{game.pomodoro.status !== "idle" && <em>{formatPomodoroTime(pomodoroRemaining)}</em>}</button>
+          <button className={overlay === "bag" ? "active" : ""} onClick={() => openOverlay("bag")}><span className="dock-icon dock-bag-icon" aria-hidden="true"><span className="bag-body"><span className="bag-inner" /><span className="bag-opening" /><span className="bag-top bag-top-left" /><span className="bag-top bag-top-right" /><span className="zipper-track zipper-track-left" /><span className="zipper-track zipper-track-right" /><span className="bag-pocket" /><span className="bag-content">🍓</span><span className="bag-zipper" /></span></span><b>背包</b><i>{totalBackpackItems}</i></button>
+          <button className={overlay === "shop" ? "active" : ""} onClick={() => openOverlay("shop")}><span className="dock-icon dock-shop-icon" aria-hidden="true"><span className="dock-icon-glyph">🛒</span><span className="dock-cart-item">🍓</span><span className="cart-wheel cart-wheel-left" /><span className="cart-wheel cart-wheel-right" /></span><b>商店</b></button>
+          <button className={overlay === "pets" ? "active" : ""} onClick={() => openOverlay("pets")}><span className="dock-icon dock-pets-icon" aria-hidden="true"><span className="dock-paw dock-paw-one" /><span className="dock-paw dock-paw-two" /></span><b>伙伴</b></button>
+          <button className={decorating ? "active" : ""} disabled={game.scene === "yard"} onClick={() => { setOverlay(null); setDecorating((value) => !value); setJumping(false); resetStatusAnimation(); }}><span className="dock-icon dock-decorate-icon" aria-hidden="true"><span className="dock-icon-glyph">🪑</span><span className="dock-move-hint" /></span><b>{game.scene === "yard" ? "回屋布置" : "布置"}</b></button>
         </nav>
 
         {overlay && (
@@ -2528,16 +2543,6 @@ export default function Home() {
                       <small>{noteText.length}/300</small>
                     </div>
                     <fieldset className="journal-options"><legend>记录分类</legend><div className="category-options">{journalCategories.map((item) => <button key={item.name} className={category === item.name ? "selected" : ""} type="button" onClick={() => setCategory(item.name)}><span>{item.icon}</span>{item.name}</button>)}</div></fieldset>
-                    <section className="journal-photo-field" aria-label="日记照片">
-                      <input ref={journalPhotoInputRef} className="journal-photo-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void selectWebJournalPhoto(event)} />
-                      {journalPhoto ? <div className="journal-photo-preview">
-                        <button className="journal-photo-open" type="button" onClick={() => setPhotoPreview({ ...journalPhoto, src: webJournalPhotoPreview || journalPhotoUrl(journalPhoto), alt: "即将保存的日记照片" })} aria-label="预览即将保存的照片">
-                          <img src={webJournalPhotoPreview || journalPhotoUrl(journalPhoto)} width={journalPhoto.width} height={journalPhoto.height} alt="即将保存的日记照片" />
-                          <small>点击查看大图</small>
-                        </button>
-                        <button className="journal-photo-remove" type="button" onClick={removeJournalPhoto} aria-label="移除照片">×</button>
-                      </div> : <button className="journal-photo-picker" type="button" onClick={() => void selectJournalPhoto()} disabled={importingPhoto}><span>📷</span><b>{importingPhoto ? "正在导入……" : "添加一张照片"}</b><small>照片会保存到内部，并保持原始比例</small></button>}
-                    </section>
                     <label className="rating-field">今天给自己打几分？<span><input type="range" min="1" max="10" value={rating} onChange={(event) => setRating(Number(event.target.value))} /><b>{rating} 分</b></span></label>
                     <div className="reward-line"><span>{nextJournalReward ? `今日第 ${todayRecordCount + 1} 条记录奖励` : "今日三次记录奖励已全部领取"}</span><b>🍓 +{nextJournalReward}</b></div>
                     <button className="primary-button" type="submit" disabled={!ready || !noteText.trim() || savingCheckin}>{savingCheckin ? "正在保存……" : "保存今日记录"}</button>
@@ -2568,10 +2573,6 @@ export default function Home() {
                             const categoryInfo = journalCategories.find((item) => item.name === record.category) ?? journalCategories.at(-1)!;
                             return <div className="notebook-entry" key={record.id}>
                               <div className="entry-meta"><span>{categoryInfo.icon} {categoryInfo.name}</span><time dateTime={record.createdAt}>{new Date(record.createdAt || `${record.date}T00:00:00`).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time></div>
-                              {record.photo && <button className="notebook-photo-button" type="button" onClick={() => setPhotoPreview({ ...record.photo!, src: journalPhotoUrl(record.photo!), alt: `${record.date} 的日记照片` })} aria-label={`预览 ${record.date} 的日记照片`}>
-                                <img className="notebook-photo" src={journalPhotoUrl(record.photo)} width={record.photo.width} height={record.photo.height} alt={`${record.date} 的日记照片`} loading="lazy" />
-                                <small>点击查看大图</small>
-                              </button>}
                               <p>{record.content}</p>
                               {record.rating && <small>⭐ 今日自评分：{record.rating}/10{record.reward ? `　🍓 +${record.reward}` : ""}</small>}
                             </div>;
@@ -2946,15 +2947,6 @@ export default function Home() {
             <small>{pomodoroAlert === "focus" ? "5 分钟休息已经自动开始，草莓也放进钱包啦" : "新的 25 分钟专注已经准备好"}</small>
             <button type="button" onClick={() => setPomodoroAlert(null)}>知道了</button>
           </section>
-        </div>
-      )}
-      {photoPreview && (
-        <div className="photo-lightbox" role="dialog" aria-modal="true" aria-label="照片预览" onClick={() => setPhotoPreview(null)}>
-          <button className="photo-lightbox-close" type="button" onClick={() => setPhotoPreview(null)} aria-label="关闭照片预览">×</button>
-          <figure onClick={(event) => event.stopPropagation()}>
-            <img src={photoPreview.src} width={photoPreview.width} height={photoPreview.height} alt={photoPreview.alt} />
-            <figcaption>按 Esc 或点击空白处关闭</figcaption>
-          </figure>
         </div>
       )}
       <div className={`toast ${toast ? "show" : ""}`} role="status" aria-live="polite">{toast}</div>
