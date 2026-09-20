@@ -3,7 +3,7 @@ name: Build desktop installers
 on:
   workflow_dispatch:
   push:
-    branches: [codex/macos-data-migration, codex/orange-focus-update]
+    branches: [codex/macos-data-migration, codex/orange-focus-update, codex/next-update-v0.9.9]
 
 jobs:
   build-macos:
@@ -63,5 +63,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=$(node -p "require('./package.json').version")
-          gh release view "v${version}" >/dev/null 2>&1 || gh release create "v${version}" --target "$GITHUB_SHA" --title "OH v${version}" --latest --notes $'主界面升级为更轻盈的半透明信息层，并保留原版彩色图标风格；房间标题更新为 OH，天气会实时同步，晴朗夜晚显示月亮。\n\n唱片机新增 Jordan Critz《Beauté》本地音频，网络版本无法播放时也能正常收听。\n\n桌面安装包移除了约 926 MB 已停用的唱片动画帧，Windows 安装包由约 1.40 GB 降至约 478 MB，并继续支持差分自动更新。\n\n安装说明：Windows 使用 Setup EXE；Apple 芯片 Mac 使用 arm64 DMG；Intel Mac 使用 x64 DMG。当前安装包未进行商业代码签名或 Apple 公证，首次运行可能需要在系统安全设置中确认。'
+          gh release view "v${version}" >/dev/null 2>&1 || gh release create "v${version}" --target "$GITHUB_SHA" --title "OH v${version}" --latest --notes $'新增墙上生活照片板，支持照片原比例浏览、说明编辑、横向滚动和高清大图查看；墙上缩略图会按横图、竖图与方图自然混排，不拉伸也不溢出木框。\n\n照片说明会随网页存档、Electron 本地存档及 .ohbackup 一起保存和迁移；今日记录中的旧照片入口已经移除。\n\n底部 Dock 保留原版布局，并优化记录、背包等按钮的像素 Hover 动效。\n\n安装说明：Windows 使用 Setup EXE；Apple 芯片 Mac 使用 arm64 DMG；Intel Mac 使用 x64 DMG。当前安装包未进行商业代码签名或 Apple 公证，首次运行可能需要在系统安全设置中确认。'
           gh release upload "v${version}" release-assets/* --clobber
