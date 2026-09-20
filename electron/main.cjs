@@ -35,6 +35,12 @@ app.whenReady().then(() => {
       if (!/^journal-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.jpg$/i.test(name) || !fs.existsSync(file)) return new Response("Not found", { status: 404 });
       return net.fetch(pathToFileURL(file).toString());
     }
+    if (url.hostname === "photo-board") {
+      const name = path.basename(pathname);
+      const file = path.join(photoBoardDirectory, name);
+      if (!/^board-[0-9a-f-]{36}\.jpg$/i.test(name) || !fs.existsSync(file)) return new Response("Not found", { status: 404 });
+      return net.fetch(pathToFileURL(file).toString());
+    }
     if (pathname === "/api/netease-playlist") {
       return Response.json(await loadDesktopPlaylist(root, net.fetch), { headers: { "Cache-Control": "no-store, max-age=0" } });
     }
@@ -65,12 +71,6 @@ app.whenReady().then(() => {
       pomodoroMiniWindow.show();
       pomodoroMiniWindow.focus();
       return;
-    }
-    if (url.hostname === "photo-board") {
-      const name = path.basename(pathname);
-      const file = path.join(photoBoardDirectory, name);
-      if (!/^board-[0-9a-f-]{36}\.jpg$/i.test(name) || !fs.existsSync(file)) return new Response("Not found", { status: 404 });
-      return net.fetch(pathToFileURL(file).toString());
     }
     pomodoroMiniWindow = new BrowserWindow({
       title: "OH · 橙子专注钟",

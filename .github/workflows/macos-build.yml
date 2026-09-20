@@ -63,5 +63,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=$(node -p "require('./package.json').version")
-          gh release view "v${version}" >/dev/null 2>&1 || gh release create "v${version}" --target "$GITHUB_SHA" --title "OH v${version}" --latest --notes $'新增墙上生活照片板，支持照片原比例浏览、说明编辑、横向滚动和高清大图查看；墙上缩略图会按横图、竖图与方图自然混排，不拉伸也不溢出木框。\n\n照片说明会随网页存档、Electron 本地存档及 .ohbackup 一起保存和迁移；今日记录中的旧照片入口已经移除。\n\n底部 Dock 保留原版布局，并优化记录、背包等按钮的像素 Hover 动效。\n\n安装说明：Windows 使用 Setup EXE；Apple 芯片 Mac 使用 arm64 DMG；Intel Mac 使用 x64 DMG。当前安装包未进行商业代码签名或 Apple 公证，首次运行可能需要在系统安全设置中确认。'
+          gh release view "v${version}" >/dev/null 2>&1 || gh release create "v${version}" --target "$GITHUB_SHA" --title "OH v${version}" --latest --notes $'修复桌面版照片板上传后显示破图、无法查看照片的问题。\n\n此前已经上传并保存在本地的照片文件不会丢失，更新后会自动恢复正常显示。\n\n安装说明：Windows 使用 Setup EXE；Apple 芯片 Mac 使用 arm64 DMG；Intel Mac 使用 x64 DMG。当前安装包未进行商业代码签名或 Apple 公证，首次运行可能需要在系统安全设置中确认。'
           gh release upload "v${version}" release-assets/* --clobber

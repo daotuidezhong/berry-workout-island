@@ -743,9 +743,9 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(schema, /category: text\("category"\)/);
   assert.match(checkins, /name === "rating"[\s\S]*ALTER TABLE checkins ADD rating INTEGER[\s\S]*ALTER TABLE checkins ADD reward INTEGER/);
   assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*user-data\.json[\s\S]*createStorage\(dataFile, \{ journalPhotosDirectory, photoBoardDirectory \}\)[\s\S]*storage:load[\s\S]*storage:save/);
-  assert.match(packageJson, /"version": "0\.9\.9"[\s\S]*"appId": "com\.berryworkout\.island\.desktop\.v2"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
+  assert.match(packageJson, /"version": "0\.9\.10"[\s\S]*"appId": "com\.berryworkout\.island\.desktop\.v2"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
   assert.match(packageJson, /"from": "desktop-dist"[\s\S]*"!game\/room-frames\{,\/\*\*\/\*\}"/);
-  assert.match(source, /RELEASE_VERSION = "0\.9\.9"[\s\S]*墙上生活照片板[\s\S]*version: "0\.9\.8"/);
+  assert.match(source, /RELEASE_VERSION = "0\.9\.10"[\s\S]*桌面版照片板上传后显示破图[\s\S]*version: "0\.9\.9"/);
   assert.match(packageJson, /"createDesktopShortcut": "always"[\s\S]*"createStartMenuShortcut": true[\s\S]*"include": "build\/installer\.nsh"/);
   const installer = await readFile(new URL("../build/installer.nsh", import.meta.url), "utf8");
   assert.match(installer, /customInstall[\s\S]*newStartMenuLink[\s\S]*SetLnkAUMI[\s\S]*newDesktopLink[\s\S]*SetLnkAUMI[\s\S]*SHChangeNotify/);
@@ -813,6 +813,7 @@ test("adds a persistent continuous photo board without changing room, yard, or w
   assert.doesNotMatch(css, /scroll-snap/);
   assert.match(css, /photo-board-slot\.deleting[\s\S]*board-photo-drop/);
   assert.match(source, /setDeletingPhotoId\(photo\.id\)[\s\S]*setTimeout\(async \(\) =>[\s\S]*current\.filter/);
+  assert.match(electronMain, /protocol\.handle\("berry"[\s\S]*url\.hostname === "photo-board"[\s\S]*photoBoardDirectory[\s\S]*const window = new BrowserWindow/);
   assert.match(electronMain, /photo-board-photos[\s\S]*photo-board:select[\s\S]*photo-board:remove/);
   assert.match(preload, /photoBoard:[\s\S]*photo-board:select[\s\S]*photo-board:remove/);
 });
